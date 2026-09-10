@@ -1,3 +1,7 @@
+-- captured before premake changes cwd during generation (e.g. into "location"),
+-- so relative-path option defaults below stay correct regardless of internal state
+INVOCATION_CWD = os.getcwd()
+
 newoption {
 	trigger	= "no-direct3d",
 	description = "Disable DirectX options in irrlicht if the DirectX SDK isn't installed"
@@ -45,6 +49,11 @@ newoption {
 	trigger = "vcpkg-root",
 	value = "path",
 	description = "Path to vcpkg installation"
+}
+newoption {
+	trigger = "irrlicht-root",
+	value = "path",
+	description = "Path to a built edo9300/irrlicht1-8-4 (1.9-custom) checkout, used on Linux instead of the system Irrlicht package"
 }
 newoption {
 	trigger = "discord",
@@ -305,7 +314,7 @@ workspace "ygo"
 		targetdir "bin/armv7/release"
 
 	filter { "system:linux", "configurations:Release" }
-		linkoptions { "-static-libgcc", "-static-libstdc++" }
+		linkoptions { "-static-libgcc", "-static-libstdc++", "-Wl,-rpath,'$$ORIGIN'" }
 
 	subproject = true
 	if not _OPTIONS["prebuilt-core"] and not _OPTIONS["no-core"] then

@@ -597,7 +597,7 @@ void CGUICustomContextMenu::recalculateSize() {
 			if(Items[i].Dim.Width > width)
 				width = Items[i].Dim.Width;
 		} else {
-			Items[i].Dim = font->getDimension(Items[i].Text);
+			Items[i].Dim = font->getDimension(Items[i].Text.c_str());
 			Items[i].Dim.Width += 40;
 
 			if(Items[i].Dim.Width > width)

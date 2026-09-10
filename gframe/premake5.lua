@@ -223,10 +223,16 @@ local ygopro_config=function(static_core)
 					_includedirs { full_vcpkg_root_path .. "/include/irrlicht" }
 			end
 		else
+			local irrlicht_root = _OPTIONS["irrlicht-root"] and path.getabsolute(_OPTIONS["irrlicht-root"], INVOCATION_CWD) or path.join(INVOCATION_CWD, "../irrlicht-custom")
 			filter { "system:not windows" }
-				_includedirs "/usr/include/irrlicht"
+				_includedirs (irrlicht_root .. "/include")
+				libdirs (irrlicht_root .. "/lib/Linux")
 		end
 	end
+
+	filter "system:linux"
+		_includedirs "/usr/include/freetype2"
+	filter {}
 
 
 	filter { "system:windows", "action:not vs*" }
