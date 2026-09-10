@@ -75,12 +75,26 @@ bool DeckManager::LoadLFListSingle(const epro::path_string& path) {
 		if (iss.fail() || code == 0)
 			continue;
 
+		// limit is used as a shift amount below; an out-of-range value from a
+		// malformed file would shift a uint32_t by >=32 bits, which is UB.
+		limit = std::clamp(limit, 0, 3);
+
 		if (!(iss >> points)) {
 			points = 0; // Points are optional
 		}
 
 		lflist.content[code] = BanlistEntry{ limit, points };
-		lflist.hash = lflist.hash ^ ((code << 18) | (code >> 14)) ^ ((code << (27 + limit)) | (code >> (5 - limit)));
+		// Points must be part of the hash: two clients that agree on every
+		// id/limit but disagree on points would otherwise hash identically
+		// and be treated as compatible, even though they disagree on what's
+		// legal to play. Points are folded in via a fixed-amount rotation
+		// (not shifted by a variable derived from points) to avoid the same
+		// UB risk the limit shift above has just been guarded against.
+		uint32_t points_mixed = code ^ (static_cast<uint32_t>(points) * 0x1000193u);
+		lflist.hash = lflist.hash
+			^ ((code << 18) | (code >> 14))
+			^ ((code << (27 + limit)) | (code >> (5 - limit)))
+			^ ((points_mixed << 7) | (points_mixed >> 25));
 	}
 
 	if (lflist.hash)
@@ -163,9 +177,14 @@ int DeckManager::CountLegends(const Deck::Vector& cards, uint32_t type) {
 	return count;
 
 }
+// Per-deck running tally of how many copies of each card have been seen so
+// far. Deliberately a plain int map, not banlist_content_t/BanlistEntry:
+// BanlistEntry::limit default-constructs to 3 (the lflist meaning "3 copies
+// allowed"), which is the wrong default for a counter that must start at 0.
+using card_count_t = std::unordered_map<uint32_t, int>;
 static DeckError CheckCards(const Deck::Vector& cards, LFList const* curlist,
 					  DuelAllowedCards allowedCards,
-					  banlist_content_t& ccount,
+					  card_count_t& ccount,
 					  std::function<DeckError(const CardDataC*)> additionalCheck = nullptr) {
 	DeckError ret{ DeckError::NONE };
 	for (const auto cit : cards) {
@@ -200,8 +219,7 @@ static DeckError CheckCards(const Deck::Vector& cards, LFList const* curlist,
 		}
 		uint32_t code = cit->alias ? cit->alias : cit->code;
 
-		ccount[code].limit++;
-		int dc = ccount[code].limit;
+		int dc = ++ccount[code];
 		if (dc > 3)
 			return ret.type = DeckError::CARDCOUNT, ret;
 		auto it = curlist->GetLimitationIterator(cit);
@@ -223,7 +241,7 @@ DeckError DeckManager::CheckDeckContent(const Deck& deck, LFList const* lflist, 
 		return ret.type = DeckError::TOOMANYLEGENDS, ret;
 	if(TypeCount(deck.main, TYPE_SKILL) > 1)
 		return ret.type = DeckError::TOOMANYSKILLS, ret;
-	banlist_content_t ccount;
+	card_count_t ccount;
 	if(!lflist)
 		return ret;
 	ret = CheckCards(deck.main, lflist, allowedCards, ccount, [&](const CardDataC* cit)->DeckError {
