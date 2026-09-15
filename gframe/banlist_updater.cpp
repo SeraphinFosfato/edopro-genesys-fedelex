@@ -162,8 +162,24 @@ void BanlistUpdater::CheckTask() {
 	// next startup — so a fresh install that loses network right after this
 	// first successful fetch still finds an active list on its very next
 	// launch instead of needing to reach the endpoint a second time.
-	if(had_no_active_list)
+	if(had_no_active_list) {
 		PromoteStaged();
+		// PromoteStaged() only touches disk — it has no reason to know
+		// about staged_ready/staged_payload/active_payload, since at every
+		// OTHER call site (startup, before LoadActiveInto) those members
+		// are not what's being decided. Here they are: without this, a
+		// fresh install would leave staged_ready true and active_payload
+		// stuck at its format_version-0 default for the rest of the
+		// session, so HasStagedUpdate() would lie to the FASE 4c
+		// notification (nothing is pending — it just got applied) and
+		// ComputeDiff(ActivePayload(), StagedPayload()) would compare
+		// against an empty list, making every single entry read as "New"
+		// instead of showing nothing, which is what a fresh install with
+		// no real predecessor to diff against should show.
+		active_payload = staged_payload;
+		staged_payload = banlist::Payload{};
+		staged_ready = false;
+	}
 }
 
 bool BanlistUpdater::PromoteStaged() {
