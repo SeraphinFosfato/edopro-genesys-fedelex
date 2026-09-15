@@ -56,6 +56,15 @@ Ciò che invece è protetto:
 
 La chiave **pubblica** è compilata nel client. Va bene: è pubblica per definizione.
 
+## Dove vive il design
+
+`design/banlist-distribution.md` è **l'unica copia** del contratto del client
+sulla banlist firmata. Non esiste una versione "completa" altrove da tenere
+allineata: se una modifica sembra richiedere di aggiornare anche un'altra
+copia, è un errore, non un passo da fare. I valori non si ricopiano nel
+documento: le chiavi stanno in `gframe/banlist_keys.h`, i casi di test in
+`tests/banlist_tests.cpp`.
+
 ## Onestà sui deterrenti
 
 Ogni controllo compilato in un binario distribuito è aggirabile con un patch. I

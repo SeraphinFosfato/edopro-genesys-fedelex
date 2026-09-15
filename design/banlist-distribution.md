@@ -1,138 +1,276 @@
-# Distribuzione della banlist firmata — spec
+# Distribuzione della banlist firmata — spec del client
 
-> Questo file vive in un repo pubblico (AGPLv3): copre solo fetch/verifica
-> della firma della banlist. Non descrive meccanismi di accesso, revoca o
-> controllo account — quelli restano nel vault privato, mai qui.
+> Questo file vive in un repo pubblico (AGPLv3). Copre fetch, verifica,
+> applicazione e presentazione della banlist firmata. Non descrive meccanismi
+> di accesso, revoca o controllo account: quelli restano privati, e non si
+> riassumono qui (vedi `CLAUDE.md`).
 
-Fissa il contratto prima del codice, perché tocca la superficie di sicurezza
-del client (vedi "Modello di fiducia" in `CLAUDE.md`). Formalizza la tabella
-già presente lì.
+## Dove vive cosa
 
-## Stato
+Questo documento è **l'unica copia** del contratto del client per la banlist
+firmata. Non esiste una versione "completa" da tenere allineata altrove: se
+una modifica sembra richiedere di aggiornare anche un'altra copia, non c'è
+un'altra copia — c'è un errore da fermare.
 
-Il contratto è chiuso. La verifica usa **Ed25519 vendorato** (TweetNaCl), non
-libsodium: una vecchia stesura di questo documento proponeva libsodium via
-vcpkg, ma il percorso di build Linux evita vcpkg di proposito e la dipendenza
-andrebbe fatta arrivare su cinque configurazioni diverse. Due file di pubblico
-dominio compilano ovunque.
+Tre cose, di proposito, non sono scritte qui ma nei file che le contengono:
 
-## Cosa scorre da dove (riferimento a `PROJECT-MAP.md`)
+- **le chiavi pubbliche** → `gframe/banlist_keys.h`;
+- **i casi di test della verifica** → `tests/banlist_tests.cpp`, fixture
+  descritti in `tests/fixtures/README.md`;
+- **cartelle, nomi file, firme delle funzioni** → `gframe/banlist_updater.h`
+  e `gframe/banlist_verify.h`, i cui commenti sono requisiti.
+
+Un dato ricopiato in un documento diventa un secondo dato. Qui si scrive il
+*perché* e il comportamento; il *valore* sta nel codice.
+
+## Cosa scorre da dove
 
 ```
-vault-banlist (privato) → GitHub Action firma Ed25519 → banlist-dist (pubblico, JSON + chiave pubblica)
-                                                                │
-                                                     HTTPS GET, client verifica qui
-                                                                ▼
-                                                        fork-edopro (questo repo)
+publisher (privato) → firma Ed25519 → canale statico pubblico (banlist.json + .sig)
+                                                  │
+                                       HTTPS GET, il client verifica qui
+                                                  ▼
+                                          fork-edopro (questo repo)
 ```
 
 Il client non genera né possiede mai una chiave privata. Possiede solo le due
-chiavi **pubbliche**, compilate nel binario (va bene: sono pubbliche per
-definizione — vedi "Onestà sui deterrenti" nel `CLAUDE.md`).
+chiavi **pubbliche**, compilate nel binario: sono pubbliche per definizione
+(vedi "Onestà sui deterrenti" in `CLAUDE.md`).
 
 ## Cosa viaggia
 
-**Due file**, su HTTPS, non uno:
+**Due file**, su HTTPS, dall'endpoint pubblico:
 
 ```
 banlist.json        l'artefatto
 banlist.json.sig    firma Ed25519 detached, 64 byte grezzi, sui byte esatti di banlist.json
 ```
 
-La firma è **staccata**, e non è un dettaglio di comodo: è ciò che permette di
+La firma è **staccata**, e non per comodità: è ciò che permette di
 **verificare prima di parsare**. Con la firma dentro il JSON bisognerebbe
-parsare per estrarla — cioè dare in pasto a `nlohmann/json` un input non
-ancora autenticato per poter decidere se autenticarlo. Una vecchia stesura di
-questo documento mostrava proprio quella forma: era sbagliata.
+parsare per estrarla, cioè dare in pasto a `nlohmann/json` un input non ancora
+autenticato per decidere se autenticarlo. Una vecchia stesura di questo
+documento mostrava proprio quella forma: era sbagliata.
 
-L'artefatto è generato dal vault e mai editato a mano. Ogni `entry` porta
-`id`, `limit` (0..3, sempre presente, mai sottinteso), `points`, `name`,
-`macro`, `source`, e `reason` **solo quando esiste** — assente, non `null` e
-non stringa vuota, così il client non ha bisogno di nessuna convenzione
-implicita per distinguere "nessuna motivazione" da "motivazione vuota".
-`format_version` è un **intero monotono**; un valore che non è un intero è
-payload malformato e si rifiuta come una firma non valida.
+Niente git sul client. La cronologia delle release sta nel repo pubblico
+dell'artefatto, ma il client non ha bisogno di clonarlo per scaricare due
+file, e git non aggiungerebbe sicurezza: **autentica il server via TLS, non
+il contenuto**. Ciò che protegge l'autorità sul formato è la firma, identica
+con o senza git.
 
-`limit` e `points` sono due assi indipendenti: una carta può valere 100 punti
-ed essere comunque bannata. A leggerli, vince `limit`.
+Ogni `entry` porta `id`, `limit` (0..3, sempre presente, mai sottinteso),
+`points`, `name`, `macro`, `source`, e `reason` **solo quando esiste** —
+assente, non `null` e non stringa vuota. `limit` e `points` sono due assi
+indipendenti: una carta può valere 100 punti ed essere comunque bannata, e a
+leggerli **vince `limit`**.
 
-## I cinque casi (dalla tabella nel `CLAUDE.md`, qui con cosa fare)
+## Accettazione: firma, versione, schema
 
-| Caso | Comportamento | Dove |
-|---|---|---|
-| Firma valida, `format_version` **maggiore** | Accetta, mette in staging (si applica al riavvio) | verifica prima di toccare qualunque file su disco |
-| Firma valida, `format_version` **uguale** | Nessuna azione, nessuna notifica | non è un aggiornamento, non va annunciato come tale |
-| Firma non valida o assente | Rifiuta, tiene la lista attiva, logga (senza bloccare l'avvio) | mai scrivere un payload non verificato su disco |
-| `format_version` < locale | Rifiuta come tentativo di downgrade, logga | confronto fatto solo *dopo* che la firma è valida — non prima, altrimenti un payload non firmato potrebbe sondare la versione locale |
-| Endpoint irraggiungibile | Usa la lista attiva, nessun allarme al primo fallimento | non bloccare l'avvio del client in attesa della rete |
-| Lista attiva scaduta ed endpoint giù | Avvisa in modo discreto e persistente, si continua a giocare | `expires_at` è **sempre e solo** un avviso: non impedisce mai una partita |
+Il client accetta una firma valida per **qualunque** chiave di
+`TRUSTED_KEYS` (due: operativa e riserva). Senza la seconda, perdere o
+compromettere la chiave privata significherebbe far reinstallare il client a
+tutti; con la seconda, ruotare è una release della lista, non del client.
 
-## Il ciclo di vita: staging, non sovrascrittura
+`format_version` è un **intero monotono**. Il confronto con la lista attiva
+avviene **solo dopo** che la firma è valida: prima, un payload non firmato
+potrebbe sondare la versione locale.
+
+| Caso | Comportamento |
+|---|---|
+| Firma valida, versione **maggiore** | Accetta, mette in staging (si applica al riavvio) |
+| Firma valida, versione **uguale** | Nessuna azione, nessuna notifica: non è un aggiornamento |
+| Firma non valida o assente | Rifiuta, tiene l'attiva, logga. **Non scrive nulla su disco** |
+| Versione **minore** | Rifiuta come tentativo di downgrade, logga |
+| Firma valida, schema violato | Rifiuta come una firma non valida |
+| Endpoint irraggiungibile | Tiene l'attiva, nessun allarme, l'avvio non aspetta la rete |
+| Attiva scaduta ed endpoint giù | Avviso discreto e persistente, si continua a giocare |
+
+Schema violato, cioè payload firmato ma non quello contrattato:
+`format_version` non intero, `macro` fuori dall'enumerazione chiusa dei dieci
+valori, `id` duplicato, `limit` fuori da 0..3. `reason` presente ma vuota non
+equivale a `reason` assente.
+
+**Nessun confronto a segmenti.** Se un giorno servisse uno schema
+incompatibile, la risposta è un **secondo endpoint** (`banlist-v2.json`): un
+client vecchio non lo chiede mai, quindi non può nemmeno provare a leggerlo
+male.
+
+## Ciclo di vita: staging, non sovrascrittura
 
 Il punto delicato è **quando** una lista nuova diventa attiva. Non durante la
 sessione: cambiare le regole a chi sta costruendo un mazzo — o peggio, a chi
 sta duellando — non è accettabile.
 
 ```
-avvio N    ─►  promuovi l'eventuale staged  ─►  DeckManager::LoadLFList()
+avvio N    ─►  promuovi l'eventuale staged  ─►  carica l'attiva  ─►  DeckManager::LoadLFList()
    │
    └─ (dopo l'avvio, thread separato)  fetch → verifica → anti-rollback → staging
                                                                             │
 avvio N+1  ─►  promuovi staged  ──────────────────────────────────────────◄─┘
 ```
 
-Tre regole che discendono da qui:
+**Un controllo per avvio**, su thread separato. Nessun controllo periodico
+durante la sessione: la lista si applica comunque al riavvio, e scaricarla
+prima non anticipa di un minuto il momento in cui diventa attiva.
+
+Quattro regole che discendono da qui:
 
 1. **La lista in chiaro non viene mai scritta su disco.** Il client costruisce
    la `LFList` in memoria dal JSON verificato. Un `.conf` su disco è
-   modificabile a mano e oggi il client se lo mangerebbe senza accorgersene:
-   chi si ritocca i punti si ritroverebbe con un hash che non ha nessun altro
-   e un messaggio d'errore incomprensibile. Su disco resta solo il payload
+   modificabile a mano e il client se lo mangerebbe senza accorgersene: chi si
+   ritocca i punti si ritroverebbe con un hash che non ha nessun altro e un
+   messaggio d'errore incomprensibile. Su disco resta solo il payload
    **firmato**, che alterato di un byte diventa inservibile alla verifica.
-2. **La promozione è ordinata, non sperata.** Lo staged si cancella **solo
-   dopo** che la coppia promossa ha verificato a sua volta. Un crash a metà
-   lascia lo staged intatto e la promozione si ripete al riavvio successivo:
-   non esiste una finestra in cui l'attiva è un JSON nuovo con una firma
-   vecchia.
-3. **Eccezione alla regola "si applica al riavvio": la prima installazione.**
+2. **La promozione è sicura per ordine, non per speranza.** Attiva e staged
+   sono due file ciascuna, e nessun `rename` ne sposta due insieme: un crash
+   fra i due lascerebbe un JSON nuovo con una firma vecchia. Per questo lo
+   staged si cancella **solo dopo** che la coppia promossa ha verificato a sua
+   volta. Un crash in qualunque punto lascia lo staged intatto e la promozione
+   si ripete al riavvio: l'operazione è idempotente.
+3. **Nessuna sostituzione passa da `Utils::FileMove`.** Su Windows è un
+   `MoveFile` nudo, che fallisce quando la destinazione esiste — cioè sempre,
+   dalla seconda promozione in poi.
+4. **Eccezione alla regola "si applica al riavvio": la prima installazione.**
    Se non c'è nessuna lista attiva, lo staged si promuove subito — non c'è
    nessuna sessione da disturbare, e l'alternativa è un client appena
    installato che gioca la sua prima sessione senza formato.
 
-## Punti di innesto nel codice esistente
+## L'hash della lista e la sincronizzazione
+
+Fra due client viaggia **solo l'hash** della lista. Il formato cambia quasi
+sempre **solo i punteggi**: se i punti non entrassero nell'hash, due giocatori
+con versioni diverse si considererebbero compatibili ed entrerebbero nella
+stessa stanza senza essere d'accordo su quali mazzi siano legali — un
+disaccordo silenzioso che salta fuori come lite a metà torneo. I punti
+**entrano** nell'hash, nella forma XOR che rende il risultato indipendente
+dall'ordine di lettura.
+
+**L'hash si calcola in un posto solo**: `FoldLFListEntry` in
+`gframe/lflist_hash.h`. Una lista può nascere da un `.conf` o dal JSON
+firmato; se le due strade piegassero le voci in modo diverso, la stessa lista
+avrebbe due hash a seconda della provenienza, e due giocatori con la stessa
+identica banlist si rifiuterebbero a vicenda. Il clamp di `limit` a 0..3 sta
+dentro quella funzione, dove avviene lo shift che altrimenti sarebbe
+undefined behavior, così nessun chiamante può dimenticarlo.
+
+**Il requisito è hash uguale fra i due giocatori, non "tutti all'ultima
+versione".** Chi non aggiorna non trova nessuno con cui giocare e si allinea
+da sé: la rete converge sull'ultima versione senza che nessuna infrastruttura
+debba restare in piedi perché il formato funzioni. Pretendere l'ultima
+versione richiederebbe un fetch riuscito a ogni avvio, cioè un endpoint il cui
+guasto ferma il formato per tutti.
+
+**Hash che non combacia entrando in una stanza: rifiuto con spiegazione, mai
+aggiornamento a caldo.** Aggiornarsi sul momento reintrodurrebbe le regole che
+cambiano sotto un giocatore, proprio sulla porta di una partita. Il messaggio
+dice il *perché* (la tua lista è diversa da quella dell'altro) e il *cosa
+fare* (un riavvio la allinea, se l'aggiornamento è già stato scaricato), non
+un codice d'errore.
+
+**La lista firmata porta la versione nel nome visibile**
+(`GSY Custom v<format_version>`). Quando la lobby non conosce l'hash di una
+stanza scrive `???`; la versione nel nome non entra nell'hash e non costa
+niente, e permette al giocatore rifiutato di **vedere scritto** quale lista ha
+in mano.
+
+## Modalità degradata
+
+`expires_at` è **sempre e solo un avviso**. Una lista scaduta con endpoint
+irraggiungibile produce un avviso persistente ma discreto — il giocatore sa di
+avere una lista vecchia — e il client continua a funzionare. Il fallimento da
+evitare è il client che si rifiuta di partire perché l'hosting è giù.
+
+## Il diff
+
+Calcolato **sul client**, fra la lista attiva e quella in staging, per `id`.
+Non viene scaricato né mantenuto a mano da nessuna parte.
+
+Il motivo per cui è client-side e non un changelog pubblicato: se un giocatore
+salta tre release, il diff calcolato localmente è **esattamente giusto**,
+mentre concatenare tre changelog gli mostrerebbe cambiamenti che si sono
+annullati a vicenda. Gli serve il *netto*.
+
+Quattro gruppi, in quest'ordine — l'ordine in cui interessano a chi gioca:
+
+| Gruppo | Significato per chi gioca |
+|---|---|
+| **Più care** | `points` salito. Il mazzo che gioco potrebbe non stare più nel budget |
+| **Più economiche** | `points` sceso. Si apre uno slot |
+| **Nuove in lista** | Prima erano gratis, ora costano |
+| **Uscite dalla lista** | Non costano più niente |
+
+Un cambio di `limit` è un cambiamento anche a punti invariati, e va mostrato:
+passare da 3 copie a bannata conta più di qualunque swing di punti.
+
+Dentro ogni gruppo, ordinamento per **entità del cambiamento**, decrescente:
+uno swing di 50 punti conta più di uno da 3. Lista troncata a ~15 voci con
+"e altre N": una release grossa muove centinaia di carte, e una lista
+infinita non la legge nessuno.
+
+Per ogni voce: nome, `vecchio → nuovo`, e la riga di `reason` **se il JSON la
+porta**. Se manca, si mostrano solo i numeri: il client non inventa mai un
+perché.
+
+## La notifica
+
+Mostrata **quando lo staging è pronto**, non all'avvio successivo: il
+giocatore deve poterla leggere quando arriva, non ritrovarsela dopo un riavvio
+che magari fa fra tre giorni.
+
+- Dice esplicitamente che **si applica al prossimo avvio**, e offre di
+  riavviare subito.
+- Ha uno stato "già vista" persistente per `format_version`, così non
+  ricompare a ogni lancio.
+- Il diff completo resta consultabile dopo averla chiusa: una voce nel menù,
+  non solo un popup che se lo perdi è perso.
+
+## Punti di innesto nel codice
 
 Pattern da riusare, non da reinventare:
 
-- **Fetch HTTP**: `gframe/curl.h` incapsula già libcurl con i fix di
-  compatibilità versione-per-versione del progetto. Il fetch della banlist
-  passa da lì, non da una nuova dipendenza HTTP.
-- **Schema fetch-con-progresso**: `gframe/repo_manager.cpp` mostra già il
-  pattern (fetch asincrono, fallimento di rete che non blocca la UI) anche se
-  lì il trasporto è libgit2, non curl — la forma del componente è quella.
-- **Parsing JSON**: **`nlohmann/json`**, già dipendenza (`repo_manager.h`,
-  `game_config.h`). *Non* rapidjson, che una vecchia stesura di questo
-  documento citava per errore.
-- **Consumo della banlist**: `DeckManager::LoadLFList()` (chiamato da
-  `data_handler.cpp:164`). La promozione avviene **subito prima** di questa
-  chiamata; la lista viene poi costruita in memoria, non rileggendo un file.
-- **Hash della lista**: `gframe/lflist_hash.h`. Esiste in un posto solo perché
-  una lista può arrivare da un `.conf` o dal JSON firmato, e se i due percorsi
-  piegassero le voci in modo diverso la stessa lista avrebbe due hash a
-  seconda della provenienza.
+| Cosa | Dove | Nota |
+|---|---|---|
+| Fetch HTTP | `gframe/curl.h` | wrapper libcurl già presente, con i fix di compatibilità versione per versione. Nessuna nuova dipendenza HTTP |
+| Forma del componente | `gframe/repo_manager.cpp` | fetch asincrono, fallimento di rete che non blocca la UI. Lì il trasporto è libgit2, ma la forma è quella |
+| Parsing JSON | `nlohmann/json` | già dipendenza. *Non* rapidjson, che una vecchia stesura citava per errore |
+| Hash | `gframe/lflist_hash.h` | l'unico punto in cui una voce entra nell'hash |
+| Lettura `.conf` | `DeckManager::LoadLFListSingle` | non si tocca, salvo passare da `FoldLFListEntry` |
+| Innesto all'avvio | `data_handler.cpp`, subito prima di `LoadLFList()` | vedi ordine sotto |
+
+L'ordine all'avvio non è negoziabile: **promozione dello staged → caricamento
+dell'attiva in memoria → `LoadLFList()` → controllo in background**. Il
+caricamento dell'attiva riempie la versione contro cui l'anti-rollback
+confronta quella scaricata: se il controllo partisse prima, il confronto
+avverrebbe contro zero e qualunque payload firmato passerebbe come "più
+recente".
 
 ## Crypto
 
 Ed25519 **vendorato** (TweetNaCl, pubblico dominio), non libsodium: il
-progetto compila per Windows, Linux, macOS, Android e iOS, e il percorso Linux
-evita deliberatamente vcpkg. Due file vendorati compilano ovunque senza
-chiedere niente a nessuno, e la licenza è compatibile con AGPL. Si verifica
-una firma per avvio: le prestazioni non sono un criterio.
+progetto compila per Windows, Linux, macOS, Android e iOS, e il percorso di
+build Linux evita deliberatamente vcpkg. Due file vendorati compilano ovunque
+senza chiedere niente a nessuno, e la licenza è compatibile con AGPL. Si
+verifica una firma per avvio: le prestazioni non sono un criterio.
 
-Le chiavi fidate sono **due** (`gframe/banlist_keys.h`), operativa e di
-riserva, e una firma valida per **qualunque** delle due è accettata. Senza la
-seconda, perdere o compromettere la chiave privata significherebbe far
-reinstallare il client a tutti; con la seconda, ruotare è una release del
-vault e non del client.
+La verifica (`banlist_verify.{h,cpp}`) **non include niente di `gframe`**:
+niente irrlicht, niente curl, niente globali. È ciò che la rende linkabile in
+un binario di test senza rete, finestra né gioco. Il workspace di test
+(`tests/premake5.lua`) è separato dal premake di root perché quel file è
+condiviso con l'upstream, e ogni riga aggiunta lì è un conflitto al rebase.
+
+## Test
+
+- **Verifica, anti-rollback, staging, hash**: i casi sono dichiarati in
+  `tests/banlist_tests.cpp` e non si ricopiano qui. Fra i fixture c'è
+  l'artefatto **vero** pubblicato, firmato dalla chiave operativa: è l'unico
+  test che si accorge di una divergenza fra ciò che si firma e ciò che il
+  client accetta.
+- **Diff e notifica**, da aggiungere quando si implementano:
+  - salto di più versioni → il diff mostra il netto, non la somma;
+  - carta bannata a punti invariati → compare nel diff;
+  - release che muove più voci del tetto → troncatura con "e altre N";
+  - voce senza `reason` → solo i numeri, nessun testo inventato;
+  - notifica già vista per quel `format_version` → non ricompare.
 
 ## Onestà sui limiti
 
@@ -144,6 +282,6 @@ lista rende visibile chi si è tirato fuori dal formato.
 
 ## Cosa resta aperto
 
-- UI per lo stato "modalità degradata" e per la notifica di aggiornamento
-  (dove e come avvisare) — non disegnata.
+- Dove stanno a schermo l'avviso di modalità degradata e la voce di menù del
+  diff: si sceglie implementando la notifica.
 - Porting Android del modulo (fase a sé).

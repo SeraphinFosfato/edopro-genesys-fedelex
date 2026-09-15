@@ -11,7 +11,7 @@
 //
 // Two keys, not one, is what makes rotation a release of the vault instead of
 // a reinstall for every player: a signature valid under ANY entry of this
-// array is accepted (see design/fork-edopro/banlist-distribution.md §2).
+// array is accepted (see design/banlist-distribution.md, "Accettazione").
 
 namespace ygo::banlist {
 
