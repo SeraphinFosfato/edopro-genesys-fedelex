@@ -242,10 +242,47 @@ bool DeckBuilder::OnEvent(const irr::SEvent& event) {
 				// session (banlist_updater.h), so this is always the exact
 				// diff the pending notification (if any) was about — "il
 				// diff completo resta consultabile dopo averla chiusa".
-				banlist::Diff diff;
-				if(gBanlistUpdater && gBanlistUpdater->HasStagedUpdate())
-					diff = banlist::ComputeDiff(gBanlistUpdater->ActivePayload(), gBanlistUpdater->StagedPayload());
-				mainGame->stBanlistDiff->setText(FormatBanlistDiff(diff).data());
+				//
+				// Which pair to show (FASE 4e, point 4) is decided by the
+				// pure ChooseDiffComparison: staged ready -> attiva/staging,
+				// otherwise the saved .previous/ pair if there is one,
+				// otherwise nothing to compare against yet (fresh install).
+				const int active_version = gBanlistUpdater ? gBanlistUpdater->ActivePayload().format_version : 0;
+				banlist::Payload previous;
+				const bool has_staged = gBanlistUpdater && gBanlistUpdater->HasStagedUpdate();
+				const bool has_previous = !has_staged && gBanlistUpdater && gBanlistUpdater->LoadPreviousPayload(previous);
+
+				std::wstring title;
+				std::wstring body;
+				switch(banlist::ChooseDiffComparison(has_staged, has_previous)) {
+				case banlist::DiffComparison::ActiveVsStaged: {
+					const auto& staged = gBanlistUpdater->StagedPayload();
+					const auto diff = banlist::ComputeDiff(gBanlistUpdater->ActivePayload(), staged);
+					title = epro::format(L"Modifiche alla point list — v{} → v{} (in arrivo)",
+										 active_version, staged.format_version);
+					body = FormatBanlistDiff(diff);
+					break;
+				}
+				case banlist::DiffComparison::PreviousVsActive: {
+					const auto diff = banlist::ComputeDiff(previous, gBanlistUpdater->ActivePayload());
+					title = epro::format(L"Modifiche alla point list — v{} → v{}",
+										 previous.format_version, active_version);
+					body = FormatBanlistDiff(diff);
+					break;
+				}
+				case banlist::DiffComparison::NoPreviousAvailable: {
+					title = epro::format(L"Modifiche alla point list — v{}", active_version);
+					// Not "Nessuna modifica in sospeso" (FormatBanlistDiff's
+					// text for an empty-but-real diff): there is no previous
+					// version to compare against at all, and the design doc
+					// is explicit that this case must say so rather than
+					// silently comparing against an empty list.
+					body = L"Nessuna versione precedente disponibile (prima installazione).";
+					break;
+				}
+				}
+				mainGame->wBanlistDiff->setText(title.data());
+				mainGame->stBanlistDiff->setText(body.data());
 				mainGame->SetCentered(mainGame->wBanlistDiff);
 				mainGame->PopupElement(mainGame->wBanlistDiff);
 				break;

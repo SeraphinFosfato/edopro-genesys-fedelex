@@ -155,4 +155,12 @@ bool ShouldNotifyForUpdate(int staged_format_version, int last_seen_format_versi
 	return staged_format_version > last_seen_format_version;
 }
 
+DiffComparison ChooseDiffComparison(bool has_staged, bool has_previous) {
+	if(has_staged)
+		return DiffComparison::ActiveVsStaged;
+	if(has_previous)
+		return DiffComparison::PreviousVsActive;
+	return DiffComparison::NoPreviousAvailable;
+}
+
 }

@@ -166,7 +166,13 @@ namespace ygo {
 
 		static void SystemOpen(epro::path_stringview arg, OpenType type);
 
-		static void Reboot();
+		// show_changelog controls whether the relaunched process gets the
+		// -l flag (CHANGELOG): right for the real client updater, wrong for
+		// the banlist-update restart, which has nothing to do with an
+		// EDOPro release and would pop an unrelated window over it (FASE
+		// 4e). Defaults to the pre-existing behaviour so every other call
+		// site is unaffected.
+		static void Reboot(bool show_changelog = true);
 
 		static std::wstring ReadPuzzleMessage(epro::wstringview script_name);
 

@@ -597,7 +597,10 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 					// appeared (game.cpp), not here, so a crash or a kill
 					// between this click and the actual restart still
 					// leaves the notification correctly dismissed.
-					Utils::Reboot();
+					// show_changelog=false (FASE 4e): this restart is about
+					// the banlist, not an EDOPro release — the changelog
+					// window has nothing to do with it.
+					Utils::Reboot(false);
 					break;
 				}
 				}

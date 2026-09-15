@@ -76,6 +76,22 @@ Diff ComputeDiff(const Payload& active, const Payload& staged, size_t truncate_a
 // gate, so the rule itself has a test that does not need a config file.
 bool ShouldNotifyForUpdate(int staged_format_version, int last_seen_format_version);
 
+// Which pair the "Novità" window (FASE 4e, point 4) compares, given only
+// whether a staged update and a saved previous pair exist. Pure on purpose,
+// same reason as CompareVersion in banlist_verify.h: the choice is worth a
+// test that needs no disk, no GUI, and no BanlistUpdater instance. The
+// caller resolves has_staged/has_previous (HasStagedUpdate(),
+// LoadPreviousPayload()) and picks the actual Payloads to diff and the
+// version numbers to put in the title; this function only picks which case
+// it is.
+enum class DiffComparison {
+	ActiveVsStaged,      // staging ready: "attiva → in arrivo"
+	PreviousVsActive,     // no staging, a previous exists: "precedente → attiva"
+	NoPreviousAvailable, // no staging, nothing saved yet (fresh install)
+};
+
+DiffComparison ChooseDiffComparison(bool has_staged, bool has_previous);
+
 }
 
 #endif //BANLIST_DIFF_H

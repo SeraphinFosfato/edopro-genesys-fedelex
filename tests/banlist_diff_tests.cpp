@@ -143,6 +143,23 @@ void test_already_seen_notification_for_that_format_version_does_not_reappear() 
 	check(banlist::ShouldNotifyForUpdate(8, 7), "a newer staged version than the last one seen must notify");
 }
 
+void test_choose_diff_comparison_picks_the_right_pair() {
+	// FASE 4e, point 4: "con staging pronto, attiva → staging; altrimenti
+	// precedente → attiva" — and a fresh install (neither) must say so
+	// rather than silently diffing against an empty payload. Staged always
+	// wins over a saved previous when both happen to exist, since it is the
+	// more useful thing to show ("cosa sta per cambiare" beats "cosa è già
+	// cambiato").
+	check(banlist::ChooseDiffComparison(true, false) == banlist::DiffComparison::ActiveVsStaged,
+		 "staged ready, no previous: must compare active vs staged");
+	check(banlist::ChooseDiffComparison(true, true) == banlist::DiffComparison::ActiveVsStaged,
+		 "staged ready even with a previous available: staged still wins");
+	check(banlist::ChooseDiffComparison(false, true) == banlist::DiffComparison::PreviousVsActive,
+		 "no staging, a previous exists: must compare previous vs active");
+	check(banlist::ChooseDiffComparison(false, false) == banlist::DiffComparison::NoPreviousAvailable,
+		 "no staging and no previous (fresh install): must not invent a comparison");
+}
+
 }
 
 int RunBanlistDiffTests() {
@@ -151,6 +168,7 @@ int RunBanlistDiffTests() {
 	test_release_moving_more_entries_than_the_cap_is_truncated();
 	test_entry_without_reason_shows_only_numbers();
 	test_already_seen_notification_for_that_format_version_does_not_reappear();
+	test_choose_diff_comparison_picks_the_right_pair();
 
 	std::printf("banlist_diff_tests: %d checks, %d failures\n", checks, failures);
 	return failures;

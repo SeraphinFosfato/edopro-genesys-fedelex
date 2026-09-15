@@ -207,6 +207,23 @@ bool BanlistUpdater::PromoteStaged() {
 
 	const auto active_payload_path = JoinPath(ACTIVE_FOLDER, PAYLOAD_NAME);
 	const auto active_signature_path = JoinPath(ACTIVE_FOLDER, SIGNATURE_NAME);
+
+	// Preserve the outgoing active pair into PREVIOUS_FOLDER before it is
+	// overwritten below (FASE 4e) — the last thing the "Novità" window can
+	// still diff against after this promotion applies. Skipped when there is
+	// no active pair yet (fresh install: nothing outgoing to keep). A failed
+	// read or write here does not fail the promotion itself: losing the
+	// previous-version diff is a display regression, not a format-integrity
+	// one, and the promotion below still has to happen either way.
+	if(Utils::FileExists(active_payload_path) && Utils::FileExists(active_signature_path)) {
+		std::string outgoing_document, outgoing_signature;
+		if(ReadFileToString(active_payload_path, outgoing_document) &&
+		   ReadFileToString(active_signature_path, outgoing_signature)) {
+			AtomicWrite(JoinPath(PREVIOUS_FOLDER, PAYLOAD_NAME), outgoing_document);
+			AtomicWrite(JoinPath(PREVIOUS_FOLDER, SIGNATURE_NAME), outgoing_signature);
+		}
+	}
+
 	// Fresh copies into ACTIVE_FOLDER through AtomicWrite's own tmp+rename —
 	// never a rename of the staged files themselves. That is what makes "a
 	// crash at any point leaves staged intact" true by construction: nothing
@@ -253,7 +270,7 @@ bool BanlistUpdater::LoadActiveInto(DeckManager& deckManager) {
 	}
 
 	LFList lflist;
-	lflist.listName = LIST_NAME_PREFIX + std::to_wstring(payload.format_version);
+	lflist.listName = LIST_NAME;
 	lflist.hash = LFLIST_HASH_SEED;
 	lflist.whitelist = false;
 	for(const auto& entry : payload.entries) {
@@ -268,6 +285,22 @@ bool BanlistUpdater::LoadActiveInto(DeckManager& deckManager) {
 	// Fills the version CheckTask's anti-rollback compares the fetched one
 	// against — which is why this has to run before StartCheck().
 	active_payload = std::move(payload);
+	return true;
+}
+
+bool BanlistUpdater::LoadPreviousPayload(banlist::Payload& out) const {
+	const auto previous_payload_path = JoinPath(PREVIOUS_FOLDER, PAYLOAD_NAME);
+	const auto previous_signature_path = JoinPath(PREVIOUS_FOLDER, SIGNATURE_NAME);
+
+	std::string document, signature;
+	if(!ReadFileToString(previous_payload_path, document) || !ReadFileToString(previous_signature_path, signature))
+		return false; // no previous pair on disk: nothing to show, not an error
+
+	std::string error;
+	if(banlist::VerifyAndParse(document, signature, out, error) != banlist::VerifyStatus::Ok) {
+		ErrorLog("Previous banlist failed to verify, no comparison shown: {}", error);
+		return false;
+	}
 	return true;
 }
 

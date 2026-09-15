@@ -848,13 +848,15 @@ namespace ygo {
 #endif
 	}
 
-	void Utils::Reboot() {
+	void Utils::Reboot(bool show_changelog) {
 #if EDOPRO_WINDOWS || EDOPRO_LINUX || EDOPRO_MACOS
 		const auto& path = GetExePath();
 #if EDOPRO_WINDOWS
 		STARTUPINFO si{ sizeof(si) };
 		PROCESS_INFORMATION pi{};
-		auto command = epro::format(EPRO_TEXT("{} -C \"{}\" -l"), GetFileName(path, true), GetWorkingDirectory());
+		auto command = show_changelog
+			? epro::format(EPRO_TEXT("{} -C \"{}\" -l"), GetFileName(path, true), GetWorkingDirectory())
+			: epro::format(EPRO_TEXT("{} -C \"{}\""), GetFileName(path, true), GetWorkingDirectory());
 		if(!CreateProcess(path.data(), &command[0], nullptr, nullptr, false, 0, nullptr, nullptr, &si, &pi))
 			return;
 		CloseHandle(pi.hProcess);
@@ -872,9 +874,15 @@ namespace ygo {
 			auto pid = vfork();
 			if(pid == 0) {
 #if EDOPRO_LINUX
-				execl(path_cstr, path_cstr, "-C", workdir_cstr, "-l", nullptr);
+				if(show_changelog)
+					execl(path_cstr, path_cstr, "-C", workdir_cstr, "-l", nullptr);
+				else
+					execl(path_cstr, path_cstr, "-C", workdir_cstr, nullptr);
 #else
-				execlp("open", "open", "-b", "io.github.edo9300.ygoprodll", "--args", "-C", workdir_cstr, "-l", nullptr);
+				if(show_changelog)
+					execlp("open", "open", "-b", "io.github.edo9300.ygoprodll", "--args", "-C", workdir_cstr, "-l", nullptr);
+				else
+					execlp("open", "open", "-b", "io.github.edo9300.ygoprodll", "--args", "-C", workdir_cstr, nullptr);
 #endif
 				_exit(EXIT_FAILURE);
 			}

@@ -33,13 +33,20 @@ public:
 	static constexpr auto PAYLOAD_NAME = EPRO_TEXT("banlist.json");
 	static constexpr auto SIGNATURE_NAME = EPRO_TEXT("banlist.json.sig");
 
-	// The name the list carries in the UI. Only the HASH travels between
-	// clients: server_lobby.cpp resolves a room's list by matching that hash
-	// against the local lists and falls back to "???" when it knows none with
-	// that hash. So carrying the version in the visible name costs nothing and
-	// buys the one thing a player needs when a room is refused — being able to
-	// see, in words, that their list is not the other one's.
-	static constexpr auto LIST_NAME_PREFIX = L"GSY Custom v";
+	// The name the list carries in the UI. Fixed, no version (D77): only the
+	// HASH travels between clients (server_lobby.cpp resolves a room's list
+	// by matching that hash against the local lists), so the name never
+	// affects compatibility either way. The version stays visible where a
+	// player actually needs it — the "Novità" window title — instead of
+	// being baked into a name nobody reads character by character.
+	static constexpr auto LIST_NAME = L"Fedelex della Luce";
+
+	// Where the outgoing active pair lands right before a promotion
+	// overwrites it (FASE 4e, D77/D82), so the "Novità" window still has
+	// something to diff against after the restart that applies the
+	// promotion. Same on-disk shape as ACTIVE_FOLDER/STAGED_FOLDER: hidden,
+	// never picked up by LoadLFListFolder, re-verified before use.
+	static constexpr auto PREVIOUS_FOLDER = EPRO_TEXT("./lflists/.previous/");
 
 	explicit BanlistUpdater(epro::path_stringview override_url = {});
 	~BanlistUpdater();
@@ -89,6 +96,15 @@ public:
 	// Valid only once HasStagedUpdate(); the diff of FASE 4c reads these.
 	const banlist::Payload& StagedPayload() const { return staged_payload; }
 	const banlist::Payload& ActivePayload() const { return active_payload; }
+
+	// Reads and re-verifies the pair saved under PREVIOUS_FOLDER, if any.
+	// Returns false when there is none (fresh install, or a client from
+	// before FASE 4e that never wrote one) or it fails to verify — either
+	// way the GUI treats it as "no previous available", never as an error
+	// to surface. Deliberately not cached in a member and not read at
+	// startup: it is only ever needed if and when the "Novità" window opens
+	// (design/banlist-distribution.md: "riverificata prima dell'uso").
+	bool LoadPreviousPayload(banlist::Payload& out) const;
 
 private:
 	void CheckTask();
