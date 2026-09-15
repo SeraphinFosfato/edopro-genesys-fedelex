@@ -167,11 +167,10 @@ dice il *perché* (la tua lista è diversa da quella dell'altro) e il *cosa
 fare* (un riavvio la allinea, se l'aggiornamento è già stato scaricato), non
 un codice d'errore.
 
-**La lista firmata porta la versione nel nome visibile**
-(`GSY Custom v<format_version>`). Quando la lobby non conosce l'hash di una
-stanza scrive `???`; la versione nel nome non entra nell'hash e non costa
-niente, e permette al giocatore rifiutato di **vedere scritto** quale lista ha
-in mano.
+**La lista firmata ha un nome fisso: `Fedelex della Luce`**, senza numero di
+versione (il nome non entra nell'hash, quindi non cambia la compatibilità).
+La versione resta visibile dove serve: nel titolo della finestra "Novità" e,
+quando una stanza rifiuta per hash diverso, nel messaggio che lo spiega.
 
 ## Modalità degradata
 
@@ -209,7 +208,14 @@ infinita non la legge nessuno.
 
 Per ogni voce: nome, `vecchio → nuovo`, e la riga di `reason` **se il JSON la
 porta**. Se manca, si mostrano solo i numeri: il client non inventa mai un
-perché.
+perché. Le voci di "Nuove in lista" portano l'etichetta `(new)`.
+
+Il diff resta consultabile **anche dopo il riavvio che applica la lista**: la
+promozione conserva la coppia attiva uscente in `./lflists/.previous/`
+(firmata e riverificata prima dell'uso, come le altre). La finestra "Novità"
+confronta attiva → staging se c'è un aggiornamento pronto, altrimenti
+precedente → attiva. Senza una precedente (prima installazione) lo dice, e non
+confronta contro il vuoto.
 
 ## La notifica
 
