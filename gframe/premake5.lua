@@ -152,6 +152,10 @@ local ygopro_config=function(static_core)
 		files "ygopro.rc"
 		_includedirs { "../irrlicht/include" }
 		dofile("../irrlicht/defines.lua")
+		-- BCryptGenRandom, for gframe/tweetnacl/randombytes.c — TweetNaCl
+		-- links a reference to randombytes() unconditionally even though this
+		-- client only ever verifies (never signs, never generates a keypair).
+		links { "bcrypt" }
 
 	filter { "system:windows", "action:vs*" }
 		files "ygopro.exe.manifest"

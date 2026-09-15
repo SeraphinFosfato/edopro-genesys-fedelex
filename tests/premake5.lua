@@ -5,7 +5,8 @@
 --
 --   premake5 --file=tests/premake5.lua gmake2
 --   make -C tests/build config=release
---   ./tests/bin/banlist_tests
+--   ./bin/banlist_tests   -- targetdir is "../bin" relative to this script,
+--                            i.e. <repo root>/bin, not tests/bin
 --
 -- What can be linked here is exactly what has no gframe dependency: the
 -- verification module, the vendored Ed25519, and the shared hash fold. If a

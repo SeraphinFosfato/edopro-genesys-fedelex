@@ -12,6 +12,7 @@
 #include "file_stream.h"
 #include "fmt.h"
 #include "game_config.h"
+#include "lflist_hash.h"
 
 namespace ygo {
 const CardDataC* DeckManager::GetDummyOrMappedCardData(uint32_t code) const {
@@ -84,17 +85,12 @@ bool DeckManager::LoadLFListSingle(const epro::path_string& path) {
 		}
 
 		lflist.content[code] = BanlistEntry{ limit, points };
-		// Points must be part of the hash: two clients that agree on every
-		// id/limit but disagree on points would otherwise hash identically
-		// and be treated as compatible, even though they disagree on what's
-		// legal to play. Points are folded in via a fixed-amount rotation
-		// (not shifted by a variable derived from points) to avoid the same
-		// UB risk the limit shift above has just been guarded against.
-		uint32_t points_mixed = code ^ (static_cast<uint32_t>(points) * 0x1000193u);
-		lflist.hash = lflist.hash
-			^ ((code << 18) | (code >> 14))
-			^ ((code << (27 + limit)) | (code >> (5 - limit)))
-			^ ((points_mixed << 7) | (points_mixed >> 25));
+		// Folded through the single shared function (lflist_hash.h, D74): a
+		// list can also be built in memory from a signed banlist.json
+		// (BanlistUpdater::LoadActiveInto), and if the two paths folded
+		// entries differently the same list would hash differently
+		// depending on where it came from.
+		lflist.hash = FoldLFListEntry(lflist.hash, code, limit, points);
 	}
 
 	if (lflist.hash)

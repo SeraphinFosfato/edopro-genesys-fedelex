@@ -161,8 +161,23 @@ DataHandler::DataHandler() {
 	imageDownloader = std::make_unique<ImageDownloader>();
 	LoadDatabases();
 	LoadPicUrls();
+	// Order is not negotiable (design/banlist-distribution.md, "Punti di
+	// innesto nel codice"): promote whatever the previous session staged,
+	// then load the (now current) active pair into memory — that load fills
+	// the version the background anti-rollback check compares the fetched
+	// one against, so it has to happen before StartCheck(). If StartCheck()
+	// ran first, the compare would run against a default-constructed
+	// Payload (format_version 0) and any signed payload would pass as
+	// "newer".
+	banlistUpdater = std::make_unique<BanlistUpdater>();
+	gBanlistUpdater = banlistUpdater.get();
+	gBanlistUpdater->PromoteStaged();
+	gBanlistUpdater->LoadActiveInto(*deckManager);
 	deckManager->LoadLFList();
 	dataManager->LoadIdsMapping(EPRO_TEXT("./config/mappings.json"));
+	// Non-blocking (spawns a worker thread): a client with no network still
+	// starts normally on the list it already has.
+	gBanlistUpdater->StartCheck();
 }
 DataHandler::~DataHandler() {
 	if(filesystem)

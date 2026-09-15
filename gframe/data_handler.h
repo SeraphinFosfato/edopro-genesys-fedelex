@@ -7,6 +7,7 @@
 #include "sound_manager.h"
 #include "data_manager.h"
 #include "deck_manager.h"
+#include "banlist_updater.h"
 
 namespace irr {
 class IrrlichtDevice;
@@ -34,6 +35,7 @@ public:
 	std::unique_ptr<SoundManager> sounds{ nullptr };
 	std::unique_ptr<DataManager> dataManager{ nullptr };
 	std::unique_ptr<ImageDownloader> imageDownloader{ nullptr };
+	std::unique_ptr<BanlistUpdater> banlistUpdater{ nullptr };
 };
 }
 

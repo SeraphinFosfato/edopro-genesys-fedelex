@@ -1,0 +1,10 @@
+{
+  "attribution": { "author": "test", "url": "test" },
+  "entries": [
+    { "id": 1, "limit": 3, "macro": "Skill", "name": "Test Card", "points": 0, "source": "custom" }
+  ],
+  "expires_at": "2099-01-01T00:00:00Z",
+  "format_version": 3,
+  "generated_at": "2026-01-01T00:00:00Z",
+  "license": "test"
+}

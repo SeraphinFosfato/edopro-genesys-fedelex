@@ -1,0 +1,16 @@
+TweetNaCl — https://tweetnacl.cr.yp.to/
+
+Public domain. From the authors (Daniel J. Bernstein, Bernard van Gaans,
+Tanja Lange, Peter Schwabe):
+
+    TweetNaCl is a self-contained public-domain C library, so you can
+    simply add tweetnacl.c and tweetnacl.h to your project.
+
+Vendored here (gframe/tweetnacl/tweetnacl.c, tweetnacl.h) verbatim from the
+2014-04-27 release. Used for Ed25519 signature verification of the signed
+banlist artifact (gframe/banlist_verify.cpp) — this client never signs and
+never generates a keypair.
+
+gframe/tweetnacl/randombytes.c is this project's own code (same license as
+the rest of the fork), not part of the vendored library: it exists only to
+satisfy a linker reference TweetNaCl declares but this client never calls.
