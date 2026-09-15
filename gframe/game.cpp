@@ -2,6 +2,9 @@
 #include <nlohmann/json.hpp>
 #include <irrlicht.h>
 #include "client_updater.h"
+#include "banlist_updater.h"
+#include "banlist_diff.h"
+#include "banlist_diff_format.h"
 #include "game_config.h"
 #include "repo_manager.h"
 #include "image_downloader.h"
@@ -82,6 +85,7 @@ namespace ygo {
 static inline epro::path_string NoSkinLabel() {
 	return Utils::ToPathString(gDataManager->GetSysString(2065));
 }
+
 
 Game::~Game() {
 	if(guiFont)
@@ -552,6 +556,23 @@ void Game::Initialize() {
 	defaultStrings.emplace_back(stBanlist, 1300);
 	cbDBLFList = AlignElementWithParent(AddComboBox(env, Scale(80, 5, 220, 30), wDeckEdit, COMBOBOX_DBLFLIST));
 	cbDBLFList->setMaxSelectionRows(10);
+	// design/banlist-distribution.md, "La notifica": the diff must stay
+	// viewable after the popup is closed, not just at the moment it fires.
+	// Not localized (raw literal, like the wayland/macOS-gpu advisory
+	// popups elsewhere in this file): a new sysString id would mean
+	// touching every language file for one button, out of scope here.
+	btnBanlistChanges = AlignElementWithParent(env->addButton(Scale(225, 5, 290, 30), wDeckEdit, BUTTON_SHOW_BANLIST_DIFF, L"Novità"));
+	// Same shape as wCommitsLog above: fixed window, scrollable wordwrapped
+	// text, a single Exit button — not centered/sized here, SetCentered
+	// does that when it's popped up.
+	wBanlistDiff = env->addWindow(Scale(0, 0, 500 + 10, 400 + 35 + 35), false, L"Modifiche alla point list");
+	wBanlistDiff->setVisible(false);
+	wBanlistDiff->getCloseButton()->setEnabled(false);
+	wBanlistDiff->getCloseButton()->setVisible(false);
+	stBanlistDiff = irr::gui::CGUICustomText::addCustomText(L"", false, env, wBanlistDiff, -1, Scale(5, 30, 505, 430));
+	stBanlistDiff->setWordWrap(true);
+	static_cast<irr::gui::CGUICustomText*>(stBanlistDiff)->enableScrollBar();
+	btnBanlistDiffExit = env->addButton(Scale(215, 435, 285, 460), wBanlistDiff, BUTTON_BANLIST_DIFF_EXIT, L"Chiudi");
 	stDeck = env->addStaticText(gDataManager->GetSysString(1301).data(), Scale(10, 39, 100, 59), false, false, wDeckEdit);
 	defaultStrings.emplace_back(stDeck, 1301);
 	cbDBDecks = AlignElementWithParent(AddComboBox(env, Scale(80, 35, 220, 60), wDeckEdit, COMBOBOX_DBDECKS));
@@ -2003,6 +2024,7 @@ bool Game::MainLoop() {
 	bool was_connected = false;
 	bool update_prompted = false;
 	bool update_checked = false;
+	bool banlist_update_prompted = false;
 	if(!driver->queryFeature(irr::video::EVDF_TEXTURE_NPOT)) {
 		auto SetClamp = [](irr::video::SMaterialLayer layer[irr::video::MATERIAL_MAX_TEXTURES]) {
 			layer[0].TextureWrapU = irr::video::ETC_CLAMP_TO_EDGE;
@@ -2263,6 +2285,26 @@ bool Game::MainLoop() {
 				SetCentered(wQuery);
 				PopupElement(wQuery);
 				needs_to_acknowledge_discord_host = false;
+			}
+			// design/banlist-distribution.md, "La notifica": shown when
+			// staging is ready, not at next launch — gGameConfig checked
+			// (not just staged_ready) is what makes it fire once per
+			// format_version instead of once per session.
+			else if(!banlist_update_prompted && gBanlistUpdater && gBanlistUpdater->HasStagedUpdate() &&
+					banlist::ShouldNotifyForUpdate(gBanlistUpdater->StagedPayload().format_version, gGameConfig->lastSeenBanlistVersion) &&
+					!(dInfo.isInDuel || dInfo.isInLobby || is_siding)) {
+				std::lock_guard<epro::mutex> lock(gMutex);
+				const auto diff = banlist::ComputeDiff(gBanlistUpdater->ActivePayload(), gBanlistUpdater->StagedPayload());
+				menuHandler.prev_operation = ACTION_BANLIST_UPDATE_PROMPT;
+				stQMessage->setText(FormatBanlistNotification(diff, gBanlistUpdater->StagedPayload().format_version).data());
+				SetCentered(wQuery);
+				PopupElement(wQuery);
+				banlist_update_prompted = true;
+				// Marked "seen" as soon as it is shown, not on Yes/No: the
+				// contract is "already seen", not "already accepted" — the
+				// player choosing "not now" must not see it again either.
+				gGameConfig->lastSeenBanlistVersion = gBanlistUpdater->StagedPayload().format_version;
+				SaveConfig();
 			}
 #if EDOPRO_LINUX && (IRRLICHT_VERSION_MAJOR==1 && IRRLICHT_VERSION_MINOR==9)
 			else if(gGameConfig->useWayland == 2) {

@@ -307,6 +307,17 @@ struct deck_edit_page_elements {
 	irr::gui::IGUIStaticText* wDeckEdit;
 	irr::gui::IGUIComboBox* cbDBLFList;
 	irr::gui::IGUIComboBox* cbDBDecks;
+	// Opens the full banlist diff (design/banlist-distribution.md, "La
+	// notifica" — the diff must stay consultable after the popup is
+	// closed, "una voce nel menù, non solo un popup"). Same
+	// window+scrollable-text+exit-button shape as wCommitsLog/stCommitLog,
+	// reused instead of a new custom widget for the same reason: a wall of
+	// text that can run past the box needs a scrollbar, and this codebase
+	// already has that solved.
+	irr::gui::IGUIButton* btnBanlistChanges;
+	irr::gui::IGUIWindow* wBanlistDiff;
+	irr::gui::IGUIStaticText* stBanlistDiff;
+	irr::gui::IGUIButton* btnBanlistDiffExit;
 
 	irr::gui::IGUIButton* btnHandTest;
 	irr::gui::IGUIButton* btnHandTestSettings;

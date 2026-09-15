@@ -18,6 +18,10 @@ OPTION(std::wstring, nickname, L"Player")
 OPTION(std::wstring, gamename, L"Game")
 OPTION(std::wstring, lastdeck, L"")
 OPTION(uint32_t, lastlflist, 0)
+// The banlist format_version the "staging is ready" notification was last
+// shown for (design/banlist-distribution.md, "La notifica": "stato 'già
+// vista' persistente per format_version"). 0 means never notified.
+OPTION(int, lastSeenBanlistVersion, 0)
 OPTION(uint32_t, lastallowedcards, 3)
 OPTION(uint64_t, lastDuelParam, 0x2E800) //#define DUEL_MODE_MR5
 OPTION(uint32_t, lastExtraRules, 0)

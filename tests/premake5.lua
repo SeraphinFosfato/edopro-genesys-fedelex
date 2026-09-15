@@ -9,9 +9,9 @@
 --                            i.e. <repo root>/bin, not tests/bin
 --
 -- What can be linked here is exactly what has no gframe dependency: the
--- verification module, the vendored Ed25519, and the shared hash fold. If a
--- test ever needs irrlicht or curl to run, the thing it is testing is in the
--- wrong file.
+-- verification module, the diff module, the vendored Ed25519, and the shared
+-- hash fold. If a test ever needs irrlicht or curl to run, the thing it is
+-- testing is in the wrong file.
 
 workspace "banlist_tests"
 	configurations { "Debug", "Release" }
@@ -26,7 +26,9 @@ project "banlist_tests"
 	includedirs { "../gframe" }
 	files {
 		"banlist_tests.cpp",
+		"banlist_diff_tests.cpp",
 		"../gframe/banlist_verify.cpp",
+		"../gframe/banlist_diff.cpp",
 		"../gframe/tweetnacl/*.c",
 	}
 

@@ -14,6 +14,9 @@
 #include "single_mode.h"
 #include "client_card.h"
 #include "fmt.h"
+#include "banlist_updater.h"
+#include "banlist_diff.h"
+#include "banlist_diff_format.h"
 
 namespace ygo {
 
@@ -231,6 +234,25 @@ bool DeckBuilder::OnEvent(const irr::SEvent& event) {
 			case BUTTON_CLOSE_YDKE_WINDOW: {
 				mainGame->HideElement(mainGame->wYdkeManage);
 				mainGame->env->setFocus(mainGame->btnYdkeManage);
+				break;
+			}
+			case BUTTON_SHOW_BANLIST_DIFF: {
+				// Recomputed on demand rather than cached: gBanlistUpdater
+				// keeps ActivePayload()/StagedPayload() alive for the whole
+				// session (banlist_updater.h), so this is always the exact
+				// diff the pending notification (if any) was about — "il
+				// diff completo resta consultabile dopo averla chiusa".
+				banlist::Diff diff;
+				if(gBanlistUpdater && gBanlistUpdater->HasStagedUpdate())
+					diff = banlist::ComputeDiff(gBanlistUpdater->ActivePayload(), gBanlistUpdater->StagedPayload());
+				mainGame->stBanlistDiff->setText(FormatBanlistDiff(diff).data());
+				mainGame->SetCentered(mainGame->wBanlistDiff);
+				mainGame->PopupElement(mainGame->wBanlistDiff);
+				break;
+			}
+			case BUTTON_BANLIST_DIFF_EXIT: {
+				mainGame->HideElement(mainGame->wBanlistDiff);
+				mainGame->env->setFocus(mainGame->btnBanlistChanges);
 				break;
 			}
 			case BUTTON_CLEAR_DECK: {

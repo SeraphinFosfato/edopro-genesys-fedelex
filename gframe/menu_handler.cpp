@@ -590,6 +590,16 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 					DuelClient::JoinFromDiscord();
 					break;
 				}
+				case ACTION_BANLIST_UPDATE_PROMPT: {
+					// PromoteStaged() itself only runs at the next start
+					// (data_handler.cpp) — this just gets there sooner. The
+					// "already seen" mark was set the moment the popup
+					// appeared (game.cpp), not here, so a crash or a kill
+					// between this click and the actual restart still
+					// leaves the notification correctly dismissed.
+					Utils::Reboot();
+					break;
+				}
 				}
 				prev_operation = 0;
 				prev_sel = -1;
@@ -605,6 +615,7 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 #endif
 				case ACTION_UPDATE_PROMPT:
 				case ACTION_SHOW_CHANGELOG:
+				case ACTION_BANLIST_UPDATE_PROMPT:
 					mainGame->wQuery->setRelativePosition(mainGame->ResizeWin(490, 200, 840, 340)); // from Game::OnResize
 				default:
 					break;

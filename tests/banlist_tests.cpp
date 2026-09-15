@@ -26,6 +26,12 @@ extern "C" {
 #include "tweetnacl/tweetnacl.h"
 }
 
+// Defined in banlist_diff_tests.cpp — kept as a separate file (banlist_diff
+// gets its own tests) but folded into this binary's single main() so the
+// suite still prints one summary and tests/premake5.lua still builds one
+// ConsoleApp target.
+int RunBanlistDiffTests();
+
 using namespace ygo;
 
 namespace {
@@ -324,5 +330,6 @@ int main() {
 	test_json_is_never_parsed_before_the_signature_verifies();
 
 	std::printf("banlist_tests: %d checks, %d failures\n", checks, failures);
-	return failures == 0 ? 0 : 1;
+	const int diff_failures = RunBanlistDiffTests();
+	return (failures == 0 && diff_failures == 0) ? 0 : 1;
 }
