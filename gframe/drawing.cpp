@@ -1205,6 +1205,20 @@ void Game::DrawThumb(const CardDataC* cp, irr::core::vector2di pos, LFList* lfli
 	}
 	driver->draw2DImage(img, dragloc, irr::core::recti(0, 0, size.Width, size.Height), cliprect);
 	if(!is_siding) {
+		// A card can carry both a Genesys point cost and a limit/legend
+		// badge. Both used to draw into the same 20x20 corner (limitloc):
+		// the badge is an opaque image drawn second, so it fully covered
+		// the points text whenever a card had both. Side by side instead —
+		// points keep their usual slot (so the far more common
+		// points-only case looks exactly as before), the badge only moves
+		// one slot-width right when it would otherwise land on top of it.
+		// CARD_THUMB_WIDTH is 44px, two 20px slots fit without running off
+		// the thumbnail.
+		const bool has_limit_badge = (count == -1 || count == 0 || count == 1 || count == 2)
+			|| (cp->ot & SCOPE_LEGEND);
+		irr::core::recti badgeloc = limitloc;
+		if(points > 0 && has_limit_badge)
+			badgeloc += irr::core::position2di(limitloc.getWidth(), 0);
 		if (points > 0) {
 			irr::gui::IGUIFont* font = device->getGUIEnvironment()->getSkin()->getFont();
 			if (font) {
@@ -1229,17 +1243,17 @@ void Game::DrawThumb(const CardDataC* cp, irr::core::vector2di pos, LFList* lfli
 		switch(count) {
 			case -1:
 			case 0:
-				imageManager.draw2DImageFilterScaled(imageManager.tLim, limitloc, irr::core::recti(0, 0, 64, 64), cliprect, 0, true);
+				imageManager.draw2DImageFilterScaled(imageManager.tLim, badgeloc, irr::core::recti(0, 0, 64, 64), cliprect, 0, true);
 				break;
 			case 1:
-				imageManager.draw2DImageFilterScaled(imageManager.tLim, limitloc, irr::core::recti(64, 0, 128, 64), cliprect, 0, true);
+				imageManager.draw2DImageFilterScaled(imageManager.tLim, badgeloc, irr::core::recti(64, 0, 128, 64), cliprect, 0, true);
 				break;
 			case 2:
-				imageManager.draw2DImageFilterScaled(imageManager.tLim, limitloc, irr::core::recti(0, 64, 64, 128), cliprect, 0, true);
+				imageManager.draw2DImageFilterScaled(imageManager.tLim, badgeloc, irr::core::recti(0, 64, 64, 128), cliprect, 0, true);
 				break;
 			default:
 				if(cp->ot & SCOPE_LEGEND) {
-					imageManager.draw2DImageFilterScaled(imageManager.tLim, limitloc, irr::core::recti(64, 64, 128, 128), cliprect, 0, true);
+					imageManager.draw2DImageFilterScaled(imageManager.tLim, badgeloc, irr::core::recti(64, 64, 128, 128), cliprect, 0, true);
 				}
 				break;
 		}
