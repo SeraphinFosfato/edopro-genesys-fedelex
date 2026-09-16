@@ -55,3 +55,14 @@ NotoSansJP-Regular.otf
 /CMakeLists.txt
 /repositories/babel-cdb/cards.delta.cdb
 /genesys.lflist.conf
+
+# Installazione EDOPro completa usata per provare il client in locale: ~505MB
+# di dati di Project Ignis, che non sono nostri e non vanno ridistribuiti da
+# qui. E' l'input di tools/release/package_linux_release.sh, non un sorgente.
+/runtime/
+# Output della pipeline di release locale: tarball da decine di MB.
+/tools/release/out/
+/tools/release/.stage/
+# Output di premake per il workspace di test: la regola /[Bb]uild*/ sopra
+# vale solo a root e non copre questo.
+/tests/build/
