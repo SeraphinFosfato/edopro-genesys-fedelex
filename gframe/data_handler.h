@@ -8,6 +8,8 @@
 #include "data_manager.h"
 #include "deck_manager.h"
 #include "banlist_updater.h"
+#include "title_store.h"
+#include "title_checkin.h"
 
 namespace irr {
 class IrrlichtDevice;
@@ -36,6 +38,8 @@ public:
 	std::unique_ptr<DataManager> dataManager{ nullptr };
 	std::unique_ptr<ImageDownloader> imageDownloader{ nullptr };
 	std::unique_ptr<BanlistUpdater> banlistUpdater{ nullptr };
+	std::unique_ptr<TitleStore> titleStore{ nullptr };
+	std::unique_ptr<TitleCheckin> titleCheckin{ nullptr };
 };
 }
 

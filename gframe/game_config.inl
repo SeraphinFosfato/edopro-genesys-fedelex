@@ -22,6 +22,10 @@ OPTION(uint32_t, lastlflist, 0)
 // shown for (design/banlist-distribution.md, "La notifica": "stato 'già
 // vista' persistente per format_version"). 0 means never notified.
 OPTION(int, lastSeenBanlistVersion, 0)
+// The player's title credential, pasted in from the bot (FASE 4f, §12).
+// Opaque to this client beyond "send it in the check-in POST body" — never
+// parsed, never logged. Empty means no credential entered yet.
+OPTION(std::string, titleCredential, "")
 OPTION(uint32_t, lastallowedcards, 3)
 OPTION(uint64_t, lastDuelParam, 0x2E800) //#define DUEL_MODE_MR5
 OPTION(uint32_t, lastExtraRules, 0)

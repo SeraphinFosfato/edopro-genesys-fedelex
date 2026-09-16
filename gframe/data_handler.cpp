@@ -1,4 +1,5 @@
 #include "data_handler.h"
+#include <ctime>
 #include <irrlicht.h>
 #include "config.h"
 #include "cli_args.h"
@@ -161,6 +162,16 @@ DataHandler::DataHandler() {
 	imageDownloader = std::make_unique<ImageDownloader>();
 	LoadDatabases();
 	LoadPicUrls();
+	// FASE 4f (D78): the title store has to be loaded and its access
+	// decision known BEFORE LoadActiveInto below, since that decision gates
+	// whether LoadActiveInto runs at all — a signed custom list never loads
+	// without a currently-valid title. This only ever reads whatever is
+	// already cached on disk (re-verified on load, title_store.h) — it does
+	// not wait on the network, same "startup never blocks" rule as the
+	// banlist check below.
+	titleStore = std::make_unique<TitleStore>();
+	gTitleStore = titleStore.get();
+	gTitleStore->LoadFromDisk();
 	// Order is not negotiable (design/banlist-distribution.md, "Punti di
 	// innesto nel codice"): promote whatever the previous session staged,
 	// then load the (now current) active pair into memory — that load fills
@@ -172,12 +183,16 @@ DataHandler::DataHandler() {
 	banlistUpdater = std::make_unique<BanlistUpdater>();
 	gBanlistUpdater = banlistUpdater.get();
 	gBanlistUpdater->PromoteStaged();
-	gBanlistUpdater->LoadActiveInto(*deckManager);
+	if(gTitleStore->CurrentAccess(std::time(nullptr)) == title::AccessState::Active)
+		gBanlistUpdater->LoadActiveInto(*deckManager);
 	deckManager->LoadLFList();
 	dataManager->LoadIdsMapping(EPRO_TEXT("./config/mappings.json"));
 	// Non-blocking (spawns a worker thread): a client with no network still
 	// starts normally on the list it already has.
 	gBanlistUpdater->StartCheck();
+	titleCheckin = std::make_unique<TitleCheckin>();
+	gTitleCheckin = titleCheckin.get();
+	gTitleCheckin->Start();
 }
 DataHandler::~DataHandler() {
 	if(filesystem)

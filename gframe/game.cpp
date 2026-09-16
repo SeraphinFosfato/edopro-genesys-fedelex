@@ -5,6 +5,8 @@
 #include "banlist_updater.h"
 #include "banlist_diff.h"
 #include "banlist_diff_format.h"
+#include "title_store.h"
+#include "title_checkin.h"
 #include "game_config.h"
 #include "repo_manager.h"
 #include "image_downloader.h"
@@ -84,6 +86,28 @@ namespace ygo {
 
 static inline epro::path_string NoSkinLabel() {
 	return Utils::ToPathString(gDataManager->GetSysString(2065));
+}
+
+// Player-facing text for a title state change (FASE 4f, §8). Deliberately
+// three distinct messages, never conflated: what the player needs to DO
+// differs by state (talk to a judge vs. just wait for a payment to clear vs.
+// simply reconnect), so a generic "access denied" would send them to the
+// wrong place. Only Revoked/Suspended/TitleExpired ever reach this — Active
+// and NoTitle never queue a notification (see the call site).
+static inline std::wstring TitleNotificationText(title::AccessState state) {
+	switch(state) {
+	case title::AccessState::Revoked:
+		return L"Your access to the custom point list has been revoked. Contact a judge for details.";
+	case title::AccessState::Suspended:
+		return L"Your access to the custom point list is suspended for an unpaid balance. "
+			   L"It unlocks automatically once it is settled — no need to contact anyone.";
+	case title::AccessState::TitleExpired:
+		return L"Your access to the custom point list could not be renewed. Reconnect to the bot to refresh it.";
+	case title::AccessState::Active:
+	case title::AccessState::NoTitle:
+	default:
+		return L"";
+	}
 }
 
 
@@ -2025,6 +2049,13 @@ bool Game::MainLoop() {
 	bool update_prompted = false;
 	bool update_checked = false;
 	bool banlist_update_prompted = false;
+	// FASE 4f: last title-store generation this loop reacted to (0 = none
+	// yet — TitleStore::Generation() itself starts at 0 too, but the first
+	// real change is always >= 1, so this can never falsely match).
+	uint64_t title_seen_generation = 0;
+	bool title_notification_pending = false;
+	title::AccessState title_notification_state = title::AccessState::Active;
+	bool title_was_in_duel = false;
 	if(!driver->queryFeature(irr::video::EVDF_TEXTURE_NPOT)) {
 		auto SetClamp = [](irr::video::SMaterialLayer layer[irr::video::MATERIAL_MAX_TEXTURES]) {
 			layer[0].TextureWrapU = irr::video::ETC_CLAMP_TO_EDGE;
@@ -2259,6 +2290,50 @@ bool Game::MainLoop() {
 			env->setFocus(stACMessage);
 			stACMessage->setText(gDataManager->GetSysString(1438).data());
 			PopupElement(wACMessage, 30);
+		}
+		// FASE 4f (D102-D104, §7-§8): react to a title_checkin worker-thread
+		// update. Generation is polled rather than pushed so this needs no
+		// cross-thread callback — see title_store.h's own comment on why
+		// that is safe (every real read below goes through TitleStore's
+		// locked accessors, this counter is only ever "should I bother").
+		if(gTitleStore) {
+			const auto generation = gTitleStore->Generation();
+			if(generation != title_seen_generation) {
+				title_seen_generation = generation;
+				const auto state = gTitleStore->CurrentAccess(std::time(nullptr));
+				if(state == title::AccessState::Revoked || state == title::AccessState::Suspended) {
+					// Enforcement (§7): the exact same pathway the player's
+					// own "Surrender" button uses (CTOS_SURRENDER over the
+					// network, event_handler.cpp) — a safe no-op when there
+					// is no live connection to surrender to
+					// (DuelClient::SendPacketToServer's own client_bev
+					// guard), so this needs no separate "is this a real
+					// online duel" check of its own.
+					if(dInfo.isInDuel)
+						DuelClient::SendPacketToServer(CTOS_SURRENDER);
+					title_notification_pending = true;
+					title_notification_state = state;
+				}
+			}
+		}
+		if(title_notification_pending) {
+			std::lock_guard<epro::mutex> lock(gMutex);
+			title_notification_pending = false;
+			stMessage->setText(TitleNotificationText(title_notification_state).data());
+			PopupElement(wMessage);
+		}
+		if(gTitleCheckin) {
+			// Cadence hint only (§2's 15-min-rest / 5-min-in-duel split) —
+			// not security-relevant, so this deliberately does not try to
+			// distinguish a real online duel from a replay or single-player
+			// one (dInfo.isInDuel is shared by all three): the worst case of
+			// treating those as "in duel" too is a few extra, harmless
+			// check-ins, never a missed one.
+			const bool in_duel = dInfo.isInDuel;
+			if(in_duel != title_was_in_duel) {
+				title_was_in_duel = in_duel;
+				gTitleCheckin->SetInDuel(in_duel);
+			}
 		}
 		if(!wQuery->isVisible()) {
 			if(!update_prompted && gClientUpdater->HasUpdate() && !(dInfo.isInDuel || dInfo.isInLobby || is_siding
