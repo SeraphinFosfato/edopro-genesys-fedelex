@@ -31,6 +31,8 @@ extern "C" {
 // suite still prints one summary and tests/premake5.lua still builds one
 // ConsoleApp target.
 int RunBanlistDiffTests();
+// Defined in title_tests.cpp — same reasoning (FASE 4f).
+int RunTitleTests();
 
 using namespace ygo;
 
@@ -331,5 +333,6 @@ int main() {
 
 	std::printf("banlist_tests: %d checks, %d failures\n", checks, failures);
 	const int diff_failures = RunBanlistDiffTests();
-	return (failures == 0 && diff_failures == 0) ? 0 : 1;
+	const int title_failures = RunTitleTests();
+	return (failures == 0 && diff_failures == 0 && title_failures == 0) ? 0 : 1;
 }
