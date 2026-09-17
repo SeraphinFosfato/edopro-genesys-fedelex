@@ -1,0 +1,90 @@
+name: CI
+
+# Niente logica di build qui dentro: ogni job chiama gli script di
+# tools/release/, che restano la fonte unica di come questo progetto
+# compila davvero (CLAUDE.md §6.3). Se un job ha bisogno di un passo che lo
+# script non fa, il passo si aggiunge allo script, non a questo file.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test (banlist_tests)
+    runs-on: ubuntu-latest
+    # Deve restare sempre verde: protegge firma, anti-rollback e diff.
+    # Nessuna dipendenza pesante (niente irrlicht/curl/sqlite/...), gira in
+    # secondi — solo nlohmann-json, l'unica libreria esterna che i file
+    # sotto test includono davvero (verificato negli #include, non solo
+    # dedotto dal commento di tests/premake5.lua).
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installa nlohmann-json
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nlohmann-json3-dev
+
+      - name: Installa premake5 pinnato (v5.0.0-beta2)
+        run: |
+          ./travis/install-premake5.sh linux
+          chmod +x ./premake5
+
+      - name: Genera e compila banlist_tests
+        run: |
+          ./premake5 --file=tests/premake5.lua gmake2
+          make -C tests/build -j"$(nproc)" config=release
+
+      - name: Esegui banlist_tests
+        run: ./bin/banlist_tests
+
+  build-linux:
+    name: Build Linux (client)
+    needs: test
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installa le dipendenze di sistema
+        # Stessa lista di tools/release/build_linux.sh (nomi Arch), tradotta
+        # per apt — tenere le due liste vicine, si disallineano facilmente:
+        #   mesa glu freetype2 sqlite curl libevent libgit2 libssh2 fmt flac
+        #   libvorbis libogg openal nlohmann-json zlib-ng-compat base-devel git
+        # + header X11 per compilare Irrlicht da sorgente: su Arch li porta
+        # con sé il pacchetto mesa come dipendenza transitiva, su Ubuntu no.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev libglu1-mesa-dev libfreetype-dev libsqlite3-dev \
+            libcurl4-openssl-dev libevent-dev libgit2-dev libssh2-1-dev \
+            libfmt-dev libflac-dev libvorbis-dev libogg-dev libopenal-dev \
+            nlohmann-json3-dev zlib1g-dev build-essential git \
+            libx11-dev libxxf86vm-dev libxcursor-dev libxrandr-dev libxi-dev
+
+      - name: Risolvi il commit di edo9300/irrlicht1-8-4@1.9-custom
+        id: irrlicht-sha
+        run: |
+          sha="$(git ls-remote https://github.com/edo9300/irrlicht1-8-4.git refs/heads/1.9-custom | cut -f1)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Irrlicht compilato
+        # setup_irrlicht.sh (chiamato da build_linux.sh) e' idempotente:
+        # se lib/Linux/libIrrlicht.a c'e' gia', non riclona ne' ricompila.
+        uses: actions/cache@v4
+        with:
+          path: ../irrlicht-custom
+          key: irrlicht-linux-${{ steps.irrlicht-sha.outputs.sha }}
+
+      - name: Build
+        run: tools/release/build_linux.sh release
+
+      - name: Carica il binario come artefatto
+        uses: actions/upload-artifact@v4
+        with:
+          name: edopro-custom-linux-x64
+          path: bin/x64/release/ygoprodll
+          if-no-files-found: error
+          retention-days: 14

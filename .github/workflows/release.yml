@@ -1,0 +1,141 @@
+name: Release
+
+# Solo su tag v*. Nessun segreto: GitHub Releases usa il GITHUB_TOKEN
+# automatico (CLAUDE.md/FASE 8, decisione 6). Niente logica di build qui:
+# entrambi i job chiamano tools/release/*.sh.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build Linux (client)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installa le dipendenze di sistema
+        # Stessa lista di ci.yml / tools/release/build_linux.sh — tenerle
+        # vicine, si disallineano facilmente.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev libglu1-mesa-dev libfreetype-dev libsqlite3-dev \
+            libcurl4-openssl-dev libevent-dev libgit2-dev libssh2-1-dev \
+            libfmt-dev libflac-dev libvorbis-dev libogg-dev libopenal-dev \
+            nlohmann-json3-dev zlib1g-dev build-essential git \
+            libx11-dev libxxf86vm-dev libxcursor-dev libxrandr-dev libxi-dev
+
+      - name: Risolvi il commit di edo9300/irrlicht1-8-4@1.9-custom
+        id: irrlicht-sha
+        run: |
+          sha="$(git ls-remote https://github.com/edo9300/irrlicht1-8-4.git refs/heads/1.9-custom | cut -f1)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Irrlicht compilato
+        uses: actions/cache@v4
+        with:
+          path: ../irrlicht-custom
+          key: irrlicht-linux-${{ steps.irrlicht-sha.outputs.sha }}
+
+      - name: Build
+        run: tools/release/build_linux.sh release
+
+      - name: Carica il binario Linux
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binary
+          path: bin/x64/release/ygoprodll
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows (cross, MinGW)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installa il toolchain MinGW e le dipendenze di sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++-mingw-w64-i686 gcc-mingw-w64-i686 unzip \
+            nlohmann-json3-dev build-essential git
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Risolvi il commit di edo9300/irrlicht1-8-4@1.9-custom
+        id: irrlicht-sha
+        run: |
+          sha="$(git ls-remote https://github.com/edo9300/irrlicht1-8-4.git refs/heads/1.9-custom | cut -f1)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Risolvi il tag piu' recente di edo9300/edopro-vcpkg-cache
+        id: vcpkg-tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="$(gh api repos/edo9300/edopro-vcpkg-cache/releases/latest --jq .tag_name)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Irrlicht sorgente (condivisa con la build Linux)
+        uses: actions/cache@v4
+        with:
+          path: ../irrlicht-custom
+          key: irrlicht-linux-${{ steps.irrlicht-sha.outputs.sha }}
+
+      - name: Cache vcpkg precompilato (mingw-static)
+        uses: actions/cache@v4
+        with:
+          path: ../vcpkg-cache
+          key: vcpkg-mingw-${{ steps.vcpkg-tag.outputs.tag }}
+
+      - name: Build
+        run: tools/release/build_windows.sh release
+
+      - name: Carica il binario Windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binary
+          path: bin/x86/release/ygopro.exe
+          if-no-files-found: error
+
+  publish:
+    name: Pubblica la Release
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-binary
+          path: dist/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-binary
+          path: dist/
+
+      - name: Crea la Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            dist/ygoprodll dist/ygopro.exe \
+            --title "${{ github.ref_name }}" \
+            --notes "$(cat <<EOF
+          Build automatica dal commit \`${{ github.sha }}\` (AGPLv3, sorgente
+          completo in questo repository pubblico a quel commit).
+
+          - \`ygoprodll\` — client Linux x64. Da mettere accanto al proprio
+            eseguibile \`EDOPro\` (vedi README).
+          - \`ygopro.exe\` — client Windows x86, cross-compilato da Linux con
+            MinGW. **Mai eseguito su Windows vero**: nessuno lo ha ancora
+            provato su hardware reale, trattalo come beta.
+          EOF
+          )"
