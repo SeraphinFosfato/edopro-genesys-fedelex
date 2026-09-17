@@ -275,7 +275,7 @@ void Game::Initialize() {
 	int mainMenuWidth = std::max(280, static_cast<int>(titleWidth / dpi_scale + 15));
 	mainMenuLeftX = 510 - mainMenuWidth / 2;
 	mainMenuRightX = 510 + mainMenuWidth / 2;
-	wMainMenu = env->addWindow(Scale(mainMenuLeftX, 200, mainMenuRightX, 450), false, EDOPRO_VERSION_STRING);
+	wMainMenu = env->addWindow(Scale(mainMenuLeftX, 200, mainMenuRightX, 485), false, EDOPRO_VERSION_STRING);
 	wMainMenu->getCloseButton()->setVisible(false);
 	//wMainMenu->setVisible(!is_from_discord);
 #define OFFSET(x1, y1, x2, y2) Scale(10, 30 + offset, mainMenuWidth - 10, 60 + offset)
@@ -295,10 +295,31 @@ void Game::Initialize() {
 	btnDeckEdit = env->addButton(OFFSET(10, 135, 270, 165), wMainMenu, BUTTON_DECK_EDIT, gDataManager->GetSysString(1204).data());
 	defaultStrings.emplace_back(btnDeckEdit, 1204);
 	offset += 35;
-	btnModeExit = env->addButton(OFFSET(10, 170, 270, 200), wMainMenu, BUTTON_MODE_EXIT, gDataManager->GetSysString(1210).data());
+	// FASE 4f, §12: label set by UpdateTitleAuthButton() below, not here —
+	// it depends on gGameConfig->titleCredential, which is already loaded
+	// by this point in Initialize() (config load happens before GUI
+	// construction), so the very first label is already correct.
+	btnTitleAuth = env->addButton(OFFSET(10, 170, 270, 200), wMainMenu, BUTTON_TITLE_AUTH, L"");
+	offset += 35;
+	btnModeExit = env->addButton(OFFSET(10, 205, 270, 235), wMainMenu, BUTTON_MODE_EXIT, gDataManager->GetSysString(1210).data());
 	defaultStrings.emplace_back(btnModeExit, 1210);
 	offset += 35;
 #undef OFFSET
+	// FASE 4f, §12: title credential entry/logout. Deliberately its own small
+	// window, not folded into wOptions — it needs to be reachable both from
+	// the main menu button above and from the startup auto-prompt, and
+	// wOptions's paging (btnOptionp/n) has nothing to do with this.
+	wTitleAuth = env->addWindow(Scale(460, 210, 860, 380), false, L"");
+	wTitleAuth->getCloseButton()->setVisible(false);
+	wTitleAuth->setVisible(false);
+	irr::gui::CGUICustomText::addCustomText(
+		L"Paste the credential the bot gave you to unlock the custom point list.",
+		false, env, wTitleAuth, -1, Scale(20, 20, 380, 70));
+	ebTitleCredential = env->addEditBox(Utils::ToUnicodeIfNeeded(gGameConfig->titleCredential).data(), Scale(20, 80, 380, 105), true, wTitleAuth, EDITBOX_TITLE_CREDENTIAL);
+	ebTitleCredential->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
+	btnTitleAuthSave = env->addButton(Scale(130, 130, 220, 155), wTitleAuth, BUTTON_TITLE_AUTH_SAVE, gDataManager->GetSysString(1211).data());
+	btnTitleAuthCancel = env->addButton(Scale(230, 130, 320, 155), wTitleAuth, BUTTON_TITLE_AUTH_CANCEL, gDataManager->GetSysString(1212).data());
+	UpdateTitleAuthButton();
 	//lan mode
 	wLanWindow = env->addWindow(Scale(220, 100, 800, 520), false, gDataManager->GetSysString(1200).data());
 	defaultStrings.emplace_back(wLanWindow, 1200);
@@ -2056,6 +2077,11 @@ bool Game::MainLoop() {
 	bool title_notification_pending = false;
 	title::AccessState title_notification_state = title::AccessState::Active;
 	bool title_was_in_duel = false;
+	// FASE 4f, §12: offered once per session — without this flag, cancelling
+	// out of wTitleAuth back to an empty credential would pop the prompt
+	// right back up on the very next frame, since wMainMenu->isVisible()
+	// alone can't distinguish "just returned here" from "never left".
+	bool title_auth_prompted = false;
 	if(!driver->queryFeature(irr::video::EVDF_TEXTURE_NPOT)) {
 		auto SetClamp = [](irr::video::SMaterialLayer layer[irr::video::MATERIAL_MAX_TEXTURES]) {
 			layer[0].TextureWrapU = irr::video::ETC_CLAMP_TO_EDGE;
@@ -2391,6 +2417,20 @@ bool Game::MainLoop() {
 				show_changelog = false;
 			}
 #endif
+			// FASE 4f, §12: startup prompt for a missing credential.
+			// wMainMenu->isVisible() is the guard that keeps this from ever
+			// interrupting a duel, a lobby, or any other screen — it only
+			// fires from the main menu itself, same as the other prompts
+			// above being gated on dInfo.isInDuel etc. Not a wQuery popup
+			// like the others: this swaps straight to wTitleAuth, the same
+			// HideElement/ShowElement pattern BUTTON_ONLINE_MULTIPLAYER uses
+			// in menu_handler.cpp.
+			else if(!title_auth_prompted && gGameConfig->titleCredential.empty() && wMainMenu->isVisible()) {
+				std::lock_guard<epro::mutex> lock(gMutex);
+				title_auth_prompted = true;
+				HideElement(wMainMenu);
+				ShowElement(wTitleAuth);
+			}
 		}
 #if EDOPRO_MACOS && (IRRLICHT_VERSION_MAJOR==1 && IRRLICHT_VERSION_MINOR==9)
 		if(!wMessage->isVisible() && gGameConfig->useIntegratedGpu == 2) {
@@ -2681,6 +2721,13 @@ inline void TrySaveInt(T& dest, const irr::gui::IGUIElement* src) {
 		dest = static_cast<T>(std::stoul(src->getText()));
 	}
 	catch (...) {}
+}
+void Game::UpdateTitleAuthButton() {
+	// Raw literals, not GetSysString: see the comment on TitleNotificationText
+	// above — this text has no entry in strings.conf (gitignored, pulled from
+	// an external repo this fork doesn't own), same precedent as the
+	// Wayland-backend prompt.
+	btnTitleAuth->setText(gGameConfig->titleCredential.empty() ? L"Login" : L"Logout");
 }
 void Game::SaveConfig() {
 	gGameConfig->nickname = ebNickName->getText();
@@ -3790,7 +3837,8 @@ void Game::OnResize() {
 		stAbout->setRelativePosition(irr::core::recti(10, 10, minwidth, minheight));
 	}
 	wRoomListPlaceholder->setRelativePosition(irr::core::recti(0, 0, window_size.Width, window_size.Height));
-	wMainMenu->setRelativePosition(ResizeWin(mainMenuLeftX, 200, mainMenuRightX, 450));
+	wMainMenu->setRelativePosition(ResizeWin(mainMenuLeftX, 200, mainMenuRightX, 485));
+	wTitleAuth->setRelativePosition(ResizeWinFromCenter(0, 0, wTitleAuth->getRelativePosition().getWidth(), wTitleAuth->getRelativePosition().getHeight(), 135));
 	wBtnSettings->setRelativePosition(ResizeWin(0, 610, 30, 640));
 	SetCentered(wCommitsLog);
 	SetCentered(updateWindow, false);

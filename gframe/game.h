@@ -182,6 +182,16 @@ struct main_menu_panel_elements {
 	irr::gui::IGUIButton* btnCommitLogExit;
 	irr::gui::IGUIStaticText* stCommitLog;
 	irr::gui::IGUICheckBox* chkCommitLogExpand;
+	irr::gui::IGUIButton* btnTitleAuth; // FASE 4f, §12: label toggles Login/Logout
+};
+
+struct title_auth_panel_elements {
+	// FASE 4f (§12): credential entry, opened from btnTitleAuth or
+	// automatically once at startup when no credential is stored yet.
+	irr::gui::IGUIWindow* wTitleAuth;
+	irr::gui::IGUIEditBox* ebTitleCredential;
+	irr::gui::IGUIButton* btnTitleAuthSave;
+	irr::gui::IGUIButton* btnTitleAuthCancel;
 };
 
 struct lan_panel_elements {
@@ -519,7 +529,7 @@ struct game_field_elements {
 	irr::gui::IGUIButton* btnCancelOrFinish;
 };
 
-class Game final : public info_panel_elements, public main_menu_panel_elements, public lan_panel_elements, public host_creation_panel_elements,
+class Game final : public info_panel_elements, public main_menu_panel_elements, public title_auth_panel_elements, public lan_panel_elements, public host_creation_panel_elements,
 					public host_panel_elements, public replay_panel_elements, public puzzle_panel_elements, public deck_edit_page_elements,
 					public server_lobby_page_elements, public game_field_elements {
 
@@ -556,6 +566,12 @@ public:
 	void DrawThumb(const CardDataC* cp, irr::core::vector2di pos, LFList* lflist, bool drag = false, const irr::core::recti* cliprect = nullptr, bool loadimage = true);
 	void DrawDeckBd();
 	void SaveConfig();
+	// FASE 4f, §12: sets btnTitleAuth's label to Login/Logout depending on
+	// whether gGameConfig->titleCredential is currently empty. Called once
+	// at menu construction and again after every login/logout so the two
+	// places (init, menu_handler.cpp's button dispatch) never duplicate
+	// the label logic.
+	void UpdateTitleAuthButton();
 	struct RepoGui {
 		std::string path;
 		IProgressBar* progress1;

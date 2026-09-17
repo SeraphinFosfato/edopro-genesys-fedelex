@@ -169,6 +169,26 @@ std::string TitleStore::BoundUserRef() const {
 	return bound_user_ref_;
 }
 
+void TitleStore::ClearForLogout() {
+	{
+		std::lock_guard<epro::mutex> lock(mutex_);
+		title_ = title::StoredTitle{};
+		block_ = title::StoredBlock{};
+		has_bound_user_ref_ = false;
+		bound_user_ref_.clear();
+		generation_.fetch_add(1, std::memory_order_relaxed);
+	}
+	// Deleting is best-effort, same as the rest of this file's disk I/O: a
+	// file that fails to delete (permissions, already gone) leaves stale
+	// bytes on disk, but the in-memory state above is what every accessor
+	// and LoadFromDisk's D104 check actually reasons about while the
+	// process keeps running — a leftover file on disk cannot resurrect a
+	// binding LoadFromDisk() will not read again until the next launch.
+	Utils::FileDelete(JoinPath(STORE_FOLDER, TITLE_NAME));
+	Utils::FileDelete(JoinPath(STORE_FOLDER, BLOCK_NAME));
+	Utils::FileDelete(JoinPath(STORE_FOLDER, USER_REF_NAME));
+}
+
 bool TitleStore::AtomicWrite(epro::path_stringview path, const std::string& bytes) {
 	const auto tmp_path = epro::format(EPRO_TEXT("{}.tmp"), path);
 	if(!Utils::CreatePath(tmp_path))

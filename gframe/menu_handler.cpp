@@ -10,6 +10,8 @@
 #include "image_manager.h"
 #include "game.h"
 #include "server_lobby.h"
+#include "title_store.h"
+#include "utils.h"
 #include "utils_gui.h"
 #include "CGUIFileSelectListBox/CGUIFileSelectListBox.h"
 #include "CGUITTFont/CGUITTFont.h"
@@ -138,6 +140,42 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 			switch(id) {
 			case BUTTON_MODE_EXIT: {
 				mainGame->device->closeDevice();
+				break;
+			}
+			case BUTTON_TITLE_AUTH: {
+				// FASE 4f, §12: this single button toggles Login/Logout
+				// depending on current state, rather than being two
+				// separately-shown buttons — mirrors the button's own label,
+				// set by UpdateTitleAuthButton().
+				if(gGameConfig->titleCredential.empty()) {
+					mainGame->HideElement(mainGame->wMainMenu);
+					mainGame->ShowElement(mainGame->wTitleAuth);
+				} else {
+					// Logout is instant, no confirmation window: symmetric
+					// with how casually a credential is entered, and the
+					// player can always log back in immediately if this was
+					// a mistake — nothing destructive happens on this
+					// client's side beyond the D104 binding, which
+					// ClearForLogout() resets right here.
+					gGameConfig->titleCredential.clear();
+					mainGame->SaveConfig();
+					if(gTitleStore)
+						gTitleStore->ClearForLogout();
+					mainGame->UpdateTitleAuthButton();
+				}
+				break;
+			}
+			case BUTTON_TITLE_AUTH_SAVE: {
+				gGameConfig->titleCredential = Utils::ToUTF8IfNeeded(mainGame->ebTitleCredential->getText());
+				mainGame->SaveConfig();
+				mainGame->UpdateTitleAuthButton();
+				mainGame->HideElement(mainGame->wTitleAuth);
+				mainGame->ShowElement(mainGame->wMainMenu);
+				break;
+			}
+			case BUTTON_TITLE_AUTH_CANCEL: {
+				mainGame->HideElement(mainGame->wTitleAuth);
+				mainGame->ShowElement(mainGame->wMainMenu);
 				break;
 			}
 			case BUTTON_ONLINE_MULTIPLAYER: {

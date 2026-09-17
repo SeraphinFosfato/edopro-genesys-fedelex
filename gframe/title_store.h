@@ -80,6 +80,15 @@ public:
 	bool HasBoundUserRef() const;
 	std::string BoundUserRef() const;
 
+	// Logout (§12): wipes the in-memory title/block/user_ref binding AND the
+	// three cached files on disk. Clearing only gGameConfig->titleCredential
+	// would not be enough — D104's bound_user_ref_ would survive on disk and
+	// silently reject a DIFFERENT player's very first check-in on a shared
+	// client install, forever, with no way for them to tell why. Bumps
+	// Generation() same as any other state change, so the main loop
+	// re-evaluates CurrentAccess() (back to NoTitle) on the next frame.
+	void ClearForLogout();
+
 	// Bumped every time ApplyResponse() (or a LoadFromDisk() re-apply)
 	// actually changes state. The main loop (game.cpp) compares this
 	// against the last value it saw to know when to re-evaluate
