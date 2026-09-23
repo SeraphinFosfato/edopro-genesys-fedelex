@@ -55,6 +55,17 @@ jobs:
         #   libvorbis libogg openal nlohmann-json zlib-ng-compat base-devel git
         # + header X11 per compilare Irrlicht da sorgente: su Arch li porta
         # con sé il pacchetto mesa come dipendenza transitiva, su Ubuntu no.
+        # + libwayland-dev e libxkbcommon-dev: stesso motivo, sempre per
+        #   Irrlicht (CEGLManager.cpp -> CIrrDeviceWayland.h include
+        #   <wayland-version.h> e <xkbcommon/xkbcommon.h>). Su Arch arrivano
+        #   entrambi come dipendenza transitiva di mesa; su Ubuntu vanno
+        #   installati a parte. Mancavano, ed erano la causa del primo
+        #   fallimento di questo job (run 35230407346, 2026-09-17): prima
+        #   "fatal error: wayland-version.h", poi (una volta aggiunto
+        #   libwayland-dev) "fatal error: xkbcommon/xkbcommon.h". Trovato
+        #   riproducendo in un container ubuntu:24.04 con solo questa lista
+        #   installata — build locale su Arch nascondeva il problema perche'
+        #   li' quelle librerie erano gia' presenti come dipendenza di mesa.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -62,7 +73,8 @@ jobs:
             libcurl4-openssl-dev libevent-dev libgit2-dev libssh2-1-dev \
             libfmt-dev libflac-dev libvorbis-dev libogg-dev libopenal-dev \
             nlohmann-json3-dev zlib1g-dev build-essential git \
-            libx11-dev libxxf86vm-dev libxcursor-dev libxrandr-dev libxi-dev
+            libx11-dev libxxf86vm-dev libxcursor-dev libxrandr-dev libxi-dev \
+            libwayland-dev libxkbcommon-dev
 
       - name: Risolvi il commit di edo9300/irrlicht1-8-4@1.9-custom
         id: irrlicht-sha

@@ -29,8 +29,25 @@ fi
 # (bit us twice already: the irrlicht include path, then the rpath flag).
 rm -rf "$REPO_ROOT/build" "$REPO_ROOT/obj" "$REPO_ROOT/bin"
 
+# --irrlicht-root esplicito, con path assoluto gia' risolto (niente "..").
+# gframe/premake5.lua, senza questa opzione, ricava il path da solo come
+# INVOCATION_CWD .. "/../irrlicht-custom" (stringa con ".." non normalizzata)
+# e lo passa cosi' com'e' al calcolo del path relativo di premake5 verso
+# build/. Quando REPO_ROOT e' vicino alla radice del filesystem (un runner
+# CI che fa checkout in un path corto tipo /home/runner/work/.../repo, o un
+# container) quel calcolo sbaglia silenziosamente: genera un include tipo
+# "../gframe/irrlicht-custom/include" invece di "../../irrlicht-custom/include",
+# la libreria non si trova e la build fallisce su IrrCompileConfig.h — ma
+# solo li', non su path piu' profondi come una checkout locale annidata in
+# tanti livelli di cartelle, dove lo stesso calcolo per caso riesce. E' la
+# terza voce della stessa categoria gia' citata nel commento sopra (path
+# irrlicht, poi rpath): niente qui dipende davvero dalla posizione di
+# INVOCATION_CWD, quindi si passa un path assoluto gia' risolto e si toglie
+# il problema alla radice invece di sperare che il calcolo relativo funzioni.
+IRRLICHT_ROOT="$(cd "$REPO_ROOT/../irrlicht-custom" && pwd)"
+
 echo "Genero i Makefile..."
-./premake5 gmake2 --no-core=true --sound=sfml --no-joystick=true
+./premake5 gmake2 --no-core=true --sound=sfml --no-joystick=true --irrlicht-root="$IRRLICHT_ROOT"
 
 echo "Compilo (config=${CONFIG}_x64)..."
 make -Cbuild -j"$(nproc)" config="${CONFIG}_x64" ygoprodll
