@@ -72,13 +72,23 @@ jobs:
     name: Build Windows (cross, MinGW)
     runs-on: ubuntu-latest
     steps:
+      # submodules: recursive, non true. Il job Linux passa --no-core=true e
+      # quindi non se ne accorge, ma qui il core e' linkato staticamente:
+      # senza i submodule `ocgcore/` resta vuoto e premake si ferma su
+      # "cannot open ocgcore". Ricorsivo perche' ocgcore ha a sua volta
+      # lua/src, e senza quello manca lauxlib.h.
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Installa il toolchain MinGW e le dipendenze di sistema
+        # `file` serve alla verifica finale di build_windows.sh (D178): lo
+        # script controlla che ygopro.exe sia davvero un PE32 e non si fida
+        # di un make uscito con 0.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            g++-mingw-w64-i686 gcc-mingw-w64-i686 unzip \
+            g++-mingw-w64-i686 gcc-mingw-w64-i686 unzip file \
             nlohmann-json3-dev build-essential git
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -112,11 +122,14 @@ jobs:
       - name: Build
         run: tools/release/build_windows.sh release
 
+      # D178: il percorso e' quello che premake produce davvero (bin/release/),
+      # non bin/x86/release/ — che era scritto qui e nello script e non
+      # corrispondeva a niente, perche' non ci si era mai arrivati.
       - name: Carica il binario Windows
         uses: actions/upload-artifact@v4
         with:
-          name: windows-binary
-          path: bin/x86/release/ygopro.exe
+          name: edopro-custom-windows-x86
+          path: bin/release/ygopro.exe
           if-no-files-found: error
 
   publish:
@@ -134,9 +147,11 @@ jobs:
           name: linux-binary
           path: dist/
 
+      # Solo il nome dell'artefatto, allineato a quello che il job Windows
+      # carica ora (D178). Niente altro di questo job e' toccato.
       - uses: actions/download-artifact@v4
         with:
-          name: windows-binary
+          name: edopro-custom-windows-x86
           path: dist/
 
       - name: Crea la Release
