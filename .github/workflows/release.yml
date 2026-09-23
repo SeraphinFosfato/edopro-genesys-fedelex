@@ -69,8 +69,19 @@ jobs:
           if-no-files-found: error
 
   build-windows:
-    name: Build Windows (cross, MinGW)
-    runs-on: ubuntu-latest
+    # D183: si compila su Windows vero, con MSVC, non piu' cross-compilando da
+    # Linux. Tutti gli ostacoli del cross-build — le maiuscole degli header, il
+    # modello di thread, la versione del CRT, la cache vcpkg incompatibile —
+    # erano artefatti del cross-compilare, e qui non esistono. Il percorso
+    # cross resta in tools/release/build_windows.sh finche' questo non e'
+    # verde: e' l'unica strada che aveva funzionato fin dove aveva funzionato.
+    #
+    # Cio' che si distribuisce non cambia: sempre bin/release/ygopro.exe, x86,
+    # col core e il runtime collegati staticamente dentro (premake5.lua:
+    # staticruntime "on"), nessun file a fianco e nessun redistribuibile da
+    # installare. Cambia il compilatore, non il file.
+    name: Build Windows (MSVC, x86)
+    runs-on: windows-latest
     steps:
       # submodules: recursive, non true. Il job Linux passa --no-core=true e
       # quindi non se ne accorge, ma qui il core e' linkato staticamente:
@@ -81,46 +92,17 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Installa il toolchain MinGW e le dipendenze di sistema
-        # `file` serve alla verifica finale di build_windows.sh (D178): lo
-        # script controlla che ygopro.exe sia davvero un PE32 e non si fida
-        # di un make uscito con 0.
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            g++-mingw-w64-i686 gcc-mingw-w64-i686 unzip file \
-            nlohmann-json3-dev build-essential git
-        env:
-          DEBIAN_FRONTEND: noninteractive
-
-      - name: Risolvi il commit di edo9300/irrlicht1-8-4@1.9-custom
-        id: irrlicht-sha
-        run: |
-          sha="$(git ls-remote https://github.com/edo9300/irrlicht1-8-4.git refs/heads/1.9-custom | cut -f1)"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-
-      - name: Risolvi il tag piu' recente di edo9300/edopro-vcpkg-cache
-        id: vcpkg-tag
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          tag="$(gh api repos/edo9300/edopro-vcpkg-cache/releases/latest --jq .tag_name)"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Irrlicht sorgente (condivisa con la build Linux)
-        uses: actions/cache@v4
-        with:
-          path: ../irrlicht-custom
-          key: irrlicht-linux-${{ steps.irrlicht-sha.outputs.sha }}
-
-      - name: Cache vcpkg precompilato (mingw-static)
-        uses: actions/cache@v4
-        with:
-          path: ../vcpkg-cache
-          key: vcpkg-mingw-${{ steps.vcpkg-tag.outputs.tag }}
-
+      # Niente installazione di toolchain: il runner Windows monta gia' Visual
+      # Studio 2022 e vcpkg. Lo script trova MSBuild con vswhere, cosi' non
+      # serve nessuna azione di terze parti ne' un percorso cablato che cambia
+      # a ogni aggiornamento dell'immagine.
+      #
+      # Niente cache, per ora: questo job non ha mai girato, e ogni pezzo in
+      # piu' e' un modo in piu' di fallire per una ragione che non c'entra con
+      # la build. Si aggiunge quando e' verde, non prima.
       - name: Build
-        run: tools/release/build_windows.sh release
+        shell: pwsh
+        run: tools/release/build_windows.ps1 release
 
       # D178: il percorso e' quello che premake produce davvero (bin/release/),
       # non bin/x86/release/ — che era scritto qui e nello script e non

@@ -169,7 +169,10 @@ make -Cbuild -j"$(nproc)" config="$MAKE_CONFIG" \
 
 # D178, la meta' che conta: un `make` uscito con 0 non e' una prova che il
 # binario esista. La verifica sta in uno script a parte apposta per poterla
-# far fallire a comando — il perche' e' scritto li' dentro.
-"$SCRIPT_DIR/verify_windows_exe.sh" "$EXE"
+# far fallire a comando — il perche' e' scritto li' dentro. E' la stessa che
+# usa il percorso Windows (build_windows.ps1): una sola, in Python, perche' su
+# un runner Windows `file` non esiste e due controlli diversi per la stessa
+# cosa sono due cose che possono divergere.
+python3 "$SCRIPT_DIR/verify_windows_exe.py" "$EXE"
 
 echo "Fatto: bin/${CONFIG}/ygopro.exe"
