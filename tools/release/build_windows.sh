@@ -54,6 +54,14 @@ fi
 
 rm -rf "$REPO_ROOT/build" "$REPO_ROOT/obj" "$REPO_ROOT/bin"
 
+# Nota per chi ritocca questo script dopo aver visto la correzione in
+# build_linux.sh (--irrlicht-root assoluto, contro un path relativo che
+# sbaglia su un checkout poco profondo): verificato in gframe/premake5.lua
+# che tutto il blocco che legge --irrlicht-root e' dentro
+# `if not os.istarget("windows")` (righe 221-235) — per il target Windows
+# quell'opzione non viene letta affatto, Irrlicht qui arriva da sorgente
+# copiato in irrlicht/include e irrlicht/src (sopra), non da --irrlicht-root.
+# Il bug non si applica a questo script: non serve la stessa toppa.
 echo "Genero i Makefile (target Windows x86, MinGW)..."
 ./premake5 gmake2 --os=windows --architecture=x86 --no-direct3d \
     --vcpkg-root="$VCPKG_ROOT" --sound=sfml --no-joystick=true

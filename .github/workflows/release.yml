@@ -1,13 +1,22 @@
 name: Release
 
-# Solo su tag v*. Nessun segreto: GitHub Releases usa il GITHUB_TOKEN
-# automatico (CLAUDE.md/FASE 8, decisione 6). Niente logica di build qui:
-# entrambi i job chiamano tools/release/*.sh.
+# Solo su tag v* pubblica davvero. Nessun segreto: GitHub Releases usa il
+# GITHUB_TOKEN automatico (CLAUDE.md/FASE 8, decisione 6). Niente logica di
+# build qui: entrambi i job chiamano tools/release/*.sh.
+#
+# workflow_dispatch (aggiunto, mai eseguito prima di questa sessione:
+# nessun tag e' mai stato pushato su questo repo) serve SOLO a provare che
+# build-linux e build-windows producano un binario, senza pubblicare nulla:
+# il job `publish` sotto e' guardato con `if: startsWith(github.ref, 'refs/tags/')`
+# apposta, quindi un dispatch manuale si ferma prima di quel passo — non
+# chiama mai `gh release create`. Un push di tag v* continua a fare tutti e
+# tre i job come prima, il guard non cambia niente per quel percorso.
 
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -21,7 +30,12 @@ jobs:
 
       - name: Installa le dipendenze di sistema
         # Stessa lista di ci.yml / tools/release/build_linux.sh — tenerle
-        # vicine, si disallineano facilmente.
+        # vicine, si disallineano facilmente. libwayland-dev/libxkbcommon-dev
+        # erano mancanti qui (mai arrivate quando sono state aggiunte a
+        # ci.yml per il run 35230407346, 2026-09-17): senza, la build fallisce
+        # su "fatal error: wayland-version.h" / "xkbcommon/xkbcommon.h"
+        # (Irrlicht include sempre CIrrDeviceWayland.h su Linux). Sincronizzata
+        # con la lista di ci.yml, non riprogettata.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -29,7 +43,8 @@ jobs:
             libcurl4-openssl-dev libevent-dev libgit2-dev libssh2-1-dev \
             libfmt-dev libflac-dev libvorbis-dev libogg-dev libopenal-dev \
             nlohmann-json3-dev zlib1g-dev build-essential git \
-            libx11-dev libxxf86vm-dev libxcursor-dev libxrandr-dev libxi-dev
+            libx11-dev libxxf86vm-dev libxcursor-dev libxrandr-dev libxi-dev \
+            libwayland-dev libxkbcommon-dev
 
       - name: Risolvi il commit di edo9300/irrlicht1-8-4@1.9-custom
         id: irrlicht-sha
@@ -107,6 +122,9 @@ jobs:
   publish:
     name: Pubblica la Release
     needs: [build-linux, build-windows]
+    # Guard per workflow_dispatch (vedi commento in cima al file): solo un
+    # push di tag v* arriva a pubblicare davvero.
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
