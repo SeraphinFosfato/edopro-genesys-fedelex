@@ -149,8 +149,11 @@ jobs:
 
           - \`ygoprodll\` — client Linux x64. Da mettere accanto al proprio
             eseguibile \`EDOPro\` (vedi README).
-          - \`ygopro.exe\` — client Windows x86, cross-compilato da Linux con
-            MinGW. **Mai eseguito su Windows vero**: nessuno lo ha ancora
-            provato su hardware reale, trattalo come beta.
+          - \`ygopro.exe\` — client Windows x86, compilato su Windows con
+            MSVC (D183). Un file solo, autosufficiente: non serve installare
+            nessun redistribuibile. **Mai eseguito su Windows vero**:
+            compilarlo su Windows non e' averlo provato su Windows, e
+            nessuno lo ha ancora aperto su hardware reale. Trattalo come
+            beta.
           EOF
           )"
