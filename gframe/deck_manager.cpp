@@ -1,5 +1,8 @@
 #include <algorithm>
 #include <functional>
+// std::istringstream in LoadLFListSingle: con libstdc++ arriva di rimbalzo da
+// un altro header, con MSVC no (error C2079). Esplicito perche' qui si usa.
+#include <sstream>
 #include <zlib.h>
 #include "network.h"
 #include "deck_manager.h"
@@ -66,7 +69,7 @@ bool DeckManager::LoadLFListSingle(const epro::path_string& path) {
 		}
 		if(!lflist.hash)
 			continue;
-	std::istringstream iss(str);
+		std::istringstream iss(str);
 		uint32_t code = 0;
 		int limit = 3;
 		int points = 0;
