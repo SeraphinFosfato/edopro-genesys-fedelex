@@ -5,6 +5,13 @@ project "Irrlicht"
 	dofile("defines.lua")
 	exceptionhandling "Off"
 	rtti "Off"
+	-- Dichiarato qui e non nel premake5.lua di radice: quello governa anche la
+	-- build Linux, che e' verde ed e' l'unico binario che stiamo distribuendo,
+	-- e gframe/ocgcore lo dichiarano gia' ognuno per se'. Senza, con MSVC
+	-- questo progetto eredita il default C++14 e COSOperatorWindows.cpp non
+	-- compila (C2429, init-statement dentro un if). Su Linux non si vedeva:
+	-- g++ accetta quella costruzione anche senza il flag esplicito.
+	cppdialect "C++17"
 	files { "**.cpp", "**.c", "**.cxx", "**.hpp", "**.h" }
 	warnings "Default"
 
