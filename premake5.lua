@@ -252,6 +252,15 @@ workspace "ygo"
 	filter "action:vs*"
 		vectorextensions "SSE2"
 		buildoptions "-wd4996"
+		-- Senza questo MSVC legge i sorgenti nella codepage di sistema, non in
+		-- UTF-8: ogni carattere non inglese dentro un L"..." diventa i suoi byte
+		-- UTF-8 presi uno per uno. "La point list e' stata aggiornata" usciva a
+		-- schermo come "La point list Ã¨ stata aggiornata" (misurato dentro
+		-- ygopro.exe: U+00C3 U+00A8 invece di U+00E8). A monte non serviva perche'
+		-- EDOPro compila Windows con MinGW, e GCC assume UTF-8; il problema
+		-- nasce con la build MSVC, che e' nostra. Vale per tutte e 32 le righe
+		-- non-ASCII di gframe/, comprese le frecce di deck_con.cpp.
+		buildoptions "-utf-8"
 		defines "_CRT_SECURE_NO_WARNINGS"
 
 	filter "action:not vs*"
