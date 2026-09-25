@@ -15,11 +15,13 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <sstream>
 #include <string>
 #include <vector>
 #include "banlist_keys.h"
 #include "banlist_verify.h"
 #include "lflist_hash.h"
+#include "room_list_notice.h"
 // See the matching comment in banlist_verify.cpp: tweetnacl.h has no
 // extern "C" guard of its own.
 extern "C" {
@@ -66,6 +68,47 @@ std::string ReadFixture(const char* name) {
 		return {};
 	}
 	return std::string(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+}
+
+// Folds a real .lflist.conf the same way DeckManager::LoadLFListSingle does
+// (deck_manager.cpp): skip blank/comment/whitelist-marker lines, reset on a
+// `!name` header, read "code limit [points]" per entry, fold every entry
+// through FoldLFListEntry. Kept deliberately independent of DeckManager
+// itself — that class carries irrlicht/curl and has no place in this
+// network-free binary (tests/premake5.lua) — so this only needs to agree
+// with it on the parsing rules, which the cancello-1 check below verifies
+// against a number read off the live network, not reimplemented trust.
+uint32_t FoldConfFile(const char* path) {
+	std::ifstream f(path);
+	if(!f) {
+		std::printf("  FIXTURE MISSING: %s (run the binary from the repository root)\n", path);
+		return 0;
+	}
+	uint32_t hash = 0;
+	std::string line;
+	while(std::getline(f, line)) {
+		if(!line.empty() && line.back() == '\r')
+			line.pop_back();
+		if(line.empty() || line[0] == '#')
+			continue;
+		if(line[0] == '!') {
+			hash = LFLIST_HASH_SEED;
+			continue;
+		}
+		if(!hash)
+			continue;
+		std::istringstream iss(line);
+		uint32_t code = 0;
+		int limit = 3;
+		int points = 0;
+		iss >> code >> limit;
+		if(iss.fail() || code == 0)
+			continue;
+		if(!(iss >> points))
+			points = 0;
+		hash = FoldLFListEntry(hash, code, limit, points);
+	}
+	return hash;
 }
 
 // TweetNaCl's secret key format is 64 bytes: a 32-byte seed followed by the
@@ -243,6 +286,60 @@ void test_points_change_the_hash() {
 	check(hash_low_points != hash_high_points, "two entries differing only in points must hash differently");
 }
 
+void test_a_list_with_no_points_folds_to_the_network_hash() {
+	// FASE 31, cancello 1 — the one that counts: design/banlist-distribution.md,
+	// "L'hash non è nostro". `OCG.lflist.conf` ("2026.07 OCG") folded through
+	// FoldLFListEntry must land on 0x857713b8 bit-for-bit — that number was
+	// read off the live server (EU Central Competitive, 2026-09-25), it is
+	// what every other EDOPro already calls this list, not a value we chose.
+	// Before FASE 31 this folded to a different number nobody else on the
+	// network could produce, because points were mixed in even at zero.
+	const uint32_t hash = FoldConfFile("runtime/repositories/lflists/OCG.lflist.conf");
+	check(hash == 0x857713b8u,
+		 "OCG.lflist.conf (all-zero points) must fold to exactly the hash the live network uses for it");
+}
+
+void test_same_entries_hash_the_same_regardless_of_read_order() {
+	// FASE 31, cancello 3 — the same list read from a .conf
+	// (DeckManager::LoadLFListSingle) and built in memory from a signed
+	// banlist.json (BanlistUpdater) must produce the same hash. Both call
+	// sites already fold every entry through this one function (deck_manager.cpp,
+	// banlist_updater.cpp), and XOR is commutative/associative by construction
+	// (the doc comment in lflist_hash.h), so what actually varies between the
+	// two provenances — the ORDER entries are folded in (map iteration for
+	// .conf, array order for JSON) — must not matter. Includes a zero-points
+	// and a non-zero-points entry together, so this also exercises the new
+	// conditional term in both branches.
+	struct Entry { uint32_t code; int limit; int points; };
+	const Entry entries[] = {
+		{ 11384280u, 3, 0 },
+		{ 44763025u, 1, 462 },
+		{ 4280259u, 0, 0 },
+		{ 20292186u, 2, 15 },
+	};
+	uint32_t forward = LFLIST_HASH_SEED;
+	for(const auto& e : entries)
+		forward = FoldLFListEntry(forward, e.code, e.limit, e.points);
+	uint32_t reversed = LFLIST_HASH_SEED;
+	for(auto it = std::rbegin(entries); it != std::rend(entries); ++it)
+		reversed = FoldLFListEntry(reversed, it->code, it->limit, it->points);
+	check(forward == reversed, "the same entries folded in a different order must produce the same hash");
+}
+
+void test_room_warns_only_when_the_returned_hash_differs_from_the_one_sent() {
+	// FASE 31, cancello 5 — design/banlist-distribution.md, "Quando qualcun
+	// altro sostituisce la lista, si dice". ShouldWarnAboutListSubstitution
+	// (room_list_notice.h) is the pure decision duelclient.cpp's STOC_JOIN_GAME
+	// handler acts on; exercised here directly since the handler itself needs
+	// irrlicht/curl/a network and has no place in this binary.
+	check(ShouldWarnAboutListSubstitution(0x857713b8u, 0x00000000u),
+		 "a returned hash different from the one sent while hosting must warn");
+	check(!ShouldWarnAboutListSubstitution(0x857713b8u, 0x857713b8u),
+		 "a returned hash equal to the one sent must not warn");
+	check(!ShouldWarnAboutListSubstitution(0u, 0x857713b8u),
+		 "no warning is possible when we sent no list at all (we joined, we didn't host)");
+}
+
 void test_malformed_format_version_is_refused_like_a_bad_signature() {
 	const auto document = ReadFixture("schema_bad_format_version.json");
 	if(document.empty()) {
@@ -329,6 +426,9 @@ int main() {
 	test_unreachable_endpoint_leaves_the_active_list_alone();
 	test_interrupted_staging_leaves_no_half_written_pair();
 	test_points_change_the_hash();
+	test_a_list_with_no_points_folds_to_the_network_hash();
+	test_same_entries_hash_the_same_regardless_of_read_order();
+	test_room_warns_only_when_the_returned_hash_differs_from_the_one_sent();
 	test_malformed_format_version_is_refused_like_a_bad_signature();
 	test_unknown_macro_value_is_a_schema_violation();
 	test_reason_absent_and_reason_empty_are_not_the_same_thing();

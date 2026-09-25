@@ -30,6 +30,14 @@ private:
 	static uint32_t watching;
 	static uint8_t selftype;
 	static bool is_host;
+	// design/banlist-distribution.md, "Quando qualcun altro sostituisce la
+	// lista, si dice": the hash this client sent in CTOS_CREATE_GAME, kept
+	// around only long enough to compare it against the hash the server
+	// echoes back in STOC_JOIN_GAME. Zero means "not currently waiting on
+	// that echo" — never a real list's hash: DeckManager::LoadLFListSingle
+	// only ever keeps a list whose folded hash is non-zero, and this is set
+	// only while hosting (never when joining, where no list was sent).
+	static uint32_t hosted_lflist_hash;
 	static event_base* client_base;
 	static bufferevent* client_bev;
 	static bool is_closing;

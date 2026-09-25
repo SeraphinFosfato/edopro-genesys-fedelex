@@ -22,16 +22,27 @@ inline constexpr uint32_t LFLIST_HASH_SEED = 0x7dfcee6a;
 // shifts means no future caller can reintroduce the UB by forgetting to.
 inline uint32_t FoldLFListEntry(uint32_t hash, uint32_t code, int limit, int points) {
 	limit = std::clamp(limit, 0, 3);
-	// Points are mixed in through a fixed-amount rotation — never shifted by
-	// an amount derived from points, which would be the same UB by another
-	// door. Without them two clients agreeing on every id/limit but not on
-	// points hash identically, consider each other compatible, and disagree
-	// in silence about which decks are legal.
-	const uint32_t points_mixed = code ^ (static_cast<uint32_t>(points) * 0x1000193u);
-	return hash
+	uint32_t folded = hash
 		^ ((code << 18) | (code >> 14))
-		^ ((code << (27 + limit)) | (code >> (5 - limit)))
-		^ ((points_mixed << 7) | (points_mixed >> 25));
+		^ ((code << (27 + limit)) | (code >> (5 - limit)));
+	// The hash is not ours: it is the identifier every EDOPro on the network
+	// uses to name a list (design/banlist-distribution.md, "L'hash non è
+	// nostro"). A list with no points must fold to bit-for-bit the same value
+	// upstream produces — mixing points in unconditionally gave every list,
+	// including the standard ones nobody here ever touched, a hash that
+	// exists nowhere else on the network. So the points term is folded in
+	// only when there is a point cost to disagree about: mixed through a
+	// fixed-amount rotation — never shifted by an amount derived from points,
+	// which would be the same UB by another door. With it, two clients
+	// agreeing on every id/limit but not on points still hash differently and
+	// notice they disagree about what's legal; without a single non-zero
+	// points entry, that disagreement doesn't exist yet, so nothing needs to
+	// be folded in for it.
+	if(points != 0) {
+		const uint32_t points_mixed = code ^ (static_cast<uint32_t>(points) * 0x1000193u);
+		folded ^= ((points_mixed << 7) | (points_mixed >> 25));
+	}
+	return folded;
 }
 
 }

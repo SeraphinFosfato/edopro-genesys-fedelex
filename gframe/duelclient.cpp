@@ -30,6 +30,7 @@
 #include "porting.h"
 #include "fmt.h"
 #include "localtime.h"
+#include "room_list_notice.h"
 
 #define DEFAULT_DUEL_RULE 5
 namespace ygo {
@@ -39,6 +40,7 @@ std::vector<uint8_t> DuelClient::response_buf;
 uint32_t DuelClient::watching = 0;
 uint8_t DuelClient::selftype = 0;
 bool DuelClient::is_host = false;
+uint32_t DuelClient::hosted_lflist_hash = 0;
 bool DuelClient::is_local_host = false;
 std::atomic<bool> DuelClient::answered{ false };
 event_base* DuelClient::client_base = nullptr;
@@ -214,6 +216,9 @@ void DuelClient::ClientRead(bufferevent* bev, [[maybe_unused]] void* ctx) {
 void DuelClient::ClientEvent([[maybe_unused]] bufferevent *bev, short events, void *ctx) {
 	if (events & BEV_EVENT_CONNECTED) {
 		bool create_game = (size_t)ctx != 0;
+		// Reset here unconditionally: a join (no list sent) must never carry
+		// over a stale hash from a previous hosting attempt in this process.
+		hosted_lflist_hash = 0;
 		CTOS_PlayerInfo cspi;
 		BufferIO::EncodeUTF16(mainGame->ebNickName->getText(), cspi.name, 20);
 		SendPacketToServer(CTOS_PLAYER_INFO, cspi);
@@ -232,6 +237,7 @@ catch(...) { what = def; }
 			TOI(cscg.info.draw_count, mainGame->ebDrawCount->getText(), 1);
 			TOI(cscg.info.time_limit, mainGame->ebTimeLimit->getText(), 0);
 			cscg.info.lflist = gGameConfig->lastlflist = mainGame->cbHostLFList->getItemData(mainGame->cbHostLFList->getSelected());
+			hosted_lflist_hash = cscg.info.lflist;
 			cscg.info.duel_rule = 0;
 			cscg.info.duel_flag_low = mainGame->duel_param & 0xffffffff;
 			cscg.info.duel_flag_high = (mainGame->duel_param >> 32) & 0xffffffff;
@@ -692,6 +698,25 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 	case STOC_JOIN_GAME: {
 		temp_ver = 0;
 		auto pkt = BufferIO::getStruct<STOC_JoinGame>(pdata, len);
+		// design/banlist-distribution.md, "Quando qualcun altro sostituisce
+		// la lista, si dice": whoever runs the room's server side looks up
+		// the hash we sent among ITS OWN lists and, not finding it, swaps in
+		// one of its own without saying so (netserver.cpp, the `hash == 1`
+		// branch; Project Ignis's public servers swap in zero, i.e. no list
+		// at all). `hosted_lflist_hash` is non-zero only right after we sent
+		// CTOS_CREATE_GAME with it — never when we joined someone else's
+		// room, where we sent no list to compare against. A silent "N/A" in
+		// a corner of the screen is not a warning, so this says it plainly:
+		// which list we chose and which one is actually in force here.
+		if(ShouldWarnAboutListSubstitution(hosted_lflist_hash, pkt.info.lflist)) {
+			const auto chosen_name = gdeckManager->GetLFListName(hosted_lflist_hash);
+			const auto active_name = gdeckManager->GetLFListName(pkt.info.lflist);
+			mainGame->PopupMessage(epro::format(
+				L"La lista scelta, \"{}\", non è quella in vigore in questa stanza: "
+				L"il server l'ha sostituita con \"{}\". In questa stanza il formato "
+				L"non è applicato.", chosen_name, active_name).data());
+		}
+		hosted_lflist_hash = 0;
 		mainGame->dInfo.isInLobby = true;
 		mainGame->dInfo.compat_mode = pkt.info.handshake != SERVER_HANDSHAKE;
 		mainGame->dInfo.legacy_race_size = mainGame->dInfo.compat_mode || (pkt.info.version.core.major < 10);
