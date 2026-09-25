@@ -191,6 +191,40 @@ l'hash della nostra lista.** Client vecchi e nuovi non si riconosceranno fra
 loro. È un cambio che si fa mentre i giocatori sono pochi, e va accompagnato
 dall'aggiornatore di `client-update.md`, non prima.
 
+### Il tetto di punti è un dato della lista, non del binario
+
+Il budget di punti per mazzo sta **nell'artefatto firmato**
+(`points_budget`, campo di lista), mai cablato nel client: è una proprietà
+del **formato**, e cablarla vorrebbe dire una release nuova — e tutti che
+reinstallano — ogni volta che il tetto cambia. **Campo assente = nessun
+tetto applicato**, così gli artefatti già firmati restano validi senza
+nessuna migrazione.
+
+**Il tetto entra nell'hash**, con un termine di **lista** piegato una volta
+sola, che vale **zero quando il campo non c'è**. È lo stesso argomento dei
+punti: due giocatori che concordano su ogni id, limite e punto ma non sul
+tetto **non sono compatibili**, e senza questo termine si siederebbero allo
+stesso tavolo credendo di esserlo. Da qui la regola generale, che vale per
+qualunque dato futuro di questo tipo: *un termine di lista si piega una
+volta sola e non contribuisce quando il dato non c'è* — è la stessa forma
+che tiene compatibili le liste senza punti.
+
+**Si applica dove si applica tutto il resto**: in `CheckDeckContent`, cioè
+lato server al momento del "pronto". Il contatore dell'editor **non è un
+controllo**: è locale, è un aiuto per chi costruisce il mazzo, e contro un
+avversario non vale niente. Lo stato accertato il 2026-09-25 è che
+`CountPoints` era chiamata **solo** dall'editor e dal codice che disegna il
+numero a schermo, e che un tetto non esisteva da nessuna parte: il budget
+era un'etichetta, non una regola.
+
+Il rifiuto porta **totale e tetto** nella struttura `count` che esiste già
+(`current` / `maximum`) e un tipo d'errore aggiunto **in fondo** a
+`DeckError::DERR_TYPE`, mai in mezzo: quell'enumerazione viaggia per
+posizione, e rinumerarla cambierebbe il significato di ogni errore già
+esistente. Conseguenza da dichiarare invece che nascondere: un EDOPro
+normale rifiutato per punti riceve un tipo che la sua enumerazione non ha, e
+non vedrà un messaggio sensato.
+
 ### Quando qualcun altro sostituisce la lista, si dice
 
 Chi esegue il lato server di una stanza cerca l'hash fra **le proprie** liste
