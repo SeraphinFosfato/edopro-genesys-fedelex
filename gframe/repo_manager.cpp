@@ -251,12 +251,42 @@ void RepoManager::CloneOrUpdateTask() {
 		lck.unlock();
 		GitRepo::CommitHistory history;
 		try {
-			auto DoesRepoExist = [](const char* path) -> bool {
+			// FASE 30. Prima questa lambda chiedeva soltanto "si apre?", e
+			// un clone interrotto a meta' si apre eccome: la cartella .git
+			// c'e', ma dentro non c'e' nessun riferimento. Da li' in poi il
+			// ramo "esiste, aggiorno" partiva a ogni avvio e moriva sempre
+			// allo stesso punto — "revspec 'HEAD' not found", "reference
+			// 'refs/heads/master' not found" — sei volte in cinquanta minuti
+			// nell'error.log di un tester il 2026-09-25, per sempre, senza
+			// che niente rifacesse la copia.
+			//
+			// Non era il rename master -> main di GitHub: verificato via API
+			// che ProjectIgnis/DeltaBagooska ha il ramo master ed e' il suo
+			// predefinito. Il guasto e' locale, e la cura e' locale.
+			//
+			// Quindi: una copia che si apre ma non ha un HEAD risolvibile
+			// non e' un repo da aggiornare, e' spazzatura da buttare. Il
+			// chiamante la tratta come assente e la riclona — perche'
+			// riprovare la stessa operazione destinata a fallire non e' un
+			// tentativo, e' un ciclo.
+			bool local_copy_unusable = false;
+			auto DoesRepoExist = [&local_copy_unusable](const char* path) -> bool {
 				git_repository* tmp = nullptr;
 				int status = git_repository_open_ext(&tmp, path,
 													 GIT_REPOSITORY_OPEN_NO_SEARCH, nullptr);
+				if(status != 0) {
+					git_repository_free(tmp);
+					return false;
+				}
+				git_object* head = nullptr;
+				const int head_status = git_revparse_single(&head, tmp, "HEAD");
+				git_object_free(head);
 				git_repository_free(tmp);
-				return status == 0;
+				if(head_status != 0) {
+					local_copy_unusable = true;
+					return false;
+				}
+				return true;
 			};
 			auto AppendCommit = [](std::vector<std::string>& v, git_commit* commit) {
 				std::string message{ git_commit_message(commit) };
@@ -325,6 +355,14 @@ void RepoManager::CloneOrUpdateTask() {
 				} else
 					QueryFullHistory(repo.get(), walker.get());
 			} else {
+				// FASE 30: il caso "c'era una copia locale e non si puo'
+				// usare" si dice. La DeleteDirectory sotto c'era gia' e fa
+				// il lavoro; quello che mancava era dirlo, perche' un
+				// riclone silenzioso di centinaia di megabyte sembra un
+				// avvio lento e non un guasto riparato.
+				if(local_copy_unusable)
+					ErrorLog("Local copy of {} is unusable (no resolvable HEAD: interrupted clone?);"
+							 " deleting it and cloning again.", url);
 				Utils::DeleteDirectory(Utils::ToPathString(path + "/"));
 				// git clone <url> <path>
 				git_clone_options cloneOpts = GIT_CLONE_OPTIONS_INIT;
