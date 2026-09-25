@@ -33,6 +33,9 @@ extern "C" {
 int RunBanlistDiffTests();
 // Defined in title_tests.cpp — same reasoning (FASE 4f).
 int RunTitleTests();
+// Defined in update_tests.cpp — same reasoning, for the client-update
+// manifest verification module (design/client-update.md).
+int RunUpdateTests();
 
 using namespace ygo;
 
@@ -334,5 +337,6 @@ int main() {
 	std::printf("banlist_tests: %d checks, %d failures\n", checks, failures);
 	const int diff_failures = RunBanlistDiffTests();
 	const int title_failures = RunTitleTests();
-	return (failures == 0 && diff_failures == 0 && title_failures == 0) ? 0 : 1;
+	const int update_failures = RunUpdateTests();
+	return (failures == 0 && diff_failures == 0 && title_failures == 0 && update_failures == 0) ? 0 : 1;
 }

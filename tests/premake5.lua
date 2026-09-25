@@ -28,10 +28,13 @@ project "banlist_tests"
 		"banlist_tests.cpp",
 		"banlist_diff_tests.cpp",
 		"title_tests.cpp",
+		"update_tests.cpp",
 		"../gframe/banlist_verify.cpp",
 		"../gframe/banlist_diff.cpp",
 		"../gframe/title_verify.cpp",
 		"../gframe/title_state.cpp",
+		"../gframe/update_verify.cpp",
+		"../gframe/sha256.cpp",
 		"../gframe/tweetnacl/*.c",
 	}
 

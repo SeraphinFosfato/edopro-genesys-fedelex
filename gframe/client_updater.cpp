@@ -21,11 +21,20 @@
 #include "game_config.h"
 #include "fmt.h"
 #include "curl.h"
+#include "sha256.h"
+#include "update_verify.h"
+
+// Where this instance's last successfully-applied manifest version is
+// recorded (design/client-update.md, anti-rollback). Plain text, one
+// integer, same spirit as LOCKFILE just above: local, not sensitive, not
+// part of anything that ships. A player who edits this file already
+// controls their own client (see this repo's CLAUDE.md, "Onestà sui
+// deterrenti") — this file is not a defense against that, only the record
+// CompareVersion() checks a NETWORK payload against.
+#define UPDATE_VERSION_FILE EPRO_TEXT("./.edopro_update_version")
 
 #define LOCKFILE EPRO_TEXT("./.edopro_lock")
 #define UPDATES_FOLDER EPRO_TEXT("./updates/{}")
-
-using md5array = std::array<uint8_t, MD5_DIGEST_LENGTH>;
 
 struct WritePayload {
 	std::vector<char>* outbuffer = nullptr;
@@ -109,19 +118,6 @@ static CURLcode curlPerform(const char* url, void* payload, void* payload2 = nul
 	return res;
 }
 
-static bool CheckMd5(std::istream& instream, const md5array& md5) {
-	MD5_CTX context{};
-	MD5_Init(&context);
-	std::array<char, 512> buff;
-	while(!instream.eof()) {
-		instream.read(buff.data(), buff.size());
-		MD5_Update(&context, buff.data(), static_cast<size_t>(instream.gcount()));
-	}
-	md5array result;
-	MD5_Final(result.data(), &context);
-	return result == md5;
-}
-
 namespace ygo {
 
 void ClientUpdater::StartUnzipper(unzip_callback callback, void* payload) {
@@ -181,6 +177,24 @@ void ClientUpdater::Unzip(void* payload, unzip_callback callback) {
 #define formatstr UPDATES_FOLDER
 #endif
 
+// Downloads a SHA-256-verified file into memory (never straight to the
+// final path): the whole point of "checks the entire manifest before
+// installing anything" (design/client-update.md, point 3 / cancello 4) is
+// that a bad file must not leave a partially-installed update on disk. The
+// caller decides what to do with the bytes once every file in the manifest
+// has verified.
+static bool DownloadAndVerify(const std::string& url, const std::string& expected_sha256_lower,
+							  Payload& cbpayload, std::string& out_bytes) {
+	WritePayload wpayload;
+	std::vector<char> buffer;
+	wpayload.outbuffer = &buffer;
+	if(curlPerform(url.data(), &wpayload, &cbpayload) != CURLE_OK)
+		return false;
+	out_bytes.assign(buffer.begin(), buffer.end());
+	auto actual = ygo::Sha256Hex(out_bytes);
+	return actual == expected_sha256_lower;
+}
+
 void ClientUpdater::DownloadUpdate(void* payload, update_callback callback) {
 	Utils::SetThreadName("Updater");
 	downloading = true;
@@ -189,83 +203,176 @@ void ClientUpdater::DownloadUpdate(void* payload, update_callback callback) {
 	cbpayload.total = static_cast<int>(update_urls.size());
 	cbpayload.payload = payload;
 	int cur_file = 1;
+
+	// design/client-update.md, point 3 / cancello 4: a SHA-256 mismatch on
+	// ANY file rejects the ENTIRE update, not just that file. Download every
+	// file into memory first and verify all of them before a single byte
+	// touches disk under UPDATES_FOLDER — that is what makes "the whole
+	// batch or nothing" true even under a crash or a killed process midway.
+	std::vector<std::pair<epro::path_string, std::string>> verified_files; // path -> bytes
+	bool any_mismatch = false;
 	for(auto& file : update_urls) {
+		if(file.sha256.empty()) {
+			// A manifest entry without a sha256 never reaches here in
+			// practice (update::Parse refuses it, see update_verify.cpp),
+			// but this function must not silently install a file it never
+			// authenticated if that contract is ever loosened upstream.
+			any_mismatch = true;
+			ygo::ErrorLog("Aggiornamento: {} non ha una SHA-256 nel manifesto, rifiuto l'intero aggiornamento.", file.name);
+			break;
+		}
 		auto name = epro::format(formatstr, ygo::Utils::ToPathString(file.name));
 		cbpayload.current = cur_file++;
 		cbpayload.filename = file.name.data();
 		cbpayload.is_new = true;
 		cbpayload.previous_percent = -1;
-		md5array binmd5;
-		if(file.md5.size() != binmd5.size() * 2) {
-			failed = true;
-			continue;
-		}
-		try {
-			for(size_t i = 0; i < binmd5.size(); i++) {
-				uint8_t b = static_cast<uint8_t>(std::stoul(file.md5.substr(i * 2, 2), nullptr, 16));
-				binmd5[i] = b;
-			}
-		} catch(...) {
-			failed = true;
-			continue;
-		}
+
+		// Already on disk from a previous run and already matches: skip the
+		// re-download, but still carry it into verified_files so the "all
+		// files verified" invariant below covers it too.
 		{
 			FileStream stream{ name, FileStream::in | FileStream::binary };
-			if(!stream.fail() && CheckMd5(stream, binmd5))
-				continue;
+			if(!stream.fail()) {
+				std::string existing((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+				if(ygo::Sha256Hex(existing) == file.sha256) {
+					verified_files.emplace_back(name, std::move(existing));
+					continue;
+				}
+			}
 		}
+
+		std::string bytes;
+		if(!DownloadAndVerify(file.url, file.sha256, cbpayload, bytes)) {
+			any_mismatch = true;
+			ygo::ErrorLog("Aggiornamento: SHA-256 di {} non corrisponde al manifesto, rifiuto l'intero aggiornamento.", file.name);
+			break;
+		}
+		verified_files.emplace_back(name, std::move(bytes));
+	}
+
+	if(any_mismatch) {
+		failed = true;
+		status_message = "Aggiornamento: un file non corrisponde alla SHA-256 firmata, l'intero aggiornamento è stato rifiutato.";
+		downloaded = true;
+		return;
+	}
+
+	// Every file verified — now, and only now, write them to disk.
+	for(auto& [name, bytes] : verified_files) {
 		if(!ygo::Utils::CreatePath(name)) {
 			failed = true;
 			continue;
 		}
-		bool this_failed = false;
-		{
-			FileStream stream{ name, FileStream::out | FileStream::binary | FileStream::trunc };
-			if(stream.fail()) {
-				failed = true;
-				continue;
-			}
-			WritePayload wpayload;
-			wpayload.outstream = &stream;
-			MD5_CTX context{};
-			wpayload.md5context = &context;
-			MD5_Init(wpayload.md5context);
-			if(curlPerform(file.url.data(), &wpayload, &cbpayload) != CURLE_OK) {
-				this_failed = failed = true;
-			} else {
-				md5array md5;
-				MD5_Final(md5.data(), &context);
-				this_failed = failed = md5 != binmd5;
-			}
+		FileStream stream{ name, FileStream::out | FileStream::binary | FileStream::trunc };
+		if(stream.fail()) {
+			failed = true;
+			continue;
 		}
-		if(this_failed)
-			Utils::FileDelete(name);
+		stream.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+	}
+
+	if(!failed) {
+		// The version this manifest declared is now the installed one —
+		// recorded before Unzip()/Reboot() so the NEXT check's anti-rollback
+		// compares against it correctly (design/client-update.md, anti-rollback).
+		SetInstalledVersion(pending_version);
 	}
 	downloaded = true;
 }
 
+int ClientUpdater::GetInstalledVersion() {
+	FileStream stream{ UPDATE_VERSION_FILE, FileStream::in };
+	if(stream.fail())
+		return 0;
+	int version = 0;
+	stream >> version;
+	if(stream.fail())
+		return 0;
+	return version;
+}
+
+void ClientUpdater::SetInstalledVersion(int version) {
+	FileStream stream{ UPDATE_VERSION_FILE, FileStream::out | FileStream::trunc };
+	if(stream.fail())
+		return;
+	stream << version;
+}
+
 void ClientUpdater::CheckUpdate() {
 	Utils::SetThreadName("CheckUpdate");
+
+	// Fail-closed (design/client-update.md, "Fail-closed" / cancello 6): no
+	// compiled public key means this updater cannot trust anything it could
+	// fetch, so it does not even try, and says so once per check instead of
+	// producing a BadSignature log line indistinguishable from a tampered
+	// manifest.
+	if(!ygo::update::AnyTrustedKeyConfigured()) {
+		status_message = "Aggiornamento: nessuna chiave pubblica di aggiornamento compilata, aggiornamento disabilitato.";
+		ygo::ErrorLog(status_message);
+		return;
+	}
+
 	WritePayload payload{};
 	std::vector<char> retrieved_data;
 	payload.outbuffer = &retrieved_data;
-	if(curlPerform(update_url.data(), &payload) != CURLE_OK)
+	if(curlPerform(update_url.data(), &payload) != CURLE_OK) {
+		// Endpoint irraggiungibile: continua col client attuale, lo dice una
+		// volta, senza bloccare (design/client-update.md §5).
+		status_message = "Aggiornamento: endpoint non raggiungibile, continuo con il client attuale.";
+		ygo::ErrorLog(status_message);
 		return;
-	try {
-		const auto j = nlohmann::json::parse(retrieved_data);
-		if(!j.is_array())
-			return;
-		for(const auto& asset : j) {
-			try {
-				const auto& url = asset.at("url").get_ref<const std::string&>();
-				const auto& name = asset.at("name").get_ref<const std::string&>();
-				const auto& md5 = asset.at("md5").get_ref<const std::string&>();
-				update_urls.emplace_back(DownloadInfo{ name, url, md5 });
-			} catch(...) {}
-		}
 	}
-	catch(...) { update_urls.clear(); }
-	has_update = !!update_urls.size();
+	const std::string document(retrieved_data.begin(), retrieved_data.end());
+
+	WritePayload sig_payload{};
+	std::vector<char> retrieved_signature;
+	sig_payload.outbuffer = &retrieved_signature;
+	const auto signature_url = update_url + ".sig";
+	if(curlPerform(signature_url.data(), &sig_payload) != CURLE_OK) {
+		status_message = "Aggiornamento: endpoint non raggiungibile, continuo con il client attuale.";
+		ygo::ErrorLog(status_message);
+		return;
+	}
+	const std::string signature(retrieved_signature.begin(), retrieved_signature.end());
+
+	ygo::update::Manifest manifest;
+	std::string error;
+	// Verifies BEFORE parsing (design/client-update.md, point 1 / cancello
+	// 3): VerifyAndParse never lets nlohmann/json see a byte this client has
+	// not authenticated first.
+	const auto status = ygo::update::VerifyAndParse(document, signature, manifest, error);
+	if(status != ygo::update::VerifyStatus::Ok) {
+		// Firma non valida/assente, JSON malformato o schema violato sono
+		// tutti "rifiuta, tieni il client attuale, lo dice" allo stesso
+		// modo (design/client-update.md §5) — un manifesto che non supera
+		// la firma non viene mai distinto da uno che la supera ma non
+		// rispetta lo schema: in entrambi i casi non è un manifesto valido.
+		status_message = "Aggiornamento: manifesto rifiutato (" + error + "), mantengo il client attuale.";
+		ygo::ErrorLog(status_message);
+		return;
+	}
+
+	const int installed_version = GetInstalledVersion();
+	const auto decision = ygo::update::CompareVersion(manifest.version, installed_version);
+	switch(decision) {
+		case ygo::update::VersionDecision::Rollback:
+			status_message = epro::format("Aggiornamento: manifesto con versione {} rifiutato come tentativo di downgrade (attuale {}).",
+										  manifest.version, installed_version);
+			ygo::ErrorLog(status_message);
+			return;
+		case ygo::update::VersionDecision::AlreadyCurrent:
+			// "Non fa niente, senza allarmi" (design/client-update.md §5).
+			return;
+		case ygo::update::VersionDecision::Accept:
+			break;
+	}
+
+	update_urls.clear();
+	for(const auto& file : manifest.files)
+		update_urls.emplace_back(DownloadInfo{ file.name, file.url, file.sha256, file.md5 });
+	pending_version = manifest.version;
+	status_message = epro::format("Aggiornamento disponibile: versione {} -> versione {}.", installed_version, manifest.version);
+	has_update = !update_urls.empty();
 }
 
 static inline void DeleteOld() {

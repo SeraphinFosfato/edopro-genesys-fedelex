@@ -5,6 +5,7 @@
 #if defined(UPDATE_URL) && !EDOPRO_IOS
 #include <vector>
 #include <atomic>
+#include <string>
 #endif
 #include "utils.h"
 
@@ -35,6 +36,14 @@ public:
 	bool UpdateFailed() {
 		return failed;
 	}
+	// One line describing the outcome of the last check — populated for
+	// every branch of the behaviour table in design/client-update.md §5, not
+	// only the failure ones. The caller is responsible for surfacing it;
+	// this class only ever appends to the log itself (see client_updater.cpp),
+	// which is not the same audience as a player-facing notice.
+	const std::string& GetStatusMessage() const {
+		return status_message;
+	}
 private:
 	class FileLock {
 #if EDOPRO_ANDROID
@@ -61,8 +70,18 @@ private:
 	struct DownloadInfo {
 		std::string name;
 		std::string url;
-		std::string md5;
+		std::string sha256; // the only thing that authorizes installing this file (design/client-update.md, point 3)
+		std::string md5;    // upstream compatibility only, kept but never checked — see the same doc
 	};
+	// Reads the last version this instance successfully installed. 0 if the
+	// file is absent, which is not a chosen threshold (§ "punti di
+	// risalita" excludes exactly this): it is simply "no prior update
+	// applied by this updater", and any manifest.version >= 1 (every real
+	// manifest, by the same convention format_version already uses on the
+	// banlist side) compares as newer than that.
+	static int GetInstalledVersion();
+	static void SetInstalledVersion(int version);
+
 	std::vector<DownloadInfo> update_urls;
 	FileLock Lock{};
 	std::atomic<bool> has_update{ false };
@@ -70,6 +89,8 @@ private:
 	std::atomic<bool> failed{ false };
 	std::atomic<bool> downloading{ false };
 	std::string update_url{ UPDATE_URL };
+	int pending_version = 0;
+	std::string status_message;
 };
 #else
 class ClientUpdater {
@@ -82,6 +103,7 @@ public:
 	static constexpr bool HasUpdate() { return false; }
 	static constexpr bool UpdateDownloaded() { return false; }
 	static constexpr bool UpdateFailed() { return true; }
+	static epro::stringview GetStatusMessage() { return {}; }
 };
 #endif
 
