@@ -20,6 +20,11 @@
 #include "discord_wrapper.h"
 #include "windbot_panel.h"
 #include "ocgapi_types.h"
+// FASE 27.2: serve il tipo dell'esito della verifica della chiave
+// (TitleCheckin::CredentialCheckResult) nella firma di
+// FinishTitleCredentialCheck. L'header non tira dentro irrlicht ne' altro:
+// solo std e gli wrapper epro_*.
+#include "title_checkin.h"
 
 struct unzip_payload;
 class CGUISkinSystem;
@@ -190,6 +195,16 @@ struct title_auth_panel_elements {
 	// automatically once at startup when no credential is stored yet.
 	irr::gui::IGUIWindow* wTitleAuth;
 	irr::gui::IGUIEditBox* ebTitleCredential;
+	// FASE 27.3: l'indirizzo del bot in una casella invece che in
+	// un'etichetta, perche' da un'etichetta non si copia. In una finestra
+	// dove si chiede di incollare qualcosa, un URL non copiabile e' una
+	// presa in giro — e il tester del 2026-09-25 il bot lo doveva proprio
+	// raggiungere.
+	irr::gui::IGUIEditBox* ebTitleBotLink;
+	// FASE 27.2: l'esito della verifica, e la frase "sto verificando"
+	// durante i dieci secondi. Non e' rifinitura: una finestra che non dice
+	// niente per dieci secondi e' lo stesso difetto che questa fase toglie.
+	irr::gui::IGUIStaticText* stTitleAuthStatus;
 	irr::gui::IGUIButton* btnTitleAuthSave;
 	irr::gui::IGUIButton* btnTitleAuthCancel;
 };
@@ -572,6 +587,18 @@ public:
 	// places (init, menu_handler.cpp's button dispatch) never duplicate
 	// the label logic.
 	void UpdateTitleAuthButton();
+	// FASE 27.2: parte la verifica della chiave appena incollata (worker,
+	// non blocca il disegno) e mette la finestra in attesa. Chiamata dal
+	// bottone Salva.
+	void StartTitleCredentialCheck();
+	// FASE 27.2: chiude la verifica con l'esito arrivato dal worker — una
+	// frase per ognuno dei cinque casi, e il salvataggio per tutti tranne
+	// il 401. Chiamata dal MainLoop, che ritira il risultato.
+	void FinishTitleCredentialCheck(const TitleCheckin::CredentialCheckResult& result);
+	// La chiave in attesa di verdetto: si scrive in gGameConfig solo se il
+	// verdetto non e' "non riconosciuta" (401), quindi fino ad allora sta
+	// qui e non nel config.
+	std::string pending_title_credential;
 	struct RepoGui {
 		std::string path;
 		IProgressBar* progress1;

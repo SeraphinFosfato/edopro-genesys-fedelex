@@ -183,8 +183,29 @@ DataHandler::DataHandler() {
 	banlistUpdater = std::make_unique<BanlistUpdater>();
 	gBanlistUpdater = banlistUpdater.get();
 	gBanlistUpdater->PromoteStaged();
-	if(gTitleStore->CurrentAccess(std::time(nullptr)) == title::AccessState::Active)
+	// FASE 27.2-ter: il terzo percorso che decideva di non caricare la point
+	// list senza lasciare traccia. Gli altri due (firma/legame D104 in
+	// title_store.cpp, coppia assente in banlist_updater.cpp) adesso
+	// parlano; questo e' quello che scatta piu' spesso di tutti, perche' e'
+	// esattamente lo stato in cui finisce chi ha incollato la stringa
+	// sbagliata — e NoTitle e' escluso dalle notifiche.
+	if(const auto access = gTitleStore->CurrentAccess(std::time(nullptr)); access == title::AccessState::Active) {
 		gBanlistUpdater->LoadActiveInto(*deckManager);
+	} else {
+		// Il nome, non il valore numerico: un log che dice "3" obbliga chi
+		// legge ad aprire un header per sapere cosa ha letto, e un riordino
+		// dell'enum lo renderebbe silenziosamente falso.
+		const char* reason = "unknown";
+		switch(access) {
+			case title::AccessState::Revoked: reason = "Revoked"; break;
+			case title::AccessState::Suspended: reason = "Suspended"; break;
+			case title::AccessState::TitleExpired: reason = "TitleExpired"; break;
+			case title::AccessState::NoTitle: reason = "NoTitle (no valid licence key on this client)"; break;
+			case title::AccessState::Active: break; // irraggiungibile: e' il ramo sopra
+		}
+		ErrorLog("Custom point list not loaded: access state is {}."
+				 " Press Login in the main menu and paste the licence key the bot gave you.", reason);
+	}
 	deckManager->LoadLFList();
 	dataManager->LoadIdsMapping(EPRO_TEXT("./config/mappings.json"));
 	// Non-blocking (spawns a worker thread): a client with no network still

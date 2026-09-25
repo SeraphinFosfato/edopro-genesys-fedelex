@@ -152,28 +152,48 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 					mainGame->ShowElement(mainGame->wTitleAuth);
 				} else {
 					// Logout is instant, no confirmation window: symmetric
-					// with how casually a credential is entered, and the
-					// player can always log back in immediately if this was
-					// a mistake — nothing destructive happens on this
-					// client's side beyond the D104 binding, which
-					// ClearForLogout() resets right here.
+					// with how casually a credential is entered — nothing
+					// destructive happens on this client's side beyond the
+					// D104 binding, which ClearForLogout() resets right
+					// here.
+					//
+					// FASE 27.2-bis: le due righe sotto il clear non sono
+					// rifinitura. Prima il logout cancellava davvero ma non
+					// diceva niente (solo l'etichetta che passava a Login) e
+					// **non svuotava la casella**: riaprendo Login ci si
+					// ritrovava dentro la chiave vecchia — cioe' proprio
+					// quella sbagliata — pronta da risalvare. E' la cosa che
+					// il 2026-09-25 ha fatto sembrare il logout rotto, e che
+					// smentiva il commento che stava qui ("can always log
+					// back in immediately"): vero sul modello, falso sullo
+					// schermo, perche' il campo ripopolato rimandava dritto
+					// all'errore.
 					gGameConfig->titleCredential.clear();
 					mainGame->SaveConfig();
 					if(gTitleStore)
 						gTitleStore->ClearForLogout();
 					mainGame->UpdateTitleAuthButton();
+					mainGame->ebTitleCredential->setText(L"");
+					mainGame->stTitleAuthStatus->setText(L"");
+					mainGame->stMessage->setText(L"Disconnesso: la chiave di licenza è stata cancellata da questo client.\n"
+												 L"La point list personalizzata resta caricata fino alla chiusura del gioco.");
+					mainGame->PopupElement(mainGame->wMessage);
 				}
 				break;
 			}
 			case BUTTON_TITLE_AUTH_SAVE: {
-				gGameConfig->titleCredential = Utils::ToUTF8IfNeeded(mainGame->ebTitleCredential->getText());
-				mainGame->SaveConfig();
-				mainGame->UpdateTitleAuthButton();
-				mainGame->HideElement(mainGame->wTitleAuth);
-				mainGame->ShowElement(mainGame->wMainMenu);
+				// FASE 27.2: non si salva e si chiude piu'. Prima questo
+				// ramo scriveva nel config e spariva, comportandosi identico
+				// con una chiave giusta, scaduta o inventata — e una chiave
+				// sbagliata finisce in AccessState::NoTitle, che non produce
+				// nessuna notifica. Adesso la chiave si prova; chi salva e
+				// chi chiude e' FinishTitleCredentialCheck(), quando c'e'
+				// una frase da dire.
+				mainGame->StartTitleCredentialCheck();
 				break;
 			}
 			case BUTTON_TITLE_AUTH_CANCEL: {
+				mainGame->stTitleAuthStatus->setText(L"");
 				mainGame->HideElement(mainGame->wTitleAuth);
 				mainGame->ShowElement(mainGame->wMainMenu);
 				break;

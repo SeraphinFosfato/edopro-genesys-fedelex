@@ -309,16 +309,41 @@ void Game::Initialize() {
 	// window, not folded into wOptions — it needs to be reachable both from
 	// the main menu button above and from the startup auto-prompt, and
 	// wOptions's paging (btnOptionp/n) has nothing to do with this.
-	wTitleAuth = env->addWindow(Scale(460, 210, 860, 380), false, L"");
+	// FASE 27.3: la finestra e' piu' alta di prima perche' adesso spiega.
+	// La versione del 2026-09-25 diceva solo "Paste the credential the bot
+	// gave you", e un tester ci ha incollato dentro il proprio codice
+	// giocatore — sono due stringhe esadecimali, entrambe sue, e niente
+	// qui diceva quale delle due servisse. Le tre cose che il testo deve
+	// dire (che cos'e', da chi si ottiene, come arrivarci) sono le tre
+	// cose che mancavano.
+	wTitleAuth = env->addWindow(Scale(420, 150, 900, 470), false, L"");
 	wTitleAuth->getCloseButton()->setVisible(false);
 	wTitleAuth->setVisible(false);
-	irr::gui::CGUICustomText::addCustomText(
-		L"Paste the credential the bot gave you to unlock the custom point list.",
-		false, env, wTitleAuth, -1, Scale(20, 20, 380, 70));
-	ebTitleCredential = env->addEditBox(Utils::ToUnicodeIfNeeded(gGameConfig->titleCredential).data(), Scale(20, 80, 380, 105), true, wTitleAuth, EDITBOX_TITLE_CREDENTIAL);
+	{
+		// Letterali, non GetSysString: vedi UpdateTitleAuthButton() — questa
+		// finestra non ha voci in strings.conf, che e' gitignorato e arriva
+		// da un repo che questo fork non possiede.
+		auto* explanation = irr::gui::CGUICustomText::addCustomText(
+			L"Per usare la point list del formato serve la chiave di licenza.\n"
+			L"Te la dà il bot Telegram qui sotto: è personale, non passarla a nessuno.\n"
+			L"Attenzione: NON è il tuo codice giocatore. Il codice giocatore serve a "
+			L"identificarti e qui non sblocca niente — sono due stringhe diverse.",
+			false, env, wTitleAuth, -1, Scale(20, 30, 460, 135));
+		explanation->setWordWrap(true);
+	}
+	env->addStaticText(L"Il bot:", Scale(20, 140, 75, 165), false, false, wTitleAuth);
+	// Casella e non etichetta apposta: da qui il link si seleziona e si
+	// copia. Resta scrivibile (irrlicht non ha una casella di sola
+	// lettura selezionabile) ma non viene mai riletta da nessuno: e' un
+	// appoggio per la clipboard, non un dato.
+	ebTitleBotLink = env->addEditBox(L"https://t.me/FedelexHelperBot", Scale(80, 140, 460, 165), true, wTitleAuth, -1);
+	ebTitleBotLink->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
+	env->addStaticText(L"Incolla qui la chiave di licenza:", Scale(20, 172, 460, 194), false, false, wTitleAuth);
+	ebTitleCredential = env->addEditBox(Utils::ToUnicodeIfNeeded(gGameConfig->titleCredential).data(), Scale(20, 196, 460, 221), true, wTitleAuth, EDITBOX_TITLE_CREDENTIAL);
 	ebTitleCredential->setTextAlignment(irr::gui::EGUIA_UPPERLEFT, irr::gui::EGUIA_CENTER);
-	btnTitleAuthSave = env->addButton(Scale(130, 130, 220, 155), wTitleAuth, BUTTON_TITLE_AUTH_SAVE, gDataManager->GetSysString(1211).data());
-	btnTitleAuthCancel = env->addButton(Scale(230, 130, 320, 155), wTitleAuth, BUTTON_TITLE_AUTH_CANCEL, gDataManager->GetSysString(1212).data());
+	stTitleAuthStatus = env->addStaticText(L"", Scale(20, 228, 460, 272), false, true, wTitleAuth);
+	btnTitleAuthSave = env->addButton(Scale(140, 278, 230, 303), wTitleAuth, BUTTON_TITLE_AUTH_SAVE, gDataManager->GetSysString(1211).data());
+	btnTitleAuthCancel = env->addButton(Scale(250, 278, 340, 303), wTitleAuth, BUTTON_TITLE_AUTH_CANCEL, gDataManager->GetSysString(1212).data());
 	UpdateTitleAuthButton();
 	//lan mode
 	wLanWindow = env->addWindow(Scale(220, 100, 800, 520), false, gDataManager->GetSysString(1200).data());
@@ -2322,6 +2347,17 @@ bool Game::MainLoop() {
 		// cross-thread callback — see title_store.h's own comment on why
 		// that is safe (every real read below goes through TitleStore's
 		// locked accessors, this counter is only ever "should I bother").
+		// FASE 27.2: l'esito della verifica interattiva della chiave. Sta
+		// PRIMA del poll di Generation() di proposito: un 403 applicato qui
+		// bump-a la generazione, e il blocco sotto mostra la frase dello
+		// stato nello stesso giro — una popup sola, non due.
+		if(gTitleCheckin) {
+			TitleCheckin::CredentialCheckResult check;
+			if(gTitleCheckin->TakeCredentialCheckResult(check)) {
+				std::lock_guard<epro::mutex> lock(gMutex);
+				FinishTitleCredentialCheck(check);
+			}
+		}
 		if(gTitleStore) {
 			const auto generation = gTitleStore->Generation();
 			if(generation != title_seen_generation) {
@@ -2397,7 +2433,16 @@ bool Game::MainLoop() {
 				std::lock_guard<epro::mutex> lock(gMutex);
 				const auto diff = banlist::ComputeDiff(gBanlistUpdater->ActivePayload(), gBanlistUpdater->StagedPayload());
 				menuHandler.prev_operation = ACTION_BANLIST_UPDATE_PROMPT;
-				stQMessage->setText(FormatBanlistNotification(diff, gBanlistUpdater->StagedPayload().format_version).data());
+				auto notification = FormatBanlistNotification(diff, gBanlistUpdater->StagedPayload().format_version);
+				// FASE 27.2: senza questa riga l'annuncio prometteva una
+				// lista aggiornata anche a chi non ha (o non ha piu') il
+				// titolo per vederla — cioe' annunciava un successo a chi
+				// non vedra' niente, e lo mandava a cercare il guasto
+				// altrove. Lo scarico e' avvenuto davvero: manca l'accesso.
+				if(gTitleStore && gTitleStore->CurrentAccess(std::time(nullptr)) != title::AccessState::Active)
+					notification += L"\n\nAttenzione: la lista è stata scaricata, ma senza una chiave di "
+									L"licenza valida non viene caricata. Premi Login nel menu principale.";
+				stQMessage->setText(notification.data());
 				SetCentered(wQuery);
 				PopupElement(wQuery);
 				banlist_update_prompted = true;
@@ -2728,6 +2773,104 @@ void Game::UpdateTitleAuthButton() {
 	// an external repo this fork doesn't own), same precedent as the
 	// Wayland-backend prompt.
 	btnTitleAuth->setText(gGameConfig->titleCredential.empty() ? L"Login" : L"Logout");
+}
+void Game::StartTitleCredentialCheck() {
+	// FASE 27.2. Prima di questa fase il bottone Salva scriveva nel config e
+	// chiudeva la finestra: stesso comportamento con una chiave giusta, una
+	// scaduta e una inventata. Adesso la chiave si prova, e la finestra
+	// resta aperta finche' non c'e' una frase da dire.
+	pending_title_credential = Utils::ToUTF8IfNeeded(ebTitleCredential->getText());
+	if(pending_title_credential.empty()) {
+		stTitleAuthStatus->setText(L"La casella è vuota: incolla la chiave che ti ha dato il bot.");
+		return;
+	}
+	if(!gTitleCheckin) {
+		// Non dovrebbe succedere (DataHandler lo costruisce all'avvio), ma
+		// un percorso che rinuncia lo dice invece di sembrare un bottone
+		// rotto — e' la regola di 27.2-ter applicata qui.
+		stTitleAuthStatus->setText(L"Verifica non disponibile in questa sessione: riavvia EDOPro e riprova.");
+		return;
+	}
+	btnTitleAuthSave->setEnabled(false);
+	btnTitleAuthCancel->setEnabled(false);
+	stTitleAuthStatus->setText(L"Verifica in corso, fino a 10 secondi...");
+	gTitleCheckin->StartCredentialCheck(pending_title_credential);
+}
+void Game::FinishTitleCredentialCheck(const TitleCheckin::CredentialCheckResult& result) {
+	using Verdict = TitleCheckin::CredentialVerdict;
+	btnTitleAuthSave->setEnabled(true);
+	btnTitleAuthCancel->setEnabled(true);
+
+	std::wstring message;
+	// Il 401 e' l'unico verdetto che non salva: e' l'unico in cui si sa che
+	// la stringa e' sbagliata. Tenere una chiave buona che non e' stata
+	// verificata costa niente; tenere quella sbagliata vuol dire
+	// riproporla al giocatore al prossimo Login (27.2-bis).
+	bool save = true;
+	// Il 403 e' l'unico caso in cui qualcun altro parla al posto nostro: la
+	// revoca/sospensione appena applicata fa scattare il poll di
+	// Generation() nel MainLoop, che mostra gia' la frase giusta per quello
+	// stato. Una seconda popup identica sarebbe solo un secondo OK da
+	// premere.
+	bool popup = true;
+	switch(result.verdict) {
+	case Verdict::Accepted:
+		if(gTitleStore)
+			gTitleStore->ApplyResponse(result.body);
+		message = L"Chiave verificata: l'accesso è attivo.\n"
+				  L"Riavvia EDOPro per caricare la point list — a sessione aperta non si può, "
+				  L"la lista viene letta una sola volta all'avvio.";
+		break;
+	case Verdict::Blocked: {
+		title::AccessState state = title::AccessState::NoTitle;
+		if(gTitleStore) {
+			gTitleStore->ApplyResponse(result.body);
+			state = gTitleStore->CurrentAccess(std::time(nullptr));
+		}
+		if(state == title::AccessState::Revoked || state == title::AccessState::Suspended) {
+			popup = false; // ne parla il poll di Generation(), con la frase di quello stato
+		} else {
+			// Se l'esito non e' uno dei due stati che il poll annuncia, non
+			// si resta zitti: il giocatore ha appena premuto un bottone.
+			message = L"La chiave è valida, ma l'accesso alla point list non è attivo. Contatta un judge.";
+		}
+		break;
+	}
+	case Verdict::Unknown:
+		save = false;
+		message = L"Chiave non riconosciuta. Controlla di averla copiata intera, e che sia la "
+				  L"chiave di licenza del bot e non il tuo codice giocatore.";
+		break;
+	case Verdict::TooManyTries:
+		message = L"Troppi tentativi ravvicinati: la chiave è stata salvata, riprova fra qualche minuto.";
+		break;
+	case Verdict::Unreachable:
+	default:
+		message = L"Bot non raggiungibile entro 10 secondi. La chiave è stata salvata e il client "
+				  L"riproverà da solo: se è giusta, la point list arriva a un prossimo avvio.";
+		break;
+	}
+
+	if(save) {
+		gGameConfig->titleCredential = pending_title_credential;
+		SaveConfig();
+		UpdateTitleAuthButton();
+	}
+	pending_title_credential.clear();
+
+	if(!save) {
+		// Non riconosciuta: la finestra resta aperta con la frase dentro,
+		// perche' la cosa da fare e' incollarci un'altra stringa.
+		stTitleAuthStatus->setText(message.data());
+		return;
+	}
+	stTitleAuthStatus->setText(L"");
+	HideElement(wTitleAuth);
+	ShowElement(wMainMenu);
+	if(!popup)
+		return;
+	stMessage->setText(message.data());
+	PopupElement(wMessage);
 }
 void Game::SaveConfig() {
 	gGameConfig->nickname = ebNickName->getText();

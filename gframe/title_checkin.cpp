@@ -63,6 +63,12 @@ void TitleCheckin::Join() {
 	wake_cv_.notify_all();
 	if(worker_.joinable())
 		worker_.join();
+	// Stessa ragione del worker periodico: una verifica interattiva ancora
+	// in volo mentre il processo si smonta scriverebbe in campi gia' morti.
+	// Non c'e' niente da segnalarle — al massimo si aspettano i dieci
+	// secondi del suo timeout, che e' il tetto per costruzione.
+	if(credential_worker_.joinable())
+		credential_worker_.join();
 }
 
 void TitleCheckin::SetInDuel(bool in_duel) {
@@ -114,7 +120,7 @@ void TitleCheckin::CheckOnce() {
 		return;
 
 	PostResult result;
-	if(!Post(base_url, credential, result))
+	if(!Post(base_url, credential, 20L, result))
 		return; // transport failure (unreachable/timeout/TLS): D102, no-op
 
 	// D102's status allowlist, enforced right here: only a signed 200
@@ -128,7 +134,82 @@ void TitleCheckin::CheckOnce() {
 	gTitleStore->ApplyResponse(result.body);
 }
 
-bool TitleCheckin::Post(const std::string& url, const std::string& credential, PostResult& out) {
+void TitleCheckin::StartCredentialCheck(std::string credential) {
+	{
+		std::lock_guard<epro::mutex> lock(credential_mutex_);
+		if(credential_running_)
+			return; // una verifica alla volta: il bottone e' gia' disabilitato, questa e' la rete
+		credential_running_ = true;
+		credential_ready_ = false;
+	}
+	// Il worker precedente ha gia' finito (credential_running_ era false) ma
+	// puo' essere ancora joinable: join qui, non nel distruttore soltanto,
+	// altrimenti il secondo tentativo assegnerebbe sopra un thread vivo.
+	if(credential_worker_.joinable())
+		credential_worker_.join();
+	credential_worker_ = epro::thread(&TitleCheckin::CredentialCheckTask, this, std::move(credential));
+}
+
+bool TitleCheckin::CredentialCheckRunning() const {
+	std::lock_guard<epro::mutex> lock(credential_mutex_);
+	return credential_running_;
+}
+
+bool TitleCheckin::TakeCredentialCheckResult(CredentialCheckResult& out) {
+	std::lock_guard<epro::mutex> lock(credential_mutex_);
+	if(!credential_ready_)
+		return false;
+	credential_ready_ = false;
+	out = std::move(credential_result_);
+	credential_result_ = CredentialCheckResult{};
+	return true;
+}
+
+void TitleCheckin::CredentialCheckTask(std::string credential) {
+	Utils::SetThreadName("Title verify");
+
+	CredentialCheckResult result;
+	PostResult post;
+	// I dieci secondi sono il totale, non il connect (vedi Post): un bot che
+	// risponde all'undicesimo secondo e' un fallimento, e il giocatore riceve
+	// comunque una frase invece di una finestra ferma.
+	if(!Post(base_url, credential, 10L, post)) {
+		result.verdict = CredentialVerdict::Unreachable;
+	} else switch(post.status_code) {
+	case 200:
+		result.verdict = CredentialVerdict::Accepted;
+		result.body = std::move(post.body);
+		break;
+	case 403:
+		// Revoca o sospensione: e' firmata come un titolo, quindi si applica
+		// e si salva. Il giocatore ha una chiave vera, solo bloccata.
+		result.verdict = CredentialVerdict::Blocked;
+		result.body = std::move(post.body);
+		break;
+	case 401:
+		// L'unico caso in cui sappiamo con certezza che la stringa e'
+		// sbagliata, e quindi l'unico che non salva: tenerla vuol dire
+		// riproporla al giocatore la volta dopo, cioe' il giro che ha
+		// bruciato una serata al tester del 25.
+		result.verdict = CredentialVerdict::Unknown;
+		break;
+	case 429:
+		result.verdict = CredentialVerdict::TooManyTries;
+		break;
+	default:
+		// 404, 5xx, qualunque altra cosa: non sappiamo se la chiave sia
+		// buona, quindi si salva e si riprova da soli col check-in di fondo.
+		result.verdict = CredentialVerdict::Unreachable;
+		break;
+	}
+
+	std::lock_guard<epro::mutex> lock(credential_mutex_);
+	credential_result_ = std::move(result);
+	credential_ready_ = true;
+	credential_running_ = false;
+}
+
+bool TitleCheckin::Post(const std::string& url, const std::string& credential, long timeout_seconds, PostResult& out) {
 	out = PostResult{};
 	char error_buffer[CURL_ERROR_SIZE]{};
 	auto curl_handle = curl_easy_init();
@@ -152,8 +233,11 @@ bool TitleCheckin::Post(const std::string& url, const std::string& credential, P
 	curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, &buffer);
 	// Short timeouts on purpose (same reasoning as BanlistUpdater::Fetch):
 	// a background check-in must never make a player wait.
-	curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 15L);
-	curl_easy_setopt(curl_handle, CURLOPT_TIMEOUT, 20L);
+	// CONNECTTIMEOUT non puo' superare il totale, altrimenti un connect che
+	// si pianta mangerebbe da solo la finestra dei dieci secondi che 27.2
+	// promette al giocatore: il totale e' TIMEOUT, e comanda lui.
+	curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, timeout_seconds);
+	curl_easy_setopt(curl_handle, CURLOPT_TIMEOUT, timeout_seconds);
 	curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, Utils::GetUserAgent().data());
 	curl_easy_setopt(curl_handle, CURLOPT_NOPROXY, "*");
 	curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);

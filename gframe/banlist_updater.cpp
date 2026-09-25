@@ -254,8 +254,18 @@ bool BanlistUpdater::LoadActiveInto(DeckManager& deckManager) {
 	const auto active_signature_path = JoinPath(ACTIVE_FOLDER, SIGNATURE_NAME);
 
 	std::string document, signature;
-	if(!ReadFileToString(active_payload_path, document) || !ReadFileToString(active_signature_path, signature))
-		return false; // no active pair on disk: nothing to load, not an error to shout about
+	if(!ReadFileToString(active_payload_path, document) || !ReadFileToString(active_signature_path, signature)) {
+		// FASE 27.2-ter. Qui prima c'era solo "not an error to shout about":
+		// difendibile al primo avvio di un'installazione nuova, indifendibile
+		// quando una lista era stata scaricata e promossa e il giocatore non
+		// la trova nella tendina. La decisione di non caricare resta la
+		// stessa; a cambiare e' che adesso lascia una traccia, e distingue
+		// "non c'e' niente da caricare" da "c'era e l'ho scartato" (il ramo
+		// sotto). Costa una riga e vale una serata.
+		ErrorLog("No active banlist pair on disk: nothing to load, the custom point list will not appear."
+				 " Normal on a fresh install; otherwise the signed list was never promoted.");
+		return false;
+	}
 
 	banlist::Payload payload;
 	std::string error;

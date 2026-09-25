@@ -134,6 +134,14 @@ bool TitleStore::BindOrCheck(const std::string& user_ref) {
 	if(!title::UserRefAccepted(has_bound_user_ref_, bound_user_ref_, user_ref)) {
 		ErrorLog("Title check-in: user_ref '{}' does not match this client's bound '{}', message ignored (D104)",
 				user_ref, bound_user_ref_);
+		// FASE 27.2-ter: la riga sopra dice cosa e' stato rifiutato, questa
+		// dice cosa succede di conseguenza. Senza, un titolo firmato bene
+		// veniva scartato a ogni avvio con title.json ancora sul disco, e
+		// l'accesso restava NoTitle — che e' escluso dalle notifiche: tre
+		// silenzi in fila. Chi ha una lista e non la vede deve poter
+		// leggere perche', e il file dove leggerlo e' questo.
+		ErrorLog("Title check-in: the cached title is being discarded, the custom point list will not load."
+				" Use Logout in the main menu to unbind this client, then log back in.");
 		return false;
 	}
 	if(!has_bound_user_ref_) {
