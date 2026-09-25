@@ -68,6 +68,21 @@ jobs:
           path: bin/x64/release/ygoprodll
           if-no-files-found: error
 
+      # Il binario nudo linka le librerie di ubuntu-latest: su Arch/CachyOS
+      # il 2026-09-25 non partiva ("libFLAC.so.12: cannot open shared object
+      # file"). Il tarball si porta dietro la propria chiusura di dipendenze.
+      # Si aggiunge, non sostituisce: chi ha gia' le librerie giuste continua
+      # a scaricare il solo ygoprodll.
+      - name: Impacchetta il tarball portabile
+        run: tools/release/bundle_linux.sh
+
+      - name: Carica il tarball Linux
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-tarball
+          path: tools/release/out/edopro-custom-linux-x64.tar.gz
+          if-no-files-found: error
+
   build-windows:
     # D183: si compila su Windows vero, con MSVC, non piu' cross-compilando da
     # Linux. Tutti gli ostacoli del cross-build — le maiuscole degli header, il
@@ -129,6 +144,11 @@ jobs:
           name: linux-binary
           path: dist/
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-tarball
+          path: dist/
+
       # Solo il nome dell'artefatto, allineato a quello che il job Windows
       # carica ora (D178). Niente altro di questo job e' toccato.
       - uses: actions/download-artifact@v4
@@ -141,14 +161,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${{ github.ref_name }}" \
-            dist/ygoprodll dist/ygopro.exe \
+            dist/ygoprodll dist/edopro-custom-linux-x64.tar.gz dist/ygopro.exe \
             --title "${{ github.ref_name }}" \
             --notes "$(cat <<EOF
           Build automatica dal commit \`${{ github.sha }}\` (AGPLv3, sorgente
           completo in questo repository pubblico a quel commit).
 
-          - \`ygoprodll\` — client Linux x64. Da mettere accanto al proprio
-            eseguibile \`EDOPro\` (vedi README).
+          - \`edopro-custom-linux-x64.tar.gz\` — **client Linux x64, da
+            preferire.** Contiene \`ygoprodll\` e una cartella \`lib/\` con le
+            librerie che la distribuzione dell'utente potrebbe non avere, o
+            avere con un SONAME diverso. Si copiano entrambi accanto al
+            proprio eseguibile \`EDOPro\`. Istruzioni in \`LEGGIMI.txt\`.
+          - \`ygoprodll\` — lo stesso binario, nudo. Linka le librerie di
+            ubuntu-latest: su una distribuzione diversa puo' non partire
+            affatto (\`error while loading shared libraries\`). Resta qui per
+            chi ha gia' le librerie giuste.
           - \`ygopro.exe\` — client Windows x86, compilato su Windows con
             MSVC (D183). Un file solo, autosufficiente: non serve installare
             nessun redistribuibile. **Mai eseguito su Windows vero**:

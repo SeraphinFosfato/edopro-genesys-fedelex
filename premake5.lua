@@ -322,8 +322,30 @@ workspace "ygo"
 	filter { "configurations:Release", "architecture:ARM" }
 		targetdir "bin/armv7/release"
 
+	-- Il client Linux cerca le proprie librerie accanto a se': prima nella
+	-- cartella del binario ($ORIGIN, come gia' faceva per l'irrlicht custom),
+	-- poi in lib/ accanto al binario.
+	--
+	-- $ORIGIN/lib esiste per il tarball di tools/release/bundle_linux.sh. Il
+	-- binario nudo compilato su ubuntu-latest linka le librerie DI QUEL
+	-- sistema: sceso su Arch/CachyOS il 2026-09-25 non partiva affatto
+	-- ("error while loading shared libraries: libFLAC.so.12"), con tre
+	-- dipendenze irrisolte da ldd (libFLAC.so.12, libgit2.so.1.7,
+	-- libfmt.so.9). Non erano tre librerie da aggiungere: erano quante ne
+	-- mancavano su UNA distribuzione. Il pacchetto si porta dietro la propria
+	-- chiusura e questo rpath e' cio' che gliela fa trovare.
+	--
+	-- --disable-new-dtags non e' cosmetico: senza, il linker emette
+	-- DT_RUNPATH, che vale SOLO per le dipendenze dirette dell'oggetto che lo
+	-- porta. libcurl.so.4 presa da lib/ cercherebbe le proprie dipendenze
+	-- (libnghttp2, libidn2, ...) nei percorsi di sistema e il pacchetto
+	-- tornerebbe a dipendere dalla distribuzione dell'utente proprio nel
+	-- punto che doveva chiudere. DT_RPATH invece si eredita lungo tutta la
+	-- catena di caricamento. bundle_linux.sh si rifiuta di produrre il
+	-- tarball se trova RUNPATH.
 	filter { "system:linux", "configurations:Release" }
-		linkoptions { "-static-libgcc", "-static-libstdc++", "-Wl,-rpath,'$$ORIGIN'" }
+		linkoptions { "-static-libgcc", "-static-libstdc++",
+			"-Wl,--disable-new-dtags", "-Wl,-rpath,'$$ORIGIN'", "-Wl,-rpath,'$$ORIGIN/lib'" }
 
 	subproject = true
 	if not _OPTIONS["prebuilt-core"] and not _OPTIONS["no-core"] then

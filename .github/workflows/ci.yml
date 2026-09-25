@@ -100,3 +100,22 @@ jobs:
           path: bin/x64/release/ygoprodll
           if-no-files-found: error
           retention-days: 14
+
+      # Il pacchetto si rompe qui, non il giorno della release. Lo script
+      # fallisce da solo se il rpath non c'e', se la chiusura ha un buco o se
+      # una libreria della lista "mai impacchettare" e' finita dentro: quindi
+      # basta eseguirlo, non serve nessun controllo aggiuntivo in questo file
+      # (stessa regola in cima: la logica sta negli script, non nel workflow).
+      - name: Impacchetta il tarball portabile
+        run: tools/release/bundle_linux.sh
+
+      # Artefatto SEPARATO da quello sopra, non al suo posto: il binario nudo
+      # resta scaricabile com'era per chi ha gia' le librerie di sistema
+      # giuste e non vuole i 30 e passa MB del pacchetto.
+      - name: Carica il tarball portabile come artefatto
+        uses: actions/upload-artifact@v4
+        with:
+          name: edopro-custom-linux-x64-portable
+          path: tools/release/out/edopro-custom-linux-x64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
