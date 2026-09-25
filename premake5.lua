@@ -25,19 +25,38 @@ newoption {
 	default = "true",
 	description = "Add base joystick compatibility (Requires SDL2)"
 }
+-- I tre `default` qui sotto non sono cosmetici: senza, DEFAULT_PIC_URL non
+-- viene definito, `data_handler.cpp` salta la voce "url":"default" del config
+-- e il client non registra NESSUNA sorgente da cui scaricare le immagini. Le
+-- carte restano grigie, in silenzio, e la build riesce lo stesso — e' successo
+-- (2026-09-25, D-22): i nostri workflow non passavano queste opzioni.
+--
+-- Il valore deve arrivare al compilatore GIA' virgolettato come letterale C:
+-- il define si costruisce concatenando ("DEFAULT_PIC_URL=" .. valore) e finisce
+-- dove il codice si aspetta una stringa.
+--
+-- Sono gli stessi URL a cui "default" risolve nella build ufficiale di EDOPro,
+-- quindi non e' traffico in piu' per Project Ignis: e' la stessa richiesta che
+-- quel client farebbe comunque.
+--
+-- Stanno QUI e non nei tre script di tools/release/ perche' quelli sono tre e
+-- divergerebbero: cosi' vale anche per chi compila a mano.
 newoption {
 	trigger = "pics",
 	value = "url_template",
+	default = '"https://pics.projectignis.org:2096/pics/{}.jpg"',
 	description = "Default URL for card images"
 }
 newoption {
 	trigger = "fields",
 	value = "url_template",
+	default = '"https://pics.projectignis.org:2096/field/{}.png"',
 	description = "Default URL for Field Spell backgrounds"
 }
 newoption {
 	trigger = "covers",
 	value = "url_template",
+	default = '"https://pics.projectignis.org:2096/pics/cover/{}.jpg"',
 	description = "Default URL for cover images"
 }
 newoption {
