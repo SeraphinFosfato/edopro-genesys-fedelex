@@ -153,6 +153,58 @@ identica banlist si rifiuterebbero a vicenda. Il clamp di `limit` a 0..3 sta
 dentro quella funzione, dove avviene lo shift che altrimenti sarebbe
 undefined behavior, così nessun chiamante può dimenticarlo.
 
+### L'hash non è nostro: è il nome che tutta la rete dà a una lista
+
+**Regola, e non è negoziabile: una lista senza punti deve produrre
+esattamente l'hash che produce EDOPro upstream.** I punti entrano nella
+piegatura **solo quando ci sono**, cioè solo per le voci con `points != 0`.
+
+Il motivo è che quel numero non è un dettaglio interno: è l'**unico
+identificatore** con cui una lista viaggia fra host, server di stanze e
+client, nostri e non. Cambiarlo per tutte le liste non ci ha dato una lista
+nostra distinta — ci ha tolto il nome di **tutte le altre**.
+
+Misurato il 2026-09-25 sulle stanze vive di EU Central Competitive, con la
+piegatura che mescolava i punti sempre:
+
+| Cosa | Esito |
+|---|---|
+| Stanze di cui il nostro client sa dire la lista | **0 su 78** |
+| `OCG.lflist.conf`, il nostro file, piegato all'upstream | `0x857713b8` — **lo stesso numero che il server usa** |
+| Lo stesso file, piegato mescolando sempre i punti | numero diverso, che non esiste per nessun altro |
+
+Da lì discendevano tre guasti che sembravano scollegati: ospitando sul server
+pubblico la lista scelta veniva **sostituita con "nessuna lista"** (l'host
+vede `N/A`, e **nessun mazzo viene più controllato, a nessuno**); la colonna
+della lista mostrava `???` su ogni stanza; e il filtro per banlist nella
+lobby non trovava **mai** niente, perché confrontava un nostro numero con i
+numeri della rete.
+
+La proprietà che la mescolatura difendeva resta intera: due client che
+concordano su limiti e id ma non sui punti continuano ad avere hash diversi,
+perché basta **una** voce con punti diversi da zero a separarli — e una lista
+a punti che non ne ha nemmeno uno non è una lista a punti. Quello che si
+perdeva era solo la compatibilità con chi i punti non li ha mai avuti.
+
+**Conseguenza da non sottovalutare: correggere la piegatura cambia anche
+l'hash della nostra lista.** Client vecchi e nuovi non si riconosceranno fra
+loro. È un cambio che si fa mentre i giocatori sono pochi, e va accompagnato
+dall'aggiornatore di `client-update.md`, non prima.
+
+### Quando qualcun altro sostituisce la lista, si dice
+
+Chi esegue il lato server di una stanza cerca l'hash fra **le proprie** liste
+e, se non lo trova, lo **sostituisce con una sua senza dirlo**
+(`netserver.cpp`, ramo `hash == 1`; i server pubblici di Project Ignis
+sostituiscono con zero, cioè con nessuna lista). L'host riceve indietro un
+hash diverso da quello che ha mandato e lo mostra come un nome qualsiasi.
+
+**Il client deve accorgersene e dirlo.** Se l'hash che torna nella
+`STOC_JOIN_GAME` è diverso da quello mandato nella `CTOS_CREATE_GAME`, la
+lista scelta non è quella in vigore: si avvisa nominando entrambe, e si dice
+che in quella stanza il formato **non è applicato**. Un `N/A` silenzioso in
+un angolo non è un avviso — è il bug di §6.5 nella sua forma esatta.
+
 **Il requisito è hash uguale fra i due giocatori, non "tutti all'ultima
 versione".** Chi non aggiorna non trova nessuno con cui giocare e si allinea
 da sé: la rete converge sull'ultima versione senza che nessuna infrastruttura
@@ -277,6 +329,36 @@ condiviso con l'upstream, e ogni riga aggiunta lì è un conflitto al rebase.
   - release che muove più voci del tetto → troncatura con "e altre N";
   - voce senza `reason` → solo i numeri, nessun testo inventato;
   - notifica già vista per quel `format_version` → non ricompare.
+
+## Dove il formato è davvero imposto — e dove non lo sarà mai
+
+Il controllo dei mazzi non lo fa il client di chi gioca: lo fa **chi esegue
+il lato server della stanza**, in `GenericDuel::PlayerReady`, e lo fa con la
+lista che corrisponde all'hash della stanza. Da questa sola frase discende
+tutto il resto, e va tenuto presente prima di progettare qualunque
+"controllo lato host".
+
+| Dove si gioca | Chi controlla | La nostra lista è applicata? |
+|---|---|---|
+| Stanza ospitata dal nostro client (host diretto) | il nostro binario | **Sì**, anche contro un EDOPro normale che si collega |
+| Server pubblico di Project Ignis | il loro server | **No**, e non potrà mai: il file della lista lì non c'è |
+| Un server di stanze nostro | il nostro server | Sì, ma è infrastruttura da tenere accesa — decisione aperta |
+
+Due conseguenze pratiche che non vanno riscoperte ogni volta:
+
+**Il client host non vede i mazzi altrui.** Chi entra manda il proprio mazzo
+al server con `CTOS_UPDATE_DECK`; l'host riceve solo nome, posizione e la
+spunta "pronto" (`STOC_HS_PLAYER_ENTER` / `STOC_HS_PLAYER_CHANGE`). Un
+autokick "chi non è in formato" **non è implementabile** lato host: il
+comando per cacciare esiste (`CTOS_HS_KICK`) ma non c'è niente su cui
+giudicare. Chi ci ripensa fra sei mesi si fermi qui.
+
+**Quello che si può fare, e cosa vale.** Il nostro client può controllare il
+**proprio** mazzo contro la lista attiva prima di dichiararsi pronto, e
+rifiutarsi di farlo se è fuori formato; e l'host può cacciare chi non
+dimostra di avere il nostro client. Ferma il caso reale — l'esterno che il
+formato non ce l'ha — e non ferma chi si patcha il binario, esattamente come
+tutto il resto qui sotto. Va scritto come deterrente, mai come garanzia.
 
 ## Onestà sui limiti
 

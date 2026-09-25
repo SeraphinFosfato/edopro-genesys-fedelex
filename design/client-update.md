@@ -125,11 +125,56 @@ che un giocatore modifichi il proprio client — quello può farlo comunque e no
 ci riguarda. Serve a impedire che **qualcun altro** decida cosa gira sulla sua
 macchina. È una garanzia sul canale, non sull'endpoint.
 
-## Cosa resta da decidere (non deciso qui)
+## Le tre scelte che restavano aperte — chiuse il 2026-09-25
 
-- **Dove vive il manifesto.** Il candidato naturale è `Banlist-dist`, che è
-  già pubblico e serve già un artefatto firmato; i file possono restare come
-  allegati delle Release di GitHub.
-- **Ogni quanto si controlla**, e se all'avvio o in sottofondo.
-- **Se un aggiornamento può essere obbligatorio** quando il motore è più
-  vecchio degli script — cioè esattamente il caso che ha originato tutto.
+### 7. Dove vive il manifesto, e perché l'host dei file non conta
+
+Il manifesto sta su **`SeraphinFosfato/Banlist-dist`**, a un URL stabile,
+accanto all'artefatto firmato della banlist: è già pubblico, serve già
+qualcosa di firmato, e non aggiunge infrastruttura da tenere accesa.
+
+I **file** invece restano allegati alle Release di
+`SeraphinFosfato/edopro-genesys-fedelex`, e il manifesto li indirizza per URL
+assoluto. Non è una scorciatoia: poiché ogni file è inchiodato dalla sua
+SHA-256 **dentro un documento firmato**, chi ospita il file **non deve essere
+fidato**. Può servirci qualunque cosa: se non è il byte per byte previsto,
+l'aggiornamento si rifiuta. Il solo punto di fiducia è la chiave, e quella
+non sta su nessuno dei due host.
+
+Ne discende una regola operativa: **l'URL del manifesto è compilato nel
+binario** insieme alla chiave. Un URL configurabile da file sposterebbe la
+fiducia su un file modificabile a mano, che è il difetto da cui siamo partiti.
+
+### 8. Un controllo per avvio, su thread separato
+
+Stessa forma della banlist, e per la stessa ragione (`banlist-distribution.md`,
+"Un controllo per avvio"): un binario nuovo diventa attivo comunque solo al
+riavvio, quindi controllare più spesso non anticipa niente e aggiunge solo
+traffico e modi di fallire. Nessun polling in sottofondo durante la sessione.
+
+Il controllo **non blocca l'avvio**: se l'endpoint non risponde, il client
+parte com'è e lo dice una volta.
+
+### 9. Obbligatorio no, ma il motore vecchio non gioca online
+
+La tentazione era rendere obbligatorio l'aggiornamento quando il motore è più
+vecchio degli script — cioè il caso che ha originato tutto. **No**: sarebbe
+sostituire l'eseguibile senza consenso, che la regola 6 vieta, e quella regola
+vale più di questa comodità.
+
+La via che risolve lo stesso problema senza violarla: il manifesto può portare
+un campo **`min_supported`**, e un client sotto quella versione **si rifiuta
+di ospitare e di entrare in stanze online**, spiegando perché e offrendo
+l'aggiornamento lì. Gioco in locale, contro l'IA e replay restano disponibili.
+
+Il ragionamento: il danno del motore disallineato non è sul giocatore che non
+aggiorna, è sull'**avversario** che si trova il duello rotto a metà. Chiudere
+la porta online è la misura che colpisce il danno vero; riscrivere il binario
+di qualcuno a sua insaputa no. Il valore di `min_supported` lo decide chi
+pubblica la release, una per una: non è una soglia cablata.
+
+## Cosa resta davvero aperto
+
+- **Le due chiavi di aggiornamento non esistono ancora.** Finché
+  `update_keys.h` ha i segnaposto a zero, l'aggiornatore è spento per
+  costruzione e `UPDATE_URL` non va definito in nessuna build.
