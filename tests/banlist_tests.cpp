@@ -26,13 +26,10 @@
 #include "lflist_conf.h"
 #include "points_budget.h"
 #include "room_list_notice.h"
-// FASE 34, cancello 2: pulled in ONLY for the static_assert layout guard on
-// HostInfo (network.h itself, right after the struct) — no function here
-// calls anything from it. Confirmed to carry no gframe/irrlicht/curl
-// dependency on its own (2026-09-26, this compiler/platform): its own
-// includes (dllinterface.h -> ocgapi.h, core_utils.h, event2/*) are C
-// headers and struct declarations only, nothing that needs linking.
-#include "network.h"
+// network.h is deliberately NOT included here: it pulls dllinterface.h ->
+// ocgapi.h (ocgcore submodule) and libevent, neither of which this binary
+// is allowed to need. See test_host_info_layout_is_unchanged for what
+// replaced it and why.
 // See the matching comment in banlist_verify.cpp: tweetnacl.h has no
 // extern "C" guard of its own.
 extern "C" {
@@ -539,16 +536,32 @@ void test_room_budget_overrides_the_list_default() {
 void test_host_info_layout_is_unchanged() {
 	// FASE 34, cancello 2 — "HostInfo non si tocca". The exhaustive,
 	// field-by-field guard is a static_assert in network.h itself, right
-	// after the struct: it fails the BUILD (of anything including
-	// network.h, which is effectively the whole client) the moment a field
-	// is added or moved, not just a run of this suite. Including
-	// network.h here is what makes that guard actually compile as part of
-	// this binary too — otherwise, with the client build currently blocked
-	// by an unrelated premake5 version mismatch, nothing would exercise it
-	// at all in this environment. This check is a visible, counted proxy
-	// for the same fact; sizeof is measured, not chosen (68 bytes, this
-	// compiler/platform, 2026-09-26).
-	check(sizeof(HostInfo) == 68, "HostInfo grew or shrank — see the static_assert in network.h for the field that moved");
+	// after the struct: it fails the BUILD of anything including network.h,
+	// which is effectively the whole client, the moment a field is added or
+	// moved.
+	//
+	// This test used to #include "network.h" to compile that guard into
+	// this binary too. That broke CI and stayed broken for a day
+	// (2026-09-25 21:10 green -> 2026-09-26 08:08 red, same error every
+	// run): network.h pulls in dllinterface.h -> ocgapi.h from the ocgcore
+	// submodule, which the Test job does not check out, and libevent
+	// headers it does not install. The old comment said the dependency was
+	// harmless "on this compiler/platform" — which was true, and was
+	// exactly the wrong thing to conclude from, because the environment
+	// that matters is the one where nobody is watching.
+	//
+	// So it is checked the way test_editor_never_calls_check_deck_content
+	// checks its own invariant: as a structural assertion on the source,
+	// which needs no engine, no submodule and no linker. The real guard is
+	// still the static_assert, and the client build still compiles it —
+	// this only makes sure nobody quietly deletes it.
+	const auto network_h = ReadSourceFile("gframe/network.h");
+	check(!network_h.empty(),
+		 "test_host_info_layout_is_unchanged: gframe/network.h unreadable (run the binary from the repository root)");
+	check(network_h.find("static_assert(sizeof(HostInfo) == 68") != std::string::npos,
+		 "the sizeof guard on HostInfo disappeared from network.h — 68 bytes is what upstream EDOPro expects on the wire");
+	check(network_h.find("offsetof(HostInfo") != std::string::npos,
+		 "the per-field offsetof guards on HostInfo disappeared from network.h — sizeof alone does not catch two fields swapping places");
 }
 
 void test_editor_never_calls_check_deck_content() {
