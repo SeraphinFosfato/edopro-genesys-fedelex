@@ -111,6 +111,25 @@ VerifyStatus Parse(const std::string& document, Manifest& out, std::string& erro
 		}
 		manifest.version = version_it->get<int>();
 
+		// min_supported is OPTIONAL (design/client-update.md §9): a manifest
+		// that omits it is valid and closes nothing. If present it must be
+		// a plain integer and must not exceed `version` — a manifest that
+		// claims to require more than it itself publishes is a schema
+		// violation, not a floor to enforce.
+		auto min_supported_it = j.find("min_supported");
+		if(min_supported_it != j.end()) {
+			if(!min_supported_it->is_number_integer()) {
+				error = "min_supported is present but not a plain integer";
+				return VerifyStatus::SchemaViolation;
+			}
+			const int min_supported = min_supported_it->get<int>();
+			if(min_supported > manifest.version) {
+				error = "min_supported exceeds the manifest's own version";
+				return VerifyStatus::SchemaViolation;
+			}
+			manifest.min_supported = min_supported;
+		}
+
 		auto files_it = j.find("files");
 		if(files_it == j.end() || !files_it->is_array()) {
 			error = "files is missing or not an array";
@@ -203,6 +222,12 @@ VersionDecision CompareVersion(int incoming_version, int installed_version) {
 	if(incoming_version == installed_version)
 		return VersionDecision::AlreadyCurrent;
 	return VersionDecision::Rollback;
+}
+
+bool IsClientSupported(int min_supported, int client_version) {
+	if(min_supported <= 0)
+		return true; // no floor declared — nothing to enforce
+	return client_version >= min_supported;
 }
 
 }

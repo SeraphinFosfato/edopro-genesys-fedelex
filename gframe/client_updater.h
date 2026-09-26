@@ -44,6 +44,20 @@ public:
 	const std::string& GetStatusMessage() const {
 		return status_message;
 	}
+	// design/client-update.md §9 (FASE 36): true once a verified manifest has
+	// declared a min_supported this build's CLIENT_UPDATE_VERSION does not
+	// meet. The single call site that must honor this is
+	// ServerLobby::JoinServer (server_lobby.cpp) — it covers both "ospita
+	// online" and "entra in una stanza online"; local play, vs AI and replay
+	// never go through it and stay available regardless of this flag.
+	bool OnlineDisabled() const {
+		return online_disabled;
+	}
+	// Populated together with online_disabled, above: the player-facing
+	// reason, always naming the versions involved (never a bare "disabled").
+	const std::string& GetOnlineDisabledReason() const {
+		return online_disabled_reason;
+	}
 private:
 	class FileLock {
 #if EDOPRO_ANDROID
@@ -91,6 +105,14 @@ private:
 	std::string update_url{ UPDATE_URL };
 	int pending_version = 0;
 	std::string status_message;
+	// See OnlineDisabled()/GetOnlineDisabledReason() above. Defaults to
+	// "not disabled": a launch that never reaches a verified manifest (no
+	// UPDATE_URL reply, bad signature, unreachable endpoint) leaves online
+	// play exactly as available as it always was — the gate only closes on
+	// an explicit, verified min_supported that this build does not meet,
+	// never on the absence of information.
+	std::atomic<bool> online_disabled{ false };
+	std::string online_disabled_reason;
 };
 #else
 class ClientUpdater {
@@ -104,6 +126,11 @@ public:
 	static constexpr bool UpdateDownloaded() { return false; }
 	static constexpr bool UpdateFailed() { return true; }
 	static epro::stringview GetStatusMessage() { return {}; }
+	// A build without UPDATE_URL never fetches a manifest, so it never
+	// learns of a min_supported floor: online play stays exactly as
+	// available as it always was in this build.
+	static constexpr bool OnlineDisabled() { return false; }
+	static epro::stringview GetOnlineDisabledReason() { return {}; }
 };
 #endif
 

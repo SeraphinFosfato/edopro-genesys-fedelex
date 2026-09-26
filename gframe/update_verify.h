@@ -49,6 +49,13 @@ struct ManifestFile {
 
 struct Manifest {
 	int version = 0;
+	// 0 means the key was absent from the wire manifest — "nessuna soglia
+	// dichiarata" (design/client-update.md §9). A manifest that omits it is
+	// valid and closes nothing; one that carries a value keeps every client
+	// that is not below it free to host and join online. Same sentinel
+	// convention as banlist::Payload::points_budget (banlist_verify.h):
+	// real thresholds are >= 1, so 0 is never ambiguous with a real value.
+	int min_supported = 0;
 	std::vector<ManifestFile> files;
 };
 
@@ -104,6 +111,22 @@ enum class VersionDecision {
 // same reasoning as banlist::CompareVersion: the rule is worth a test of its
 // own with none of the ambient state a real fetch has.
 VersionDecision CompareVersion(int incoming_version, int installed_version);
+
+// design/client-update.md §9: "il manifesto puo' portare un campo
+// min_supported, e un client sotto quella versione si rifiuta di ospitare e
+// di entrare in stanze online". Pure, same reasoning as CompareVersion — no
+// network, no window, no globals, just the two integers the decision
+// actually depends on.
+//
+// `min_supported` is the manifest's field verbatim (0 == absent, see
+// Manifest::min_supported above): a manifest that never declares a floor
+// never closes anything. `client_version` is THIS client's own dedicated,
+// monotonically increasing build number (see client_update_version.h) —
+// deliberately NOT config.h's CLIENT_VERSION (that is the network handshake
+// number and travels byte-for-byte with HostInfo, see network.h) and NOT
+// EDOPRO_VERSION_MAJOR/MINOR/PATCH (upstream Project Ignis' own numbering,
+// which we follow but do not govern).
+bool IsClientSupported(int min_supported, int client_version);
 
 }
 

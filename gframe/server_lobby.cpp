@@ -7,6 +7,7 @@
 #include <IGUIWindow.h>
 #include <ICursorControl.h>
 #include "server_lobby.h"
+#include "client_updater.h"
 #include "utils.h"
 #include "data_manager.h"
 #include "game.h"
@@ -275,6 +276,17 @@ bool ServerLobby::HasRefreshedRooms() {
 	return has_refreshed;
 }
 void ServerLobby::JoinServer(bool host) {
+	// design/client-update.md §9 (FASE 36): the single choke point for
+	// "ospitare o entrare in stanze online" — both branches below go
+	// through here (host==true for hosting online via the master server,
+	// host==false for joining a room from the list). Local hosting by
+	// direct IP (menu_handler.cpp's BUTTON_HOST_CONFIRM, isHostingOnline ==
+	// false branch), single-player vs AI and replay never call this
+	// function and are unaffected.
+	if(gClientUpdater && gClientUpdater->OnlineDisabled()) {
+		ErrorLog(gClientUpdater->GetOnlineDisabledReason());
+		return;
+	}
 	mainGame->ebNickName->setText(mainGame->ebNickNameOnline->getText());
 	auto selected = mainGame->serverChoice->getSelected();
 	if (selected < 0) return;

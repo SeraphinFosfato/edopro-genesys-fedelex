@@ -23,6 +23,7 @@
 #include "curl.h"
 #include "sha256.h"
 #include "update_verify.h"
+#include "client_update_version.h"
 
 // Where this instance's last successfully-applied manifest version is
 // recorded (design/client-update.md, anti-rollback). Plain text, one
@@ -352,6 +353,21 @@ void ClientUpdater::CheckUpdate() {
 		return;
 	}
 
+	// design/client-update.md §9 (FASE 36): evaluated independently of the
+	// version decision below — a manifest that has nothing new to install
+	// for THIS instance's local files can still declare that this build's
+	// own engine (CLIENT_UPDATE_VERSION) is too old to duel online. Never
+	// touched when the manifest failed to verify above: absence of a signed
+	// opinion never closes the door, only an explicit one does.
+	const bool client_supported = ygo::update::IsClientSupported(manifest.min_supported, ygo::update::CLIENT_UPDATE_VERSION);
+	online_disabled = !client_supported;
+	if(!client_supported) {
+		online_disabled_reason = epro::format(
+			"Questo client (build {}) e' sotto la versione minima richiesta per giocare online ({}): aggiorna per ospitare o entrare in stanze online.",
+			ygo::update::CLIENT_UPDATE_VERSION, manifest.min_supported);
+		ygo::ErrorLog(online_disabled_reason);
+	}
+
 	const int installed_version = GetInstalledVersion();
 	const auto decision = ygo::update::CompareVersion(manifest.version, installed_version);
 	switch(decision) {
@@ -386,8 +402,21 @@ static inline void DeleteOld() {
 }
 
 ClientUpdater::ClientUpdater(epro::path_stringview override_url) {
+#if defined(_DEBUG)
+	// design/client-update.md §7: "l'URL del manifesto e' compilato nel
+	// binario... un URL configurabile da file sposterebbe la fiducia su un
+	// file modificabile a mano". -u/OVERRIDE_UPDATE_URL (cli_args.h,
+	// edopro_main.cpp, gframe.cpp) is worse than a file: it leaves no trace
+	// and needs only a changed shortcut or launch script. Kept for local
+	// testing against a throwaway manifest, but ONLY in a Debug build
+	// (premake5.lua already defines _DEBUG for "configurations:Debug" and
+	// NDEBUG for "configurations:Release" — the same pair every other
+	// Debug/Release split in this codebase already relies on). A Release
+	// build ignores whatever -u was given; the compiled UPDATE_URL is the
+	// only value it ever uses.
 	if(override_url.size())
 		update_url = Utils::ToUTF8IfNeeded(override_url);
+#endif
 	if(Lock.acquired())
 		DeleteOld();
 }
