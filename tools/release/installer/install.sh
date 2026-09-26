@@ -14,6 +14,18 @@
 # ce l'ha dentro — riusando un'installazione EDOPro gia' presente se
 # l'utente la conferma, o creandone una nuova altrimenti.
 #
+# La provenienza di config/configs.json (deciso il 2026-09-26,
+# design/licensing.md "config/configs.json: lo scriviamo noi, non lo
+# ridistribuiamo"): non lo copiamo dal file di Project Ignis e non lo
+# scarichiamo al primo avvio (deciderebbe da dove il client prende codice
+# eseguibile, senza autenticazione — la stessa obiezione di
+# design/client-update.md sul manifesto non firmato). Lo scriviamo noi
+# (indirizzi/porte/percorsi pubblici, dati di fatto) in
+# installer-data/configs.json, incluso nel tarball da bundle_linux.sh. Se
+# pero' una copia dell'utente e' raggiungibile in lettura (la sua e' piu'
+# aggiornata della nostra), si preferisce quella: vedi
+# find_configs_json_source().
+#
 # Uso:
 #   ./install.sh                 installa (o aggiorna un'installazione gia'
 #                                 fatta da questo stesso script)
@@ -45,13 +57,14 @@ DEFAULT_NEW_DATA_DIR="$XDG_DATA_HOME/${APP_ID}-data"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BINARY_NAME="ygoprodll"
 
-# Elenco dei posti dove si cerca un'installazione EDOPro gia' presente,
-# PRIMA di crearne una nuova. Deliberatamente ristretto a $HOME (un
-# /opt/edopro di sistema e' fuori dal vincolo centrale: non potremmo
-# scriverci repositories/deck/replay senza sudo, quindi non e' un
-# candidato utilizzabile anche se lo trovassimo). Punto di risalita aperto
-# in PHASES.md FASE 35: l'elenco esatto va confermato/ampliato da Opus,
-# questo e' un primo elenco ragionevole, non l'ultima parola.
+# Elenco dei posti dove si cerca un'installazione EDOPro gia' presente da
+# USARE COME CARTELLA DATI (ci si scrive dentro repositories/deck/replay),
+# PRIMA di crearne una nuova. Confermato da Opus il 2026-09-26: resta
+# ristretto a $HOME, perche' un /opt/edopro di sistema e' fuori dal vincolo
+# centrale — non potremmo scriverci senza sudo, quindi non e' un candidato
+# utilizzabile come cartella dati anche se lo trovassimo (resta pero' valido
+# come SOLA SORGENTE di configs.json, ricerca separata: vedi
+# CONFIG_SOURCE_CANDIDATES sotto).
 SEARCH_CANDIDATES=(
 	"$DEFAULT_NEW_DATA_DIR"
 	"$HOME/EDOPro"
@@ -59,6 +72,19 @@ SEARCH_CANDIDATES=(
 	"$HOME/Games/EDOPro"
 	"$HOME/Giochi/EDOPro"
 	"$XDG_DATA_HOME/EDOPro"
+)
+
+# Elenco dei posti dove cercare un config/configs.json da COPIARE IN SOLA
+# LETTURA quando la cartella dati e' nuova (non un'installazione esistente
+# gia' completa di config/). Deliberatamente piu' largo della ricerca sopra:
+# qui non scriviamo niente nella sorgente, quindi anche un /opt/edopro
+# root-owned va bene da leggere anche se non potremmo mai scriverci dentro.
+# La copia dell'utente e' preferita alla nostra bundlata: e' piu' aggiornata
+# (design/licensing.md, 2026-09-26).
+CONFIG_SOURCE_CANDIDATES=(
+	"${SEARCH_CANDIDATES[@]}"
+	"/opt/edopro"
+	"/usr/share/edopro"
 )
 
 # ─────────────────────────────── utilita' ──────────────────────────────────
@@ -146,17 +172,28 @@ resolve_data_dir() {
 	echo "$DEFAULT_NEW_DATA_DIR"
 }
 
-# ───────────────────── config/configs.json: il punto scoperto ─────────────
+# ───────────────────── config/configs.json ─────────────────────────────────
 # Senza questo file l'elenco server resta vuoto e il client non lo dice:
-# e' esattamente il guasto che questo installatore esiste per impedire
-# (vedi intestazione). Se la cartella dati e' una gia' esistente, il file
-# c'e' gia' (is_data_dir lo richiede). Se invece la cartella e' nuova, oggi
-# NON abbiamo una sorgente da cui prenderlo: il tarball non lo contiene
-# (non e' dato nostro da ridistribuire, vedi .gitignore su /runtime/) e
-# scaricarlo violerebbe "niente rete durante l'installazione". E' un punto
-# di risalita dichiarato nel brief (PHASES.md FASE 35): qui ci si ferma con
-# un messaggio esplicito invece di installare in silenzio una cartella
-# dati rotta — che sarebbe la stessa trappola P-15 in un'altra forma.
+# e' esattamente il guasto che questo installatore esiste per impedire (vedi
+# intestazione). Deciso il 2026-09-26 (design/licensing.md): si preferisce
+# sempre una copia dell'utente, gia' raggiungibile in lettura da qualche
+# parte (e' piu' aggiornata della nostra); solo se non se ne trova nessuna
+# si usa quella che portiamo nel tarball.
+find_configs_json_source() {
+	local c
+	for c in "${CONFIG_SOURCE_CANDIDATES[@]}"; do
+		# -s, non solo -r: un file leggibile ma vuoto (un mount strano, una
+		# copia troncata a meta') non e' una sorgente valida, e' peggio di
+		# niente — verrebbe copiato com'e' e romperebbe la cartella dati
+		# invece di lasciarla senza (trovato testando questa stessa funzione).
+		if [[ -s "$c/config/configs.json" && -r "$c/config/configs.json" ]]; then
+			echo "$c/config/configs.json"
+			return 0
+		fi
+	done
+	return 1
+}
+
 ensure_configs_json() {
 	local data_dir="$1"
 	if [[ -f "$data_dir/config/configs.json" ]]; then
@@ -165,21 +202,30 @@ ensure_configs_json() {
 
 	mkdir -p "$data_dir/config"
 
-	local sorgente="$SCRIPT_DIR/installer-data/configs.json"
-	if [[ -f "$sorgente" ]]; then
-		cp "$sorgente" "$data_dir/config/configs.json"
-		log "config/configs.json scritto da $sorgente"
+	local trovato
+	if trovato="$(find_configs_json_source)"; then
+		cp "$trovato" "$data_dir/config/configs.json"
+		log "config/configs.json copiato da un'installazione trovata: $trovato"
 		return 0
 	fi
 
-	err "manca config/configs.json e nessuna sorgente e' disponibile in questo pacchetto."
-	err "Senza questo file l'elenco delle stanze resta vuoto, senza nessun errore visibile."
-	err "Questo e' un punto aperto (non ancora deciso) su come questo installatore debba"
-	err "procurarselo: vedi PHASES.md, FASE 35, punti di risalita."
+	local bundlato="$SCRIPT_DIR/installer-data/configs.json"
+	if [[ -f "$bundlato" ]]; then
+		cp "$bundlato" "$data_dir/config/configs.json"
+		log "config/configs.json scritto dalla copia inclusa nel pacchetto (nessuna installazione trovata da cui copiarlo)"
+		return 0
+	fi
+
+	# Non dovrebbe succedere: bundle_linux.sh include sempre installer-data/
+	# nel tarball. Se manca e' un difetto di confezionamento, non un normale
+	# "niente trovato" — si dice chiaramente invece di installare in silenzio
+	# una cartella dati rotta (la stessa trappola P-15 in un'altra forma).
+	err "manca config/configs.json e nessuna sorgente e' disponibile: ne' un'installazione"
+	err "esistente da copiare, ne' la copia che questo pacchetto dovrebbe includere in"
+	err "installer-data/configs.json. Il tarball e' probabilmente confezionato male."
 	err "La cartella dati e' stata comunque creata in: $data_dir"
 	err "Programma e avviatore verranno installati lo stesso, ma il client non mostrera'"
-	err "stanze finche' non copi tu un config/configs.json valido dentro quella cartella"
-	err "(ad es. da un'installazione EDOPro completa che hai gia'):"
+	err "stanze finche' non copi tu un config/configs.json valido dentro quella cartella:"
 	err "  cp <installazione-completa>/config/configs.json '$data_dir/config/configs.json'"
 	CONFIGS_JSON_MISSING=1
 	return 1

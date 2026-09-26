@@ -14,6 +14,9 @@
 #                         programma+librerie sotto ~/.local, senza mai sudo
 #                         ne' scritture fuori $HOME. Vedi tools/release/installer/.
 #     fedelex-edopro.desktop.in, icon.png  <- usati da install.sh
+#     installer-data/configs.json  <- config/configs.json di riserva, scritto
+#                         da noi (design/licensing.md); install.sh la usa solo
+#                         se non trova una copia dell'utente da preferire
 #     LEGGIMI.txt
 #     notices/         <- licenze delle librerie che ridistribuiamo
 #
@@ -386,6 +389,11 @@ cp "$REPO_ROOT/tools/release/installer/install.sh" "$STAGE/install.sh"
 chmod +x "$STAGE/install.sh"
 cp "$REPO_ROOT/tools/release/installer/fedelex-edopro.desktop.in" "$STAGE/fedelex-edopro.desktop.in"
 cp "$REPO_ROOT/tools/release/installer/icon.png" "$STAGE/icon.png"
+# config/configs.json di riserva (design/licensing.md, 2026-09-26): scritto
+# da noi, non copiato da Project Ignis. install.sh la usa solo se non trova
+# una copia dell'utente da preferire (find_configs_json_source).
+mkdir -p "$STAGE/installer-data"
+cp "$REPO_ROOT/tools/release/installer/installer-data/configs.json" "$STAGE/installer-data/configs.json"
 
 cat >"$STAGE/LEGGIMI.txt" <<EOF
 EDOPro - client con supporto alla point list (build Linux x64)
