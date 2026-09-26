@@ -18,6 +18,7 @@
 #include "title_verify.h"
 #include "update_keys.h"
 #include "update_verify.h"
+#include "client_update_version.h"
 // See the matching comment in banlist_verify.cpp: tweetnacl.h has no
 // extern "C" guard of its own.
 extern "C" {
@@ -190,16 +191,39 @@ void test_all_zero_placeholder_key_never_verifies() {
 		 "an all-zero placeholder key must never validate a signature");
 }
 
-void test_any_trusted_key_configured_is_false_today() {
-	// This is the fail-closed acceptance check (design/client-update.md,
-	// "Fail-closed"): as long as update_keys.h ships the unfilled
-	// placeholder, the updater must be able to tell it has nothing to trust.
-	// Once a real operational key is pasted in, this test starts failing —
-	// on purpose: it is the signal that update_keys.h changed and this
-	// assertion needs to move to the day the key was actually configured,
-	// not a spurious break.
-	check(!AnyTrustedKeyConfigured(),
-		 "with both update_keys.h entries still all-zero, AnyTrustedKeyConfigured() must be false");
+void test_any_trusted_key_configured_is_true_since_2026_09_26() {
+	// FASE 36 (design/client-update.md, "Fail-closed"): both update_keys.h
+	// entries were pasted in on 2026-09-26 (TRUSTED_KEY_OPERATIONAL,
+	// TRUSTED_KEY_RESERVE — see update_keys.h), so AnyTrustedKeyConfigured()
+	// must now report true. This assertion replaces the placeholder-era one
+	// that checked the opposite (`test_any_trusted_key_configured_is_false_today`,
+	// true only until the keys existed) — it is not a spurious break, it is
+	// the signal that update_keys.h changed for the reason everyone expected.
+	check(AnyTrustedKeyConfigured(),
+		 "with real update_keys.h entries pasted in since 2026-09-26, AnyTrustedKeyConfigured() must be true");
+}
+
+void test_no_trusted_key_entry_is_all_zero() {
+	// The most likely copy-paste mistake: one of the two TRUSTED_KEYS slots
+	// left at the all-zero placeholder while the other got the real key.
+	// AnyTrustedKeyConfigured() alone would not catch this (it only needs
+	// ONE non-zero entry to return true) — this checks EVERY entry.
+	unsigned char zero[32]{};
+	for(const uint8_t* key : TRUSTED_KEYS) {
+		check(std::memcmp(key, zero, sizeof(zero)) != 0,
+			 "no entry of TRUSTED_KEYS may be the all-zero placeholder");
+	}
+}
+
+void test_operational_and_reserve_keys_are_distinct() {
+	// A pair where the reserve is a duplicate of the operational key looks
+	// healthy (both non-zero, AnyTrustedKeyConfigured() true) and protects
+	// nothing: a rotation that promotes "the reserve" would republish the
+	// same key that might be the one being retired. update_keys.h's own
+	// comment says both keys were "verified distinct" by hand — this makes
+	// that verification a standing test instead of a one-time claim.
+	check(std::memcmp(TRUSTED_KEY_OPERATIONAL, TRUSTED_KEY_RESERVE, sizeof(TRUSTED_KEY_OPERATIONAL)) != 0,
+		 "TRUSTED_KEY_OPERATIONAL and TRUSTED_KEY_RESERVE must be different keys");
 }
 
 void test_equal_version_is_no_action() {
@@ -246,6 +270,59 @@ void test_duplicate_file_name_is_schema_violation() {
 	std::string error;
 	const auto status = Parse(document, out, error);
 	check(status == VerifyStatus::SchemaViolation, "a duplicate files[].name must be a schema violation");
+}
+
+void test_manifest_without_min_supported_is_valid() {
+	// design/client-update.md §9: a manifest that never declares the field
+	// is valid and closes nothing.
+	const auto document = MinimalManifest(3);
+	Manifest out;
+	std::string error;
+	const auto status = Parse(document, out, error);
+	check(status == VerifyStatus::Ok, "a manifest without min_supported must still parse as Ok");
+	check(out.min_supported == 0, "min_supported must default to 0 (absent) when the manifest omits it");
+}
+
+void test_min_supported_above_version_is_schema_violation() {
+	// A manifest that requires more than it itself publishes is a
+	// contradiction, not a floor to enforce.
+	const std::string document =
+		"{\"version\":3,\"min_supported\":4,\"files\":["
+		"{\"name\":\"a\",\"url\":\"https://example.invalid/a\",\"sha256\":\"" + std::string(64, 'c') + "\"}"
+		"]}";
+	Manifest out;
+	std::string error;
+	const auto status = Parse(document, out, error);
+	check(status == VerifyStatus::SchemaViolation, "min_supported > version must be a schema violation");
+}
+
+void test_valid_min_supported_round_trips() {
+	const std::string document =
+		"{\"version\":5,\"min_supported\":2,\"files\":["
+		"{\"name\":\"a\",\"url\":\"https://example.invalid/a\",\"sha256\":\"" + std::string(64, 'd') + "\"}"
+		"]}";
+	Manifest out;
+	std::string error;
+	const auto status = Parse(document, out, error);
+	check(status == VerifyStatus::Ok, "a valid min_supported <= version must parse as Ok");
+	check(out.min_supported == 2, "min_supported must round-trip verbatim");
+}
+
+// --- IsClientSupported: pure, no network, no window, no globals ---
+
+void test_is_client_supported_true_when_above_min_supported() {
+	check(IsClientSupported(/*min_supported=*/2, /*client_version=*/CLIENT_UPDATE_VERSION),
+		 "a client at or above min_supported must be supported");
+}
+
+void test_is_client_supported_false_when_below_min_supported() {
+	check(!IsClientSupported(/*min_supported=*/CLIENT_UPDATE_VERSION + 1, /*client_version=*/CLIENT_UPDATE_VERSION),
+		 "a client strictly below min_supported must NOT be supported");
+}
+
+void test_is_client_supported_true_when_no_floor_declared() {
+	check(IsClientSupported(/*min_supported=*/0, /*client_version=*/1),
+		 "min_supported == 0 (absent) must never close anything, however low client_version is");
 }
 
 void test_json_is_never_parsed_before_the_signature_verifies() {
@@ -344,13 +421,21 @@ int RunUpdateTests() {
 	test_signature_from_an_untrusted_key_is_rejected();
 	test_signature_from_the_reserve_key_is_accepted();
 	test_all_zero_placeholder_key_never_verifies();
-	test_any_trusted_key_configured_is_false_today();
+	test_any_trusted_key_configured_is_true_since_2026_09_26();
+	test_no_trusted_key_entry_is_all_zero();
+	test_operational_and_reserve_keys_are_distinct();
 	test_equal_version_is_no_action();
 	test_lower_version_is_rollback();
 	test_higher_version_is_accept();
 	test_missing_sha256_is_schema_violation();
 	test_malformed_sha256_is_schema_violation();
 	test_duplicate_file_name_is_schema_violation();
+	test_manifest_without_min_supported_is_valid();
+	test_min_supported_above_version_is_schema_violation();
+	test_valid_min_supported_round_trips();
+	test_is_client_supported_true_when_above_min_supported();
+	test_is_client_supported_false_when_below_min_supported();
+	test_is_client_supported_true_when_no_floor_declared();
 	test_json_is_never_parsed_before_the_signature_verifies();
 	test_update_signature_does_not_verify_as_banlist();
 	test_banlist_style_signature_does_not_verify_as_update();
