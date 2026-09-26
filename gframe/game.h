@@ -559,6 +559,18 @@ public:
 #ifdef YGOPRO_BUILD_DLL
 	void LoadCoreFromRepos();
 #endif
+	// FASE 38 — game_data_ready.h. The single predicate every duel-starting
+	// button gate now goes through, in place of the bare `coreloaded` reads
+	// that used to be scattered across game.cpp/menu_handler.cpp/duelclient.cpp
+	// (see game_data_ready.h for why `coreloaded` alone was wrong on both
+	// build variants).
+	bool IsGameDataReady() const;
+	// Refreshes the enabled state (and the explanatory tooltip) of every
+	// button gated by IsGameDataReady(). Called once a frame from MainLoop()
+	// so a repo that starts or finishes updating after the main menu is
+	// already showing — not just the very first load — is reflected without
+	// needing a dedicated call site at every place repo state can change.
+	void UpdateGameDataReadyGate();
 	bool MainLoop();
 	bool ApplySkin(const epro::path_string& skin, bool reload = false, bool firstrun = false);
 	void RefreshDeck(irr::gui::IGUIComboBox* cbDeck);

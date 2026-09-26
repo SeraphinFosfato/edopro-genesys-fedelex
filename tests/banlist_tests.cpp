@@ -46,6 +46,9 @@ int RunTitleTests();
 // Defined in update_tests.cpp — same reasoning, for the client-update
 // manifest verification module (design/client-update.md).
 int RunUpdateTests();
+// Defined in game_data_ready_tests.cpp — same reasoning, for the FASE 38
+// "game data ready" gate (PHASES.md).
+int RunGameDataReadyTests();
 
 using namespace ygo;
 
@@ -727,5 +730,6 @@ int main() {
 	const int diff_failures = RunBanlistDiffTests();
 	const int title_failures = RunTitleTests();
 	const int update_failures = RunUpdateTests();
-	return (failures == 0 && diff_failures == 0 && title_failures == 0 && update_failures == 0) ? 0 : 1;
+	const int game_data_ready_failures = RunGameDataReadyTests();
+	return (failures == 0 && diff_failures == 0 && title_failures == 0 && update_failures == 0 && game_data_ready_failures == 0) ? 0 : 1;
 }

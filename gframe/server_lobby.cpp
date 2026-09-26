@@ -287,6 +287,18 @@ void ServerLobby::JoinServer(bool host) {
 		ErrorLog(gClientUpdater->GetOnlineDisabledReason());
 		return;
 	}
+	// FASE 38: the same choke point (design/client-update.md §9, FASE 36)
+	// also covers the other half of "il client si lascia giocare mentre i
+	// suoi dati sono incompleti" — btnCreateHost/btnJoinHost being enabled
+	// is the normal path that keeps this from ever triggering, but this is
+	// the point that actually starts a duel online, so it gets its own
+	// belt-and-suspenders check rather than trusting a button's enabled
+	// state alone.
+	if(!mainGame->IsGameDataReady()) {
+		ErrorLog("JoinServer refused: game data (core/repositories) not ready yet.");
+		mainGame->PopupMessage(L"I dati di gioco (motore o repository) non sono ancora pronti. Attendi che l'aggiornamento finisca prima di ospitare o entrare in una stanza.");
+		return;
+	}
 	mainGame->ebNickName->setText(mainGame->ebNickNameOnline->getText());
 	auto selected = mainGame->serverChoice->getSelected();
 	if (selected < 0) return;

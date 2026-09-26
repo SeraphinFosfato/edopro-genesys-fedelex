@@ -9,6 +9,7 @@
 #include "title_checkin.h"
 #include "game_config.h"
 #include "repo_manager.h"
+#include "game_data_ready.h"
 #include "image_downloader.h"
 #include "config.h"
 #include "game.h"
@@ -1184,11 +1185,12 @@ void Game::Initialize() {
 		PopupElement(wMessage);
 	}
 #endif
-	btnSingleMode->setEnabled(coreloaded);
-	btnCreateHost->setEnabled(coreloaded);
-	btnHandTest->setEnabled(coreloaded);
-	btnHandTestSettings->setEnabled(coreloaded);
-	stHandTestSettings->setEnabled(coreloaded);
+	// FASE 38: not `coreloaded` alone — see game_data_ready.h. At this point
+	// in Initialize() no repo sync has necessarily finished yet (on a
+	// static ygopro build `coreloaded` is already true here, since the core
+	// is linked in), so gating on `coreloaded` alone let these buttons
+	// enable before repositories were ready.
+	UpdateGameDataReadyGate();
 	RefreshUICoreVersion();
 	ApplySkin(EPRO_TEXT(""), true);
 	auto selectedLocale = gSettings.cbCurrentLocale->getSelected();
@@ -1231,19 +1233,62 @@ void Game::LoadCoreFromRepos() {
 		corename = Utils::ToUnicodeIfNeeded(path);
 		coreJustLoaded = true;
 		ocgcore = ncore;
-		if(!coreloaded) {
-			coreloaded = true;
-			btnSingleMode->setEnabled(true);
-			btnCreateHost->setEnabled(true);
-			btnHandTest->setEnabled(true);
-			btnHandTestSettings->setEnabled(true);
-			stHandTestSettings->setEnabled(true);
-		}
+		coreloaded = true;
 		break;
 	}
 	cores_to_load.clear();
+	// FASE 38: cores_to_load just went from non-empty to empty (whether or
+	// not a core actually loaded above), so this is exactly the moment
+	// IsGameDataReady()'s core_swap_pending term can flip — refresh the
+	// gate right here instead of waiting for next frame's MainLoop() call.
+	UpdateGameDataReadyGate();
 }
 #endif
+
+bool Game::IsGameDataReady() const {
+#ifdef YGOPRO_BUILD_DLL
+	const bool core_swap_pending = !cores_to_load.empty();
+#else
+	const bool core_swap_pending = false;
+#endif
+	return ygo::IsGameDataReady(coreloaded, gRepoManager->GetUpdatingReposNumber(), core_swap_pending);
+}
+
+// FASE 38 — the one place that decides both halves of "il client si lascia
+// giocare mentre i suoi dati sono incompleti, e non lo dice": which buttons
+// are enabled, AND (§"Il silenzio e' il bug") why they aren't, right now,
+// with something that changes (how many repositories are still syncing)
+// instead of a static "please wait". A tooltip rather than a new label:
+// wMainMenu is already laid out edge-to-edge (see the OFFSET stacking in
+// Initialize()) with no free row to add one to without relayouting every
+// button in it, and every gated button already exists and is already
+// visible whether enabled or not — a tooltip attaches the explanation to
+// the exact control the tester is looking at, with no layout change.
+void Game::UpdateGameDataReadyGate() {
+	const bool ready = IsGameDataReady();
+	std::wstring reason;
+	if(!ready) {
+		const auto updating = gRepoManager->GetUpdatingReposNumber();
+		if(updating > 0) {
+			reason = epro::format(L"Aggiornamento dei dati di gioco in corso ({} repository) — attendi che finisca prima di duellare. Stato dettagliato nella scheda Repository.", updating);
+		} else if(!coreloaded) {
+			reason = L"Il motore di gioco non e' ancora caricato — attendi qualche istante.";
+		} else {
+			reason = L"Cambio del motore di gioco in corso — attendi qualche istante.";
+		}
+	}
+	const auto apply = [ready, &reason](irr::gui::IGUIElement* element) {
+		if(!element)
+			return;
+		element->setEnabled(ready);
+		element->setToolTipText(reason.data());
+	};
+	apply(btnSingleMode);
+	apply(btnCreateHost);
+	apply(btnHandTest);
+	apply(btnHandTestSettings);
+	apply(stHandTestSettings);
+}
 
 static constexpr std::pair<epro::wstringview, irr::video::E_DRIVER_TYPE> supported_graphic_drivers[]{
 	{ L"Default"sv, irr::video::EDT_COUNT},
@@ -3058,6 +3103,17 @@ void Game::ParseGithubRepositories(const std::vector<const GitRepo*>& repos) {
 		gdeckManager->StopDummyLoading();
 		ReloadElementsStrings();
 	}
+	// FASE 38: this is the event that fires when the LAST repository still
+	// updating finishes (success or failure alike) — exactly the moment
+	// IsGameDataReady()'s repo term can flip from blocking to clear.
+	// Refreshed here rather than every frame so this never re-enables a
+	// button some other, unrelated piece of state (mid-lobby, mid-host
+	// setup) has deliberately disabled in the meantime — every call site
+	// that disables a gated button for one of those reasons keeps doing so
+	// on its own, and every call site that re-enables one on a state
+	// transition (menu_handler.cpp, duelclient.cpp) now asks
+	// IsGameDataReady() fresh instead of reading `coreloaded` directly.
+	UpdateGameDataReadyGate();
 }
 void Game::UpdateRepoInfo(const GitRepo* repo, RepoGui* grepo) {
 	if(repo->history.error.size()) {
