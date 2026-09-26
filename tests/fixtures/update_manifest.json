@@ -1,0 +1,16 @@
+{
+  "files": [
+    {
+      "name": "edopro-custom-linux-x64.zip",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "url": "https://example.invalid/edopro-custom-linux-x64.zip"
+    },
+    {
+      "name": "edopro-custom-windows-x86.zip",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "url": "https://example.invalid/edopro-custom-windows-x86.zip"
+    }
+  ],
+  "min_supported": 3,
+  "version": 5
+}

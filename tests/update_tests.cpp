@@ -339,6 +339,68 @@ void test_json_is_never_parsed_before_the_signature_verifies() {
 		 "signature-then-parse must reject before ever attempting to parse");
 }
 
+// --- FASE 37, cancello 1/2: a manifest actually signed by the Python side ---
+//
+// Every case above signs IN THIS BINARY, with SignAsUpdateManifest/
+// SignDetachedRaw reimplementing "what the domain prefix looks like" in
+// C++. That is enough to test update_verify.cpp against itself, but it can
+// never catch a divergence between this file's UPDATE_DOMAIN and the
+// literal string banlist/scripts/sign_update_manifest.py concatenates in
+// the vault repo — two copies of "fedelex-update-v1" agreeing is exactly
+// the thing a same-source reimplementation cannot verify. These two cases
+// read fixtures signed by actually RUNNING that script (see
+// tests/fixtures/README.md for the exact commands), so the only way they
+// pass is if the Python message-construction and this module's agree
+// byte-for-byte.
+
+void test_python_signed_manifest_verifies_in_cpp() {
+	const auto document = ReadFixture("update_manifest.json");
+	const auto signature = ReadFixture("update_manifest.json.sig");
+	if(document.empty() || signature.empty()) {
+		check(false, "python_signed_manifest_verifies_in_cpp: fixtures missing, cannot run");
+		return;
+	}
+	const auto key = LoadTestKey();
+	if(!key.loaded) {
+		check(false, "python_signed_manifest_verifies_in_cpp: test key fixture missing");
+		return;
+	}
+	const uint8_t* keys[] = { key.pub };
+	check(VerifySignatureWith(document, signature, keys, 1),
+		 "a manifest signed by sign_update_manifest.py (vault) must verify against the same "
+		 "test key in this C++ module — this is the cross-language cancello 1, not a string compare");
+
+	Manifest out;
+	std::string error;
+	const auto status = Parse(document, out, error);
+	check(status == VerifyStatus::Ok, "the Python-signed fixture must also be a well-formed manifest");
+	check(out.version == 5, "version must round-trip from the Python-built fixture");
+	check(out.min_supported == 3, "min_supported must round-trip from the Python-built fixture");
+	check(out.files.size() == 2, "both files[] entries must round-trip from the Python-built fixture");
+}
+
+void test_python_banlist_style_signature_does_not_verify_as_update() {
+	// Cancello 2: the SAME document, signed by sign_banlist.py (raw bytes,
+	// no domain prefix) instead of sign_update_manifest.py, with the SAME
+	// test key — must NOT verify as an update manifest. If this ever
+	// passed, UPDATE_DOMAIN would not be doing anything on the Python side.
+	const auto document = ReadFixture("update_manifest.json");
+	const auto signature = ReadFixture("update_manifest.banlist_style.sig");
+	if(document.empty() || signature.empty()) {
+		check(false, "python_banlist_style_signature_does_not_verify_as_update: fixtures missing, cannot run");
+		return;
+	}
+	const auto key = LoadTestKey();
+	if(!key.loaded) {
+		check(false, "python_banlist_style_signature_does_not_verify_as_update: test key fixture missing");
+		return;
+	}
+	const uint8_t* keys[] = { key.pub };
+	check(!VerifySignatureWith(document, signature, keys, 1),
+		 "a signature produced by sign_banlist.py (no domain) must NOT verify as an update manifest, "
+		 "even for the exact same document and key sign_update_manifest.py used");
+}
+
 // --- cross-domain: the requirement design/client-update.md calls out explicitly ---
 
 void test_update_signature_does_not_verify_as_banlist() {
@@ -437,6 +499,8 @@ int RunUpdateTests() {
 	test_is_client_supported_false_when_below_min_supported();
 	test_is_client_supported_true_when_no_floor_declared();
 	test_json_is_never_parsed_before_the_signature_verifies();
+	test_python_signed_manifest_verifies_in_cpp();
+	test_python_banlist_style_signature_does_not_verify_as_update();
 	test_update_signature_does_not_verify_as_banlist();
 	test_banlist_style_signature_does_not_verify_as_update();
 	test_title_domain_signature_does_not_verify_as_update();

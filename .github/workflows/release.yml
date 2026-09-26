@@ -83,6 +83,31 @@ jobs:
           path: tools/release/out/edopro-custom-linux-x64.tar.gz
           if-no-files-found: error
 
+      # FASE 37 (design/client-update.md §7bis): il solo formato che
+      # ClientUpdater::Unzip sa installare e' EFAT_ZIP (Utils::UnzipArchive,
+      # utils.cpp). Il tarball sopra e il binario nudo restano per chi
+      # installa a mano; questo ZIP e' l'unico che un manifesto di
+      # aggiornamento puo' nominare. `-j` ("junk path") mette il file alla
+      # RADICE dell'archivio invece che sotto bin/x64/release/: e' il
+      # percorso relativo alla cartella d'installazione che Unzip si aspetta
+      # (l'eseguibile in radice — Utils::GetExePath()). Su Linux il core e'
+      # collegato staticamente dentro l'eseguibile (nessuna libocgcore.so a
+      # fianco nella release), quindi non c'e' un secondo file da spostare.
+      - name: Crea lo ZIP per l'aggiornatore
+        run: |
+          mkdir -p tools/release/out
+          rm -f tools/release/out/edopro-custom-linux-x64.zip
+          zip -j tools/release/out/edopro-custom-linux-x64.zip bin/x64/release/ygoprodll
+          echo "-- contenuto dello ZIP --"
+          unzip -l tools/release/out/edopro-custom-linux-x64.zip
+
+      - name: Carica lo ZIP Linux
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-zip
+          path: tools/release/out/edopro-custom-linux-x64.zip
+          if-no-files-found: error
+
   build-windows:
     # D183: si compila su Windows vero, con MSVC, non piu' cross-compilando da
     # Linux. Tutti gli ostacoli del cross-build — le maiuscole degli header, il
@@ -129,6 +154,34 @@ jobs:
           path: bin/release/ygopro.exe
           if-no-files-found: error
 
+      # FASE 37 (design/client-update.md §7bis): stesso ragionamento del job
+      # Linux. Qui il core E' collegato staticamente dentro ygopro.exe (vedi
+      # il commento in cima a questo job e build_windows.ps1: "nessuna
+      # ocgcore.dll a fianco"), quindi anche su Windows lo ZIP contiene un
+      # solo file alla radice — non c'e' un core separato che
+      # ClientUpdater::Unzip debba spostare per questa build. Se in futuro il
+      # core tornasse un .dll a fianco, questo passo va rifatto per includerlo
+      # (e quel cambio tocca ClientUpdater::Unzip, non solo lo ZIP: vedi i
+      # punti di risalita di FASE 37 in PHASES.md).
+      - name: Crea lo ZIP per l'aggiornatore
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path tools/release/out | Out-Null
+          $zipPath = "tools/release/out/edopro-custom-windows-x86.zip"
+          if (Test-Path $zipPath) { Remove-Item $zipPath }
+          Compress-Archive -Path bin/release/ygopro.exe -DestinationPath $zipPath
+          Write-Host "-- contenuto dello ZIP --"
+          Expand-Archive -Path $zipPath -DestinationPath tools/release/out/.zip-check -Force
+          Get-ChildItem -Recurse tools/release/out/.zip-check | ForEach-Object { Write-Host $_.FullName }
+          Remove-Item -Recurse -Force tools/release/out/.zip-check
+
+      - name: Carica lo ZIP Windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: tools/release/out/edopro-custom-windows-x86.zip
+          if-no-files-found: error
+
   publish:
     name: Pubblica la Release
     needs: [build-linux, build-windows]
@@ -156,22 +209,39 @@ jobs:
           name: edopro-custom-windows-x86
           path: dist/
 
+      # FASE 37: i due ZIP installabili dall'aggiornatore. Allegati IN PIU'
+      # rispetto ai file di sempre, mai in sostituzione — chi installa a
+      # mano continua a scaricare il tarball/binario nudo di prima. Il
+      # manifesto firmato (design/client-update.md, pubblicato separatamente
+      # nel vault) e' cio' che indirizza a QUESTI due file.
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-zip
+          path: dist/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-zip
+          path: dist/
+
       - name: Crea la Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${{ github.ref_name }}" \
             dist/ygoprodll dist/edopro-custom-linux-x64.tar.gz dist/ygopro.exe \
+            dist/edopro-custom-linux-x64.zip dist/edopro-custom-windows-x86.zip \
             --title "${{ github.ref_name }}" \
             --notes "$(cat <<EOF
           Build automatica dal commit \`${{ github.sha }}\` (AGPLv3, sorgente
           completo in questo repository pubblico a quel commit).
 
           - \`edopro-custom-linux-x64.tar.gz\` — **client Linux x64, da
-            preferire.** Contiene \`ygoprodll\` e una cartella \`lib/\` con le
-            librerie che la distribuzione dell'utente potrebbe non avere, o
-            avere con un SONAME diverso. Si copiano entrambi accanto al
-            proprio eseguibile \`EDOPro\`. Istruzioni in \`LEGGIMI.txt\`.
+            preferire per un'installazione manuale.** Contiene \`ygoprodll\`
+            e una cartella \`lib/\` con le librerie che la distribuzione
+            dell'utente potrebbe non avere, o avere con un SONAME diverso. Si
+            copiano entrambi accanto al proprio eseguibile \`EDOPro\`.
+            Istruzioni in \`LEGGIMI.txt\`.
           - \`ygoprodll\` — lo stesso binario, nudo. Linka le librerie di
             ubuntu-latest: su una distribuzione diversa puo' non partire
             affatto (\`error while loading shared libraries\`). Resta qui per
@@ -182,5 +252,10 @@ jobs:
             compilarlo su Windows non e' averlo provato su Windows, e
             nessuno lo ha ancora aperto su hardware reale. Trattalo come
             beta.
+          - \`edopro-custom-linux-x64.zip\` / \`edopro-custom-windows-x86.zip\`
+            — stessi eseguibili di sopra, impacchettati nel solo formato che
+            l'aggiornatore integrato sa installare da solo (ZIP). Non
+            scaricarli a mano: sono per il manifesto di aggiornamento
+            firmato, non hanno la chiusura di dipendenze del tarball Linux.
           EOF
           )"
