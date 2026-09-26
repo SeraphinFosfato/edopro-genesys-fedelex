@@ -14,14 +14,16 @@
 // the other two (design/client-update.md, "Chiave separata da quella della
 // banlist").
 //
-// NEITHER KEY BELOW HAS BEEN GENERATED YET. Both arrays are all-zero
-// placeholders. All-zero is not a usable Ed25519 public key: no signature
-// will ever verify against it, so ygo::update::AnyTrustedKeyConfigured()
-// (update_verify.h) reads these arrays and reports false, and the updater
-// fails closed (design/client-update.md, "Fail-closed") until a real
-// operational key is generated and pasted in here.
+// The OPERATIONAL key exists since 2026-09-26. The RESERVE key is still an
+// all-zero placeholder, and that is a known gap, not a finished state: a
+// reserve can only be added by shipping a new binary, so until one is
+// generated and compiled in, rotating the operational key means every player
+// reinstalls by hand. All-zero is not a usable Ed25519 public key — no
+// signature will ever verify against it — so the zeroed reserve is inert
+// rather than dangerous, and AnyTrustedKeyConfigured() (update_verify.h)
+// reports true on the strength of the operational key alone.
 //
-// When the real keys exist:
+// When the reserve key is generated:
 //   1. Generate an Ed25519 keypair offline (never inside an agent context —
 //      decision D25, same rule as the banlist and title keys).
 //      operational: lives wherever the manifest signer runs (a GitHub
@@ -40,8 +42,18 @@ namespace ygo::update {
 inline constexpr size_t ED25519_PUBLIC_KEY_SIZE = 32;
 inline constexpr size_t ED25519_SIGNATURE_SIZE = 64;
 
-// operational — NOT YET GENERATED. All-zero placeholder (see header comment).
-inline constexpr uint8_t TRUSTED_KEY_OPERATIONAL[ED25519_PUBLIC_KEY_SIZE] = {};
+// operational — signs every update manifest. Generated 2026-09-26, offline,
+// with banlist/scripts/keygen_banlist.py; the private half was written to a
+// 0600 file outside any git repository and has never passed through an agent
+// context (decision D25). Verified distinct from all four other public keys
+// compiled into this client (banlist operational/reserve, title
+// operational/reserve).
+// base64: 0ZLmdALp6NhQESb0OW83iprD2PaCsWOzxq1MwxFUkoQ=
+inline constexpr uint8_t TRUSTED_KEY_OPERATIONAL[ED25519_PUBLIC_KEY_SIZE] = {
+	0xd1, 0x92, 0xe6, 0x74, 0x02, 0xe9, 0xe8, 0xd8, 0x50, 0x11, 0x26, 0xf4,
+	0x39, 0x6f, 0x37, 0x8a, 0x9a, 0xc3, 0xd8, 0xf6, 0x82, 0xb1, 0x63, 0xb3,
+	0xc6, 0xad, 0x4c, 0xc3, 0x11, 0x54, 0x92, 0x84
+};
 
 // reserve — NOT YET GENERATED. All-zero placeholder (see header comment).
 inline constexpr uint8_t TRUSTED_KEY_RESERVE[ED25519_PUBLIC_KEY_SIZE] = {};
