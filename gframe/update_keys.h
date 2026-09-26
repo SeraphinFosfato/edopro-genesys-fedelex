@@ -14,28 +14,26 @@
 // the other two (design/client-update.md, "Chiave separata da quella della
 // banlist").
 //
-// The OPERATIONAL key exists since 2026-09-26. The RESERVE key is still an
-// all-zero placeholder, and that is a known gap, not a finished state: a
-// reserve can only be added by shipping a new binary, so until one is
-// generated and compiled in, rotating the operational key means every player
-// reinstalls by hand. All-zero is not a usable Ed25519 public key — no
-// signature will ever verify against it — so the zeroed reserve is inert
-// rather than dangerous, and AnyTrustedKeyConfigured() (update_verify.h)
-// reports true on the strength of the operational key alone.
+// Both keys were generated on 2026-09-26, offline, and both are compiled in
+// below. Two keys rather than one is what makes a rotation a release of the
+// manifest instead of a reinstall for every player: a signature valid under
+// ANY entry of TRUSTED_KEYS is accepted, so the reserve can take over
+// without touching clients already in the field. It only works because the
+// reserve shipped in the same binary as the operational key — a reserve
+// added later would reach nobody who did not update.
 //
-// When the reserve key is generated:
-//   1. Generate an Ed25519 keypair offline (never inside an agent context —
-//      decision D25, same rule as the banlist and title keys).
-//      operational: lives wherever the manifest signer runs (a GitHub
-//      Action secret, mirroring banlist_keys.h's operational key).
-//      reserve: generated at the same time, kept offline, never loaded by
-//      the signer — it exists only so a client already in the field can
-//      accept it after a rotation, exactly like banlist's reserve key.
-//   2. Paste each 32-byte public half below, replacing the zeroed array,
-//      with a base64 comment above it (see banlist_keys.h for the format
-//      other code in this repo already uses).
-//   3. The private halves NEVER go in this repo, in any form, for any
-//      reason — see this repo's CLAUDE.md.
+// The rules that keep the pair worth having:
+//   1. The private halves NEVER go in this repo, in any form, for any
+//      reason — see this repo's CLAUDE.md — and never pass through an agent
+//      context (decision D25, same rule as the banlist and title keys).
+//   2. Only the OPERATIONAL private half may reach the manifest signer (a
+//      GitHub Action secret, mirroring banlist_keys.h's operational key).
+//      The RESERVE private half stays offline and signs nothing; loading it
+//      into CI spends the rotation before it is needed and leaves the pair
+//      with no way out.
+//   3. At a rotation, the reserve is promoted here and a NEW reserve is
+//      generated in the same release, so the client always ships two live
+//      keys. Shipping one is the state this file must never return to.
 
 namespace ygo::update {
 
@@ -55,8 +53,18 @@ inline constexpr uint8_t TRUSTED_KEY_OPERATIONAL[ED25519_PUBLIC_KEY_SIZE] = {
 	0xc6, 0xad, 0x4c, 0xc3, 0x11, 0x54, 0x92, 0x84
 };
 
-// reserve — NOT YET GENERATED. All-zero placeholder (see header comment).
-inline constexpr uint8_t TRUSTED_KEY_RESERVE[ED25519_PUBLIC_KEY_SIZE] = {};
+// reserve — inert until it takes over at a rotation. Generated 2026-09-26
+// alongside the operational key, same custody rules, and verified distinct
+// from all five other public keys compiled into this client. Its private
+// half must NEVER be loaded by the signer or placed in a GitHub Secret: it
+// exists only so a client already in the field can accept a signature made
+// with it on the day the operational key is rotated.
+// base64: WgbJ4/PKwQAs57FwRm5i2S1UGvpojyKT4FRAQ+3ysNQ=
+inline constexpr uint8_t TRUSTED_KEY_RESERVE[ED25519_PUBLIC_KEY_SIZE] = {
+	0x5a, 0x06, 0xc9, 0xe3, 0xf3, 0xca, 0xc1, 0x00, 0x2c, 0xe7, 0xb1, 0x70,
+	0x46, 0x6e, 0x62, 0xd9, 0x2d, 0x54, 0x1a, 0xfa, 0x68, 0x8f, 0x22, 0x93,
+	0xe0, 0x54, 0x40, 0x43, 0xed, 0xf2, 0xb0, 0xd4
+};
 
 inline constexpr const uint8_t* TRUSTED_KEYS[] = {
 	TRUSTED_KEY_OPERATIONAL,
