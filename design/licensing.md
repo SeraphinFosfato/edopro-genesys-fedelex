@@ -47,3 +47,35 @@ situazione cambierebbe e andrebbe riverificata.
 
 - Il repo vault-banlist e bot-telegram: licenza proprietaria, indipendente,
   vedi i loro `CLAUDE.md`.
+
+## `config/configs.json`: lo scriviamo noi, non lo ridistribuiamo
+
+**Deciso il 2026-09-26**, dopo che l'installatore Linux (FASE 35) si è
+fermato senza saperlo produrre.
+
+Quel file dichiara i server pubblici e i **repository da cui il client
+scarica i dati di gioco** — script, immagini, liste, e su Linux **il motore
+stesso** (`has_core: true` su DeltaBagooska). Senza, il client parte e non
+mostra nessun server, in silenzio.
+
+**Non copiamo il file di Project Ignis**: ne scriviamo uno nostro, e ciò che
+contiene sono indirizzi, porte e percorsi — dati di fatto e configurazione,
+non espressione creativa. Siamo un fork AGPL del loro client: puntare ai
+loro servizi pubblici è il comportamento normale di quel client, non
+un'appropriazione. Resta il dovere di tenerlo aggiornato se i loro indirizzi
+cambiano: è configurazione **nostra**, con la manutenzione che comporta.
+
+**Scaricarlo al primo avvio è escluso, e non per pigrizia.** Un file che
+decide *da dove il client prende del codice eseguibile* non può arrivare non
+autenticato dalla rete: chi controlla quell'URL controllerebbe gli script e
+il motore caricati su ogni macchina. È la stessa identica obiezione per cui
+`client-update.md` rifiuta un manifesto non firmato — non la si può fare
+valere per gli aggiornamenti e dimenticarla qui. Viaggia dentro la
+distribuzione, coperto dalla stessa fiducia del binario.
+
+**Onestà su cosa comporta il default.** Quel file punta ai server pubblici
+di Project Ignis, dove la nostra lista **viene scartata e il formato non è
+applicato** (vedi `banlist-distribution.md`). È accettabile solo perché il
+client adesso **lo dice** quando la lista gli viene sostituita. Non è
+un'approvazione di quel percorso: è il riconoscimento che l'alternativa —
+un client che non può giocare online con nessuno — è peggio.
