@@ -87,6 +87,18 @@ non deve costringere a ritoccare gli aggiornamenti, e viceversa.
 Quindi: `gframe/update_keys.h` accanto a `banlist_keys.h` e `title_keys.h`,
 pubblica compilata dentro, **privata mai in questo repo, per nessun motivo**.
 
+**Dove sta la privata operativa, deciso il 2026-09-26 (D196):** in una
+GitHub Secret, dentro un **Environment con revisore obbligatorio**, nel
+repository **privato del vault** — non qui. Questo repo è pubblico per
+obbligo di licenza, e un segreto di firma in un repository pubblico è a un
+trigger malconfigurato di distanza dall'esposizione. Il lavoro che tiene la
+chiave non compila niente e non si innesca da solo a una release: si lancia
+a mano, e nessuna esecuzione raggiunge la chiave senza che una persona
+approvi.
+
+La **riserva** non entra in nessuna Secret, in nessun Environment, in nessun
+CI, mai: due chiavi nello stesso posto non proteggono più da niente.
+
 ### 3. SHA-256 per file, e l'autorità è il manifesto
 
 Ogni voce porta la **SHA-256** del file. L'MD5 del codice upstream può
