@@ -1304,11 +1304,22 @@ void Game::DrawDeckBd() {
 		const auto main_deck_size_str = GetDeckSizeStr(current_deck.main, gdeckManager->pre_deck.main);
 		DrawShadowText(numFont, main_deck_size_str, Resize(379, 137, 439, 157), Resize(1, 1, 1, 1), 0xffffffff, 0xff000000, false, true);
 
-		const auto main_types_count_str = epro::format(L"{} {} {} {} {} {} Points: {}",
-													  gDataManager->GetSysString(1312), deckBuilder.main_monster_count,
-													  gDataManager->GetSysString(1313), deckBuilder.main_spell_count,
-													  gDataManager->GetSysString(1314), deckBuilder.main_trap_count,
-													  deckBuilder.points_count);
+		// FASE 32: il tetto si vede dove si spende. filterList->points_budget
+		// e' 0 quando la lista attiva non ne dichiara uno (design/banlist-
+		// distribution.md, "Il tetto di punti e' un dato della lista, non
+		// del binario") — in quel caso resta il solo totale, come prima.
+		const auto points_budget = deckBuilder.filterList ? deckBuilder.filterList->points_budget : 0;
+		const auto main_types_count_str = points_budget > 0
+			? epro::format(L"{} {} {} {} {} {} Points: {} / {}",
+						  gDataManager->GetSysString(1312), deckBuilder.main_monster_count,
+						  gDataManager->GetSysString(1313), deckBuilder.main_spell_count,
+						  gDataManager->GetSysString(1314), deckBuilder.main_trap_count,
+						  deckBuilder.points_count, points_budget)
+			: epro::format(L"{} {} {} {} {} {} Points: {}",
+						  gDataManager->GetSysString(1312), deckBuilder.main_monster_count,
+						  gDataManager->GetSysString(1313), deckBuilder.main_spell_count,
+						  gDataManager->GetSysString(1314), deckBuilder.main_trap_count,
+						  deckBuilder.points_count);
 
 		const auto mainpos = Resize(310, 137, 797, 157);
 		const auto mainDeckTypeSize = textFont->getDimensionustring(main_types_count_str);

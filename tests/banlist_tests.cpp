@@ -21,6 +21,8 @@
 #include "banlist_keys.h"
 #include "banlist_verify.h"
 #include "lflist_hash.h"
+#include "lflist_conf.h"
+#include "points_budget.h"
 #include "room_list_notice.h"
 // See the matching comment in banlist_verify.cpp: tweetnacl.h has no
 // extern "C" guard of its own.
@@ -72,12 +74,17 @@ std::string ReadFixture(const char* name) {
 
 // Folds a real .lflist.conf the same way DeckManager::LoadLFListSingle does
 // (deck_manager.cpp): skip blank/comment/whitelist-marker lines, reset on a
-// `!name` header, read "code limit [points]" per entry, fold every entry
-// through FoldLFListEntry. Kept deliberately independent of DeckManager
-// itself — that class carries irrlicht/curl and has no place in this
-// network-free binary (tests/premake5.lua) — so this only needs to agree
-// with it on the parsing rules, which the cancello-1 check below verifies
-// against a number read off the live network, not reimplemented trust.
+// `!name` header, and fold every entry / the list-level budget through the
+// exact functions LoadLFListSingle itself calls — ParseLFListEntryLine and
+// ParseLFListBudgetLine (lflist_conf.h), FoldLFListEntry and
+// FoldLFListBudget (lflist_hash.h). FASE 32 changed this from an
+// independent reimplementation of the parsing rules to calling the real
+// ones: two copies of "how to read a .conf line" is exactly how the
+// cancello-3 check below would end up tested by "these two call sites
+// share a function" instead of by actually running what each one runs.
+// Only the file-reading loop itself (and the two push-a-list-when-a-`!`-
+// line-or-EOF-is-hit moments) stays independent, since that part has no
+// gframe dependency to share in the first place.
 uint32_t FoldConfFile(const char* path) {
 	std::ifstream f(path);
 	if(!f) {
@@ -85,6 +92,7 @@ uint32_t FoldConfFile(const char* path) {
 		return 0;
 	}
 	uint32_t hash = 0;
+	int points_budget = 0;
 	std::string line;
 	while(std::getline(f, line)) {
 		if(!line.empty() && line.back() == '\r')
@@ -93,22 +101,24 @@ uint32_t FoldConfFile(const char* path) {
 			continue;
 		if(line[0] == '!') {
 			hash = LFLIST_HASH_SEED;
+			points_budget = 0;
 			continue;
 		}
 		if(!hash)
 			continue;
-		std::istringstream iss(line);
+		int budget = 0;
+		if(ParseLFListBudgetLine(line, budget)) {
+			points_budget = budget;
+			continue;
+		}
 		uint32_t code = 0;
 		int limit = 3;
 		int points = 0;
-		iss >> code >> limit;
-		if(iss.fail() || code == 0)
+		if(!ParseLFListEntryLine(line, code, limit, points))
 			continue;
-		if(!(iss >> points))
-			points = 0;
 		hash = FoldLFListEntry(hash, code, limit, points);
 	}
-	return hash;
+	return FoldLFListBudget(hash, points_budget);
 }
 
 // TweetNaCl's secret key format is 64 bytes: a 32-byte seed followed by the
@@ -326,6 +336,153 @@ void test_same_entries_hash_the_same_regardless_of_read_order() {
 	check(forward == reversed, "the same entries folded in a different order must produce the same hash");
 }
 
+// --- FASE 32: points_budget --------------------------------------------
+// design/banlist-distribution.md, "Il tetto di punti è un dato della
+// lista, non del binario".
+
+void test_absent_budget_folds_to_the_network_hash_and_never_rejects() {
+	// Cancello 1 — same real fixture as the FASE 31 check above, now also
+	// exercising the new FoldLFListBudget call FoldConfFile makes at the
+	// end: OCG.lflist.conf has no `$points_budget` line, so points_budget
+	// stays 0 and the fold must be a no-op. If it weren't, this would land
+	// on a different number than the one the live network already uses for
+	// this exact list — the same failure mode FASE 31 fixed for points.
+	const uint32_t hash = FoldConfFile("runtime/repositories/lflists/OCG.lflist.conf");
+	check(hash == 0x857713b8u,
+		 "a list with no points_budget must still fold to exactly the hash the live network uses for it");
+	// The other half of cancello 1: no budget means no deck is ever
+	// rejected for points, regardless of how many it has.
+	check(!IsOverPointsBudget(0, 0), "a budget of 0 (absent) must never reject an empty deck");
+	check(!IsOverPointsBudget(999999, 0), "a budget of 0 (absent) must never reject any deck, however many points it has");
+}
+
+void test_present_budget_changes_the_hash() {
+	// Cancello 2.
+	const uint32_t hash_no_budget = FoldLFListBudget(LFLIST_HASH_SEED, 0);
+	const uint32_t hash_budget_100 = FoldLFListBudget(LFLIST_HASH_SEED, 100);
+	const uint32_t hash_budget_80 = FoldLFListBudget(LFLIST_HASH_SEED, 80);
+	check(hash_no_budget == LFLIST_HASH_SEED, "a budget of 0 (absent) must fold to exactly the unmodified hash");
+	check(hash_no_budget != hash_budget_100, "a present points_budget must change the hash of an otherwise identical list");
+	check(hash_budget_100 != hash_budget_80, "two different non-zero budgets must hash differently from each other too");
+}
+
+void test_budget_hashes_the_same_regardless_of_provenance() {
+	// Cancello 3 — the same list (entries AND points_budget) must hash the
+	// same whether it comes from a .conf file or a signed banlist.json.
+	// Both real parsers are exercised here, not reimplemented:
+	// ParseLFListEntryLine/ParseLFListBudgetLine (lflist_conf.h) are the
+	// exact functions DeckManager::LoadLFListSingle calls for the .conf
+	// side, and banlist::Parse is the exact function
+	// BanlistUpdater::LoadActiveInto calls for the JSON side. Only the
+	// trivial fold-per-entry loop is repeated on both sides, because
+	// FoldLFListEntry/FoldLFListBudget are — by design — the single shared
+	// hash function; there is nothing to "provenance-test" about calling
+	// the one function that exists.
+	const std::string conf_text =
+		"!Test\n"
+		"$points_budget 100\n"
+		"11384280 3 0\n"
+		"44763025 1 462\n"
+		"20292186 2 15\n";
+	uint32_t hash_from_conf = LFLIST_HASH_SEED;
+	int budget_from_conf = 0;
+	{
+		std::istringstream conf_stream(conf_text);
+		std::string line;
+		while(std::getline(conf_stream, line)) {
+			if(line.empty() || line[0] == '#' || line[0] == '!')
+				continue;
+			int budget = 0;
+			if(ParseLFListBudgetLine(line, budget)) {
+				budget_from_conf = budget;
+				continue;
+			}
+			uint32_t code = 0;
+			int limit = 3;
+			int points = 0;
+			if(ParseLFListEntryLine(line, code, limit, points))
+				hash_from_conf = FoldLFListEntry(hash_from_conf, code, limit, points);
+		}
+		hash_from_conf = FoldLFListBudget(hash_from_conf, budget_from_conf);
+	}
+	check(budget_from_conf == 100, "the real .conf parser (ParseLFListBudgetLine) must read the directive for real");
+
+	const std::string json_text =
+		"{\"attribution\":{\"author\":\"test\",\"url\":\"test\"},"
+		"\"entries\":["
+		"{\"id\":11384280,\"limit\":3,\"macro\":\"Magia\",\"name\":\"A\",\"points\":0,\"source\":\"custom\"},"
+		"{\"id\":44763025,\"limit\":1,\"macro\":\"Magia\",\"name\":\"B\",\"points\":462,\"source\":\"custom\"},"
+		"{\"id\":20292186,\"limit\":2,\"macro\":\"Magia\",\"name\":\"C\",\"points\":15,\"source\":\"custom\"}],"
+		"\"expires_at\":\"2099-01-01T00:00:00Z\",\"format_version\":3,"
+		"\"generated_at\":\"2026-01-01T00:00:00Z\",\"license\":\"test\",\"points_budget\":100}";
+	banlist::Payload payload;
+	std::string error;
+	const auto status = banlist::Parse(json_text, payload, error);
+	check(status == banlist::VerifyStatus::Ok, "budget_hashes_the_same_regardless_of_provenance: the JSON side must parse cleanly");
+	check(payload.points_budget == 100, "the real JSON parser (banlist::Parse) must read points_budget for real");
+	uint32_t hash_from_json = LFLIST_HASH_SEED;
+	for(const auto& entry : payload.entries)
+		hash_from_json = FoldLFListEntry(hash_from_json, entry.id, entry.limit, entry.points);
+	hash_from_json = FoldLFListBudget(hash_from_json, payload.points_budget);
+
+	check(hash_from_conf == hash_from_json,
+		 "the same list with the same budget must hash identically whether parsed from .conf or from banlist.json");
+}
+
+void test_points_budget_is_optional_and_validated_in_the_signed_artifact() {
+	// points_budget is the one top-level field that is allowed to be
+	// absent (D91) — every other field on MinimalDocument is required, and
+	// those cases are already covered above. Absent must parse to 0 ("no
+	// budget"), present-but-wrong-shape must be a schema violation, exactly
+	// like every other typed field in this artifact.
+	{
+		banlist::Payload out;
+		std::string error;
+		const auto status = banlist::Parse(MinimalDocument(3), out, error);
+		check(status == banlist::VerifyStatus::Ok, "a document with no points_budget key at all must parse cleanly");
+		check(out.points_budget == 0, "an absent points_budget must default to 0 (no budget applied)");
+	}
+	{
+		const std::string with_string_budget =
+			"{\"attribution\":{\"author\":\"test\",\"url\":\"test\"},"
+			"\"entries\":[],\"expires_at\":\"2099-01-01T00:00:00Z\",\"format_version\":3,"
+			"\"generated_at\":\"2026-01-01T00:00:00Z\",\"license\":\"test\",\"points_budget\":\"100\"}";
+		banlist::Payload out;
+		std::string error;
+		const auto status = banlist::Parse(with_string_budget, out, error);
+		check(status == banlist::VerifyStatus::SchemaViolation, "a points_budget that isn't an integer must be a schema violation, not coerced");
+	}
+	{
+		const std::string with_negative_budget =
+			"{\"attribution\":{\"author\":\"test\",\"url\":\"test\"},"
+			"\"entries\":[],\"expires_at\":\"2099-01-01T00:00:00Z\",\"format_version\":3,"
+			"\"generated_at\":\"2026-01-01T00:00:00Z\",\"license\":\"test\",\"points_budget\":-1}";
+		banlist::Payload out;
+		std::string error;
+		const auto status = banlist::Parse(with_negative_budget, out, error);
+		check(status == banlist::VerifyStatus::SchemaViolation, "a negative points_budget must be a schema violation");
+	}
+}
+
+void test_deck_over_budget_is_rejected_at_the_ready_check() {
+	// Cancello 4 — the pass/fail decision behind DeckError::TOOMANYPOINTS
+	// in DeckManager::CheckDeckContent (deck_manager.cpp), pulled out as
+	// IsOverPointsBudget (points_budget.h) precisely so it can be
+	// exercised here: CheckDeckContent itself needs CardDataC/irrlicht and
+	// has no place in this network-free binary (tests/premake5.lua), same
+	// scope boundary as ShouldWarnAboutListSubstitution/room_list_notice.h
+	// below. What is NOT exercised here — that CheckDeckContent wires this
+	// decision's true branch to DeckError::TOOMANYPOINTS with
+	// count.current/count.maximum set from the real Main+Extra+Side total
+	// — is glue code verified by reading deck_manager.cpp, the same way
+	// duelclient.cpp's STOC_JOIN_GAME handling of the sibling decision
+	// below is glue verified by reading, not by this suite.
+	check(!IsOverPointsBudget(100, 100), "a deck at exactly the budget must pass");
+	check(IsOverPointsBudget(101, 100), "a deck one point over budget must be rejected");
+	check(IsOverPointsBudget(1000, 100), "a deck far over budget must be rejected");
+	check(!IsOverPointsBudget(0, 100), "an empty deck must always pass, budget or not");
+}
+
 void test_room_warns_only_when_the_returned_hash_differs_from_the_one_sent() {
 	// FASE 31, cancello 5 — design/banlist-distribution.md, "Quando qualcun
 	// altro sostituisce la lista, si dice". ShouldWarnAboutListSubstitution
@@ -428,6 +585,11 @@ int main() {
 	test_points_change_the_hash();
 	test_a_list_with_no_points_folds_to_the_network_hash();
 	test_same_entries_hash_the_same_regardless_of_read_order();
+	test_absent_budget_folds_to_the_network_hash_and_never_rejects();
+	test_present_budget_changes_the_hash();
+	test_budget_hashes_the_same_regardless_of_provenance();
+	test_points_budget_is_optional_and_validated_in_the_signed_artifact();
+	test_deck_over_budget_is_rejected_at_the_ready_check();
 	test_room_warns_only_when_the_returned_hash_differs_from_the_one_sent();
 	test_malformed_format_version_is_refused_like_a_bad_signature();
 	test_unknown_macro_value_is_a_schema_violation();

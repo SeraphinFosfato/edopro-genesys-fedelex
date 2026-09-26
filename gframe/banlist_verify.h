@@ -40,6 +40,13 @@ struct Payload {
 	std::string author;
 	std::string url;
 	std::vector<Entry> entries;
+	// FASE 32 (design/banlist-distribution.md, "Il tetto di punti è un dato
+	// della lista, non del binario"): a LIST-level field, optional on the
+	// wire. 0 means the key was absent — "nessun tetto applicato" — which is
+	// also what FoldLFListBudget (lflist_hash.h) treats as "no term to fold
+	// in", so an artifact signed before this field existed keeps validating
+	// and keeps its hash unchanged.
+	int points_budget = 0;
 };
 
 enum class VerifyStatus {

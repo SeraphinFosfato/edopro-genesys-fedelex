@@ -546,6 +546,17 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 				text = gDataManager->GetSysString(1427).data();
 				break;
 			}
+			case DeckError::TOOMANYPOINTS: {
+				// Letterale, non GetSysString: stesso precedente di
+				// UpdateTitleAuthButton (game.cpp) — questo valore non esiste
+				// nell'EDOPro upstream ne' nella strings.conf che questo fork
+				// non possiede (gitignorata, arriva da un repo esterno), quindi
+				// non ha un sysstring da riusare. design/banlist-distribution.md,
+				// FASE 32, punto 6: il rifiuto dice totale e tetto, mai
+				// "mazzo non valido".
+				text = epro::format(L"Il mazzo supera il limite di punti del formato: {} / {}", curcount, mainmax);
+				break;
+			}
 			default: {
 				text = gDataManager->GetSysString(1406).data();
 				break;

@@ -16,6 +16,8 @@
 #include "fmt.h"
 #include "game_config.h"
 #include "lflist_hash.h"
+#include "lflist_conf.h"
+#include "points_budget.h"
 
 namespace ygo {
 const CardDataC* DeckManager::GetDummyOrMappedCardData(uint32_t code) const {
@@ -54,10 +56,18 @@ bool DeckManager::LoadLFListSingle(const epro::path_string& path) {
 		if(str.empty() || str[0] == '#')
 			continue;
 		if(str[0] == '!') {
-			if(lflist.hash)
+			if(lflist.hash) {
+				// The budget term folds ONCE per list, at the point the list
+				// is finalized — not inline where the directive line happens
+				// to sit, which could be anywhere relative to the entries
+				// (lflist_hash.h: XOR order doesn't matter, but folding it
+				// twice by accident would).
+				lflist.hash = FoldLFListBudget(lflist.hash, lflist.points_budget);
 				_lfList.push_back(std::move(lflist));
+			}
 			lflist.listName = BufferIO::DecodeUTF8({ str.data() + 1, str.size() - 1 });
 			lflist.content.clear();
+			lflist.points_budget = 0;
 			lflist.hash = 0x7dfcee6a;
 			lflist.whitelist = false;
 			loaded = true;
@@ -69,23 +79,26 @@ bool DeckManager::LoadLFListSingle(const epro::path_string& path) {
 		}
 		if(!lflist.hash)
 			continue;
-		std::istringstream iss(str);
+		// "$points_budget N" — the list-level counterpart to the per-entry
+		// line below (FASE 32). Checked before the entry parse: an entry
+		// line always starts with a numeric code, so there's no ambiguity
+		// between the two.
+		{
+			int budget = 0;
+			if(ParseLFListBudgetLine(str, budget)) {
+				lflist.points_budget = budget;
+				continue;
+			}
+		}
 		uint32_t code = 0;
 		int limit = 3;
 		int points = 0;
-
-		iss >> code >> limit;
-
-		if (iss.fail() || code == 0)
+		if(!ParseLFListEntryLine(str, code, limit, points))
 			continue;
 
 		// limit is used as a shift amount below; an out-of-range value from a
 		// malformed file would shift a uint32_t by >=32 bits, which is UB.
 		limit = std::clamp(limit, 0, 3);
-
-		if (!(iss >> points)) {
-			points = 0; // Points are optional
-		}
 
 		lflist.content[code] = BanlistEntry{ limit, points };
 		// Folded through the single shared function (lflist_hash.h, D74): a
@@ -96,8 +109,10 @@ bool DeckManager::LoadLFListSingle(const epro::path_string& path) {
 		lflist.hash = FoldLFListEntry(lflist.hash, code, limit, points);
 	}
 
-	if (lflist.hash)
+	if (lflist.hash) {
+		lflist.hash = FoldLFListBudget(lflist.hash, lflist.points_budget);
 		_lfList.push_back(std::move(lflist));
+	}
 	return loaded;
 }
 bool DeckManager::LoadLFListFolder(epro::path_stringview _path) {
@@ -260,7 +275,23 @@ DeckError DeckManager::CheckDeckContent(const Deck& deck, LFList const* lflist, 
 		return { DeckError::NONE };
 	});
 	if (ret.type) return ret;
-	return CheckCards(deck.side, lflist, allowedCards, ccount);
+	ret = CheckCards(deck.side, lflist, allowedCards, ccount);
+	if (ret.type) return ret;
+	// FASE 32, design/banlist-distribution.md "Il tetto di punti è un dato
+	// della lista, non del binario": applied here, at the same "pronto"
+	// check as every other deck-legality rule — never in the editor, which
+	// stays an unenforced aid (DeckBuilder::RefreshLimitationStatus). Main +
+	// Extra + Side (D89, declared assumption): matches what the editor
+	// already summed at deck_con.cpp:1524 before this existed.
+	const int total_points = CountPoints(deck.main, lflist) + CountPoints(deck.extra, lflist) + CountPoints(deck.side, lflist);
+	if(IsOverPointsBudget(total_points, lflist->points_budget)) {
+		ret.type = DeckError::TOOMANYPOINTS;
+		ret.count.current = static_cast<uint32_t>(total_points);
+		ret.count.minimum = 0;
+		ret.count.maximum = static_cast<uint32_t>(lflist->points_budget);
+		return ret;
+	}
+	return ret;
 }
 DeckError DeckManager::CheckDeckSize(const Deck& deck, const DeckSizes& sizes) {
 	DeckError ret{ DeckError::NONE };

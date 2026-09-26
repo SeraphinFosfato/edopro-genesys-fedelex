@@ -45,6 +45,28 @@ inline uint32_t FoldLFListEntry(uint32_t hash, uint32_t code, int limit, int poi
 	return folded;
 }
 
+// The points budget (design/banlist-distribution.md, "Il tetto di punti è
+// un dato della lista, non del binario" — FASE 32) is a LIST-level
+// property: unlike FoldLFListEntry above, this folds ONCE per list, not
+// once per entry. Same shape as the points term inside FoldLFListEntry: a
+// budget of 0 means "absent" (an LFList/Payload that never set one
+// defaults there) and contributes nothing, so a list with no points_budget
+// folds to bit-for-bit the same hash it folded to before this term
+// existed. Two players who agree on every id/limit/point but not on the
+// budget are not compatible either — same argument as the points term,
+// one level up.
+//
+// Call this exactly once per list, in addition to folding every entry
+// through FoldLFListEntry; order between the two does not matter, XOR is
+// commutative/associative (see the comment above).
+inline uint32_t FoldLFListBudget(uint32_t hash, int points_budget) {
+	if(points_budget != 0) {
+		const uint32_t budget_mixed = static_cast<uint32_t>(points_budget) * 0x9e3779b9u;
+		hash ^= ((budget_mixed << 13) | (budget_mixed >> 19));
+	}
+	return hash;
+}
+
 }
 
 #endif //LFLIST_HASH_H

@@ -25,6 +25,12 @@ struct LFList {
 	std::wstring listName;
 	banlist_content_t content;
 	bool whitelist;
+	// 0 = no budget applied (FASE 32, design/banlist-distribution.md "Il
+	// tetto di punti è un dato della lista, non del binario"): absent from
+	// both the .conf directive ($points_budget) and the signed artifact
+	// (points_budget) alike, so an LFList built from either source that
+	// never set one defaults here to "no cap".
+	int points_budget = 0;
 	auto GetLimitationIterator(const CardDataC* pcard) const {
 		auto flit = content.find(pcard->code);
 		if(flit == content.end() && pcard->alias) {

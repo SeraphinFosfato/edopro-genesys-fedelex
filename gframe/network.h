@@ -121,8 +121,27 @@ struct DeckError {
 		UNOFFICIALCARD,
 		INVALIDSIZE,
 		TOOMANYLEGENDS,
-		TOOMANYSKILLS
+		TOOMANYSKILLS,
+		// FASE 32 (design/banlist-distribution.md, "Il tetto di punti è un
+		// dato della lista, non del binario"). MUST stay last: this
+		// enumeration travels by POSITION across the wire — compat_mode in
+		// duelclient.cpp packs it into pkt.code >> 28 — so inserting or
+		// reordering anything above changes the meaning of every error a
+		// client already ships. A plain EDOPro build rejected for points
+		// will receive a value its own DERR_TYPE doesn't have and show a
+		// generic message: known, accepted (design/banlist-distribution.md
+		// says so explicitly), not a bug to fix here.
+		TOOMANYPOINTS
 	};
+	// Compile-time guard for the ordinal rule above: fails the build, not a
+	// test run, the moment anything reorders this enum — every value here
+	// is load-bearing on the wire.
+	static_assert(NONE == 0 && LFLIST == 1 && OCGONLY == 2 && TCGONLY == 3 &&
+				 UNKNOWNCARD == 4 && CARDCOUNT == 5 && MAINCOUNT == 6 &&
+				 EXTRACOUNT == 7 && SIDECOUNT == 8 && FORBTYPE == 9 &&
+				 UNOFFICIALCARD == 10 && INVALIDSIZE == 11 && TOOMANYLEGENDS == 12 &&
+				 TOOMANYSKILLS == 13 && TOOMANYPOINTS == 14,
+				 "DERR_TYPE travels by position across the wire; no existing value may move, new values go at the end only");
 	DERR_TYPE type = DERR_TYPE::NONE;
 	struct {
 		uint32_t current;

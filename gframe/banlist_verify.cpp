@@ -228,6 +228,26 @@ VerifyStatus Parse(const std::string& document, Payload& out, std::string& error
 			payload.entries.push_back(std::move(entry));
 		}
 
+		// points_budget: OPTIONAL, unlike every other top-level field above
+		// (FASE 32, D91). Absent means payload.points_budget stays at its
+		// default 0, i.e. "no budget applied" — the same "assente = niente"
+		// spelling the artifact already uses for entry.reason. Present but
+		// the wrong shape is still a schema violation: a budget nobody can
+		// parse is not the same as no budget at all.
+		auto budget_it = j.find("points_budget");
+		if(budget_it != j.end()) {
+			if(!budget_it->is_number_integer()) {
+				error = "points_budget is present but not an integer";
+				return VerifyStatus::SchemaViolation;
+			}
+			const auto raw_budget = budget_it->get<int64_t>();
+			if(raw_budget < 0) {
+				error = "points_budget is negative";
+				return VerifyStatus::SchemaViolation;
+			}
+			payload.points_budget = static_cast<int>(raw_budget);
+		}
+
 		out = std::move(payload);
 		return VerifyStatus::Ok;
 	} catch(...) {
