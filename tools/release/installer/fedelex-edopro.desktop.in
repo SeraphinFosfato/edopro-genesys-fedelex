@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=EDOPro (Fedelex custom)
+Comment=Client EDOPro con supporto al formato custom Fedelex
+Exec={EXEC}
+Icon={ICON}
+Terminal=false
+Categories=Game;CardGame;
+StartupWMClass=EDOPro

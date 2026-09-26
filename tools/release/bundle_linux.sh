@@ -10,6 +10,10 @@
 #   edopro-custom-linux-x64/
 #     ygoprodll        <- byte per byte lo stesso binario nudo della release
 #     lib/*.so.*       <- la chiusura filtrata, con il SONAME come nome file
+#     install.sh       <- installatore Linux (FASE 35, PHASES.md): copia
+#                         programma+librerie sotto ~/.local, senza mai sudo
+#                         ne' scritture fuori $HOME. Vedi tools/release/installer/.
+#     fedelex-edopro.desktop.in, icon.png  <- usati da install.sh
 #     LEGGIMI.txt
 #     notices/         <- licenze delle librerie che ridistribuiamo
 #
@@ -371,9 +375,17 @@ fi
 echo "-- verifica: il filtro e' pulito e tutte le ${#INCLUSE[@]} librerie in lib/ vengono prese da li' --"
 echo
 
-# ── 5. istruzioni e licenze ───────────────────────────────────────────────
+# ── 5. istruzioni, licenze e installatore ─────────────────────────────────
 cp -r "$REPO_ROOT/notices" "$STAGE/notices"
 cp "$REPO_ROOT/LICENSE" "$STAGE/LICENSE"
+
+# FASE 35 (PHASES.md): l'installatore Linux. Vive in tools/release/installer/
+# come sorgente versionato, viene copiato qui accanto al binario cosi' il
+# tarball e' autosufficiente (nessuna rete durante l'installazione).
+cp "$REPO_ROOT/tools/release/installer/install.sh" "$STAGE/install.sh"
+chmod +x "$STAGE/install.sh"
+cp "$REPO_ROOT/tools/release/installer/fedelex-edopro.desktop.in" "$STAGE/fedelex-edopro.desktop.in"
+cp "$REPO_ROOT/tools/release/installer/icon.png" "$STAGE/icon.png"
 
 cat >"$STAGE/LEGGIMI.txt" <<EOF
 EDOPro - client con supporto alla point list (build Linux x64)
@@ -382,7 +394,18 @@ Questo pacchetto NON e' un'installazione completa di EDOPro: e' solo il
 client. Ha bisogno dei dati di un'installazione EDOPro gia' presente
 (cards.cdb, script/, config/, textures/, fonts).
 
-Installazione
+Installazione consigliata
+  Esegui, dalla cartella estratta dal tarball:
+    ./install.sh
+  Installa il programma sotto ~/.local (mai sudo, mai fuori dalla tua
+  cartella utente), crea un avviatore e una voce di menu, e ti chiede
+  conferma se trova gia' un'installazione EDOPro da riusare come cartella
+  dati (mazzi, replay, config). Per toglierlo:
+    ./install.sh --uninstall
+  (non tocca mai la cartella dati: mazzi e replay restano tuoi). Dettagli
+  in tools/release/installer/install.sh --help.
+
+Installazione manuale (alternativa)
   1. Apri la cartella dove sta il tuo eseguibile EDOPro.
   2. Copia dentro, accanto a quell'eseguibile:
        ygoprodll
@@ -398,6 +421,8 @@ Se all'avvio compare "error while loading shared libraries", esegui
 e segnala quali righe dicono "not found": vuol dire che manca una libreria
 di sistema che questo pacchetto da' per scontata (driver grafici, audio,
 glibc) e va installata dal gestore pacchetti della tua distribuzione.
+(./install.sh fa gia' questo controllo da solo e te lo dice prima di
+finire, se lo usi.)
 
 Licenza: AGPLv3, vedi LICENSE. Il sorgente completo di questa build sta su
 https://github.com/SeraphinFosfato/edopro-genesys-fedelex
