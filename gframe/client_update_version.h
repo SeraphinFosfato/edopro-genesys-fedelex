@@ -26,7 +26,13 @@ namespace ygo::update {
 
 // v0.0.4-alpha (git tag) is build 4. Bump by exactly one at every release of
 // this fork that should be distinguishable to a manifest's min_supported.
-inline constexpr int CLIENT_UPDATE_VERSION = 4;
+//
+// Build 5 = v0.0.5-alpha, the FIRST release that carries UPDATE_URL and can
+// therefore read a manifest at all. Everything at or below 4 will never see
+// one: those clients are updated by reinstalling, once, and that is why the
+// first manifest's min_supported is a decision about build 5 and later, not
+// a way to shut out builds that cannot hear it.
+inline constexpr int CLIENT_UPDATE_VERSION = 5;
 
 }
 

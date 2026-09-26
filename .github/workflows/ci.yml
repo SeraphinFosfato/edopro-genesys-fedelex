@@ -32,6 +32,27 @@ jobs:
           ./travis/install-premake5.sh linux
           chmod +x ./premake5
 
+      # Due test di FASE 31 (l'hash della lista) leggono un .lflist.conf VERO
+      # da runtime/repositories/lflists/, che su una macchina di sviluppo
+      # c'e' perche' l'ha clonato il client, e qui non c'e' mai: /runtime/ e'
+      # in .gitignore. Il risultato e' stato che quei due test passavano in
+      # locale e fallivano in CI — dove nessuno guardava, perche' il job si
+      # fermava prima su un errore di compilazione.
+      #
+      # Non lo ridistribuiamo nel repo: stessa posizione presa per
+      # config/configs.json (design/licensing.md). Lo si scarica dalla fonte,
+      # inchiodato allo SHA del commit e non a master, perche' il valore
+      # atteso dal test e' l'hash di QUESTO contenuto: se upstream cambia la
+      # lista, vogliamo un fallimento che dice "il file e' cambiato", non un
+      # hash misterioso che non torna.
+      - name: Scarica OCG.lflist.conf (fonte Project Ignis, pinnato)
+        run: |
+          mkdir -p runtime/repositories/lflists
+          curl -sSLf -o runtime/repositories/lflists/OCG.lflist.conf \
+            https://raw.githubusercontent.com/ProjectIgnis/LFLists/ca4e65bf38817cd931a1e24bb1ed68a543e907c3/OCG.lflist.conf
+          echo "a2039953c509ad8fa72bc98567ff4d4d8ab0464248a1aa1557ea3fe23a30a3cd  runtime/repositories/lflists/OCG.lflist.conf" \
+            | sha256sum -c -
+
       - name: Genera e compila banlist_tests
         run: |
           ./premake5 --file=tests/premake5.lua gmake2

@@ -79,10 +79,29 @@ newoption {
 	value = "app_id_token",
 	description = "Discord App ID for rich presence"
 }
+-- L'URL del manifesto di aggiornamento firmato. Sta qui come `default`, e
+-- non nei tre script di tools/release/, per la stessa ragione scritta sopra
+-- per DEFAULT_PIC_URL: quelli sono tre e divergerebbero, e chi compila a mano
+-- resterebbe senza. Qui vale per tutti.
+--
+-- E' compilato nel binario di proposito (design/client-update.md §7): un URL
+-- configurabile da file, o peggio da riga di comando, sposterebbe la fiducia
+-- su qualcosa che si cambia senza lasciare traccia. L'override -u esiste
+-- ancora ma solo nelle build di Debug (client_updater.cpp).
+--
+-- Va gia' virgolettato come letterale C, come i tre URL delle immagini: il
+-- define si costruisce concatenando ("UPDATE_URL=" .. valore).
+--
+-- L'URL non deve essere fidato piu' di tanto e non e' un punto di fiducia:
+-- il documento che serve e' firmato Ed25519 (dominio "fedelex-update-v1",
+-- chiavi in gframe/update_keys.h) e la firma si verifica PRIMA di
+-- interpretarlo. Chi controllasse questo host puo' impedire un
+-- aggiornamento, non provocarne uno falso.
 newoption {
 	trigger = "update-url",
 	value = "url",
-	description = "API endpoint to check for updates from"
+	default = '"https://seraphinfosfato.github.io/Banlist-dist/update.json"',
+	description = "URL of the signed update manifest (the .sig is fetched from the same URL + \".sig\")"
 }
 newoption {
 	trigger = "no-core",
