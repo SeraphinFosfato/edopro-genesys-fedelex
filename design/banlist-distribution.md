@@ -191,31 +191,82 @@ l'hash della nostra lista.** Client vecchi e nuovi non si riconosceranno fra
 loro. È un cambio che si fa mentre i giocatori sono pochi, e va accompagnato
 dall'aggiornatore di `client-update.md`, non prima.
 
-### Il tetto di punti è un dato della lista, non del binario
+### Il tetto di punti: un valore della lista, una regola della stanza
 
-Il budget di punti per mazzo sta **nell'artefatto firmato**
-(`points_budget`, campo di lista), mai cablato nel client: è una proprietà
-del **formato**, e cablarla vorrebbe dire una release nuova — e tutti che
-reinstallano — ogni volta che il tetto cambia. **Campo assente = nessun
-tetto applicato**, così gli artefatti già firmati restano validi senza
-nessuna migrazione.
+Il tetto ha **due metà, e confonderle rompe la funzione.**
 
-**Il tetto entra nell'hash**, con un termine di **lista** piegato una volta
-sola, che vale **zero quando il campo non c'è**. È lo stesso argomento dei
-punti: due giocatori che concordano su ogni id, limite e punto ma non sul
-tetto **non sono compatibili**, e senza questo termine si siederebbero allo
-stesso tavolo credendo di esserlo. Da qui la regola generale, che vale per
-qualunque dato futuro di questo tipo: *un termine di lista si piega una
-volta sola e non contribuisce quando il dato non c'è* — è la stessa forma
-che tiene compatibili le liste senza punti.
+**La lista firmata porta il valore predefinito** (`points_budget`, campo di
+lista facoltativo, intero non negativo, **assente = nessun tetto**). Sta lì e
+non nel binario perché è una proprietà del **formato**: cablarla vorrebbe
+dire una release nuova, e tutti che reinstallano, ogni volta che il tetto
+cambia. Gli artefatti già firmati restano validi senza migrazione.
 
-**Si applica dove si applica tutto il resto**: in `CheckDeckContent`, cioè
-lato server al momento del "pronto". Il contatore dell'editor **non è un
-controllo**: è locale, è un aiuto per chi costruisce il mazzo, e contro un
-avversario non vale niente. Lo stato accertato il 2026-09-25 è che
-`CountPoints` era chiamata **solo** dall'editor e dal codice che disegna il
-numero a schermo, e che un tetto non esisteva da nessuna parte: il budget
-era un'etichetta, non una regola.
+**La stanza porta il tetto in vigore.** Chi ospita lo vede già riempito col
+valore predefinito della lista e **può cambiarlo** (D195, 2026-09-26):
+alzarlo per una serata di prova, abbassarlo per un formato ristretto,
+azzerarlo per togliere il limite. **Zero o campo vuoto = nessun tetto.**
+
+#### Il tetto NON entra nell'hash — e ci era entrato per sbaglio
+
+FASE 32 lo aveva piegato nell'hash come termine di lista, con l'argomento
+che due giocatori che non concordano sul tetto non sono compatibili.
+**Quell'argomento era giusto per un tetto fisso e è sbagliato per un tetto
+di stanza**, e la conseguenza non è teorica: se il tetto fosse nell'hash,
+un host che lo alza da 100 a 150 cambierebbe **l'identità della sua lista**
+e nessuno potrebbe più entrare. La funzione si spegnerebbe da sola.
+
+L'hash identifica **la lista** — id, limiti, punti. Il tetto è una **regola
+della stanza**, come il tempo per turno o i punti vita iniziali, e quelle
+nell'hash non ci sono mai state. Non c'è nessun disaccordo silenzioso da
+prevenire: il tetto lo sceglie l'host, lo applica il lato server della sua
+stanza, e chi viene rifiutato riceve **totale e tetto** nel messaggio.
+
+#### Come il tetto raggiunge la stanza: dal processo, non dal pacchetto
+
+`HostInfo` **non si tocca**. Quella struttura viaggia in `CTOS_CREATE_GAME`
+e `STOC_JOIN_GAME` ed è condivisa con EDOPro upstream: aggiungerci un campo
+romperebbe la compatibilità in **entrambe** le direzioni — i nostri
+giocatori non potrebbero più entrare nelle stanze normali, né un EDOPro
+normale nelle nostre. È esattamente il guasto da cui veniamo, ripetuto su un
+altro canale.
+
+Non serve: quando il nostro client ospita, il lato server della stanza gira
+**nello stesso processo** del client che l'ha creata, e legge già altri dati
+per via globale (`gdeckManager->_lfList` in `netserver.cpp`). Il tetto
+scelto nella finestra di host arriva per la stessa strada. Zero byte in più
+sul filo, compatibilità intatta.
+
+Chi entra viene informato **prima** di dichiararsi pronto, con un messaggio
+che anche un EDOPro normale sa mostrare (la chat della stanza è il canale
+naturale). Non è l'autorità — l'autorità è il rifiuto al "pronto", che
+porta i numeri — è la cortesia di non far costruire un mazzo al buio.
+
+#### Dove il tetto funziona davvero
+
+Le stesse tre righe della tabella più sotto, e per la stessa ragione: il
+tetto lo applica **chi esegue il lato server della stanza**. Funziona
+ovunque giri il nostro binario — host diretto, sia sulla stessa rete sia
+attraverso internet — e **non funziona** in una stanza ospitata dai server
+pubblici di Project Ignis, dove la nostra lista viene buttata via insieme a
+tutto il resto. Nessuna quantità di interfaccia cambia questo: cambierebbe
+solo un server nostro (D-28).
+
+#### L'editor non blocca niente, ed è voluto
+
+Verificato il 2026-09-26: `CheckDeckContent` è chiamata **solo** da
+`GenericDuel::PlayerReady`, cioè dal lato server della stanza. L'editor non
+la chiama, il salvataggio non la chiama, la mano di prova non la chiama.
+
+**Deve restare così.** Si costruiscono mazzi fuori tetto, si salvano, e ci
+si fanno le mani di prova: è il modo in cui si testa il bilanciamento, ed è
+la ragione per cui il contatore dell'editor mostra `84 / 100` come
+informazione e non come divieto. Il tetto morde in partita, non mentre si
+pensa.
+
+Lo stato di partenza, accertato il 2026-09-25, era l'opposto e va ricordato
+per non tornarci: `CountPoints` era chiamata **solo** dall'editor e dal
+codice che disegna il numero, e un tetto non esisteva da nessuna parte. Il
+budget era un'etichetta, non una regola.
 
 Il rifiuto porta **totale e tetto** nella struttura `count` che esiste già
 (`current` / `maximum`) e un tipo d'errore aggiunto **in fondo** a
