@@ -45,27 +45,22 @@ inline uint32_t FoldLFListEntry(uint32_t hash, uint32_t code, int limit, int poi
 	return folded;
 }
 
-// The points budget (design/banlist-distribution.md, "Il tetto di punti è
-// un dato della lista, non del binario" — FASE 32) is a LIST-level
-// property: unlike FoldLFListEntry above, this folds ONCE per list, not
-// once per entry. Same shape as the points term inside FoldLFListEntry: a
-// budget of 0 means "absent" (an LFList/Payload that never set one
-// defaults there) and contributes nothing, so a list with no points_budget
-// folds to bit-for-bit the same hash it folded to before this term
-// existed. Two players who agree on every id/limit/point but not on the
-// budget are not compatible either — same argument as the points term,
-// one level up.
-//
-// Call this exactly once per list, in addition to folding every entry
-// through FoldLFListEntry; order between the two does not matter, XOR is
-// commutative/associative (see the comment above).
-inline uint32_t FoldLFListBudget(uint32_t hash, int points_budget) {
-	if(points_budget != 0) {
-		const uint32_t budget_mixed = static_cast<uint32_t>(points_budget) * 0x9e3779b9u;
-		hash ^= ((budget_mixed << 13) | (budget_mixed >> 19));
-	}
-	return hash;
-}
+// FASE 32 folded points_budget into the hash here (FoldLFListBudget) on the
+// argument that two players who disagree on the budget aren't compatible.
+// FASE 34 (D195, design/banlist-distribution.md "Il tetto di punti: un
+// valore della lista, una regola della stanza") reverses that: the budget
+// is no longer a fixed list term, it is a per-ROOM override the host can
+// change (raise it for a test night, drop it for a restricted format,
+// zero it to lift the cap) without publishing a new list. Had it stayed in
+// the hash, an host raising it from 100 to 150 would change their OWN
+// list's identity and lock every other client out of the room — the
+// feature would defeat itself the first time anyone used it. The hash
+// still identifies id/limit/points (FoldLFListEntry above); the budget is
+// applied by whoever runs the room's server side
+// (DeckManager::CheckDeckContent via GenericDuel), the same way time-per-
+// turn or starting LP are room rules and were never in the hash either.
+// Do not reintroduce a fold for points_budget here without re-reading that
+// section first.
 
 }
 

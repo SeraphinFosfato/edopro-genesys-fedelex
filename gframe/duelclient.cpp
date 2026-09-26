@@ -238,6 +238,15 @@ catch(...) { what = def; }
 			TOI(cscg.info.time_limit, mainGame->ebTimeLimit->getText(), 0);
 			cscg.info.lflist = gGameConfig->lastlflist = mainGame->cbHostLFList->getItemData(mainGame->cbHostLFList->getSelected());
 			hosted_lflist_hash = cscg.info.lflist;
+			// FASE 34 (D195, design/banlist-distribution.md, "Come il tetto
+			// raggiunge la stanza"): deliberately NOT assigned into
+			// cscg.info — HostInfo does not carry this, and must not
+			// (shared byte-for-byte with upstream, network.h). Written only
+			// to the process global gGameConfig->pointsBudget, which
+			// GenericDuel's constructor reads the moment NetServer creates
+			// the room on receipt of this same packet — same process, same
+			// pattern netserver.cpp already uses for gdeckManager->_lfList.
+			TOI(gGameConfig->pointsBudget, mainGame->ebPointsBudget->getText(), 0);
 			cscg.info.duel_rule = 0;
 			cscg.info.duel_flag_low = mainGame->duel_param & 0xffffffff;
 			cscg.info.duel_flag_high = (mainGame->duel_param >> 32) & 0xffffffff;

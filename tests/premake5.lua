@@ -23,7 +23,11 @@ project "banlist_tests"
 	language "C++"
 	cppdialect "C++17"
 	warnings "Extra"
-	includedirs { "../gframe" }
+	-- ../ocgcore: only for network.h's transitive include of ocgapi.h
+	-- (dllinterface.h -> ocgapi.h), pulled in solely for the FASE 34
+	-- cancello-2 HostInfo layout guard (banlist_tests.cpp). Nothing here
+	-- calls into ocgcore or links against it.
+	includedirs { "../gframe", "../ocgcore" }
 	files {
 		"banlist_tests.cpp",
 		"banlist_diff_tests.cpp",

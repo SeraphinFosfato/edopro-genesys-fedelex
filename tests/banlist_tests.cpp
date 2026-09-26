@@ -11,8 +11,10 @@
 // not BanlistUpdater's file I/O, which has no standalone test target of its
 // own to run here.
 
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <sstream>
@@ -24,6 +26,13 @@
 #include "lflist_conf.h"
 #include "points_budget.h"
 #include "room_list_notice.h"
+// FASE 34, cancello 2: pulled in ONLY for the static_assert layout guard on
+// HostInfo (network.h itself, right after the struct) — no function here
+// calls anything from it. Confirmed to carry no gframe/irrlicht/curl
+// dependency on its own (2026-09-26, this compiler/platform): its own
+// includes (dllinterface.h -> ocgapi.h, core_utils.h, event2/*) are C
+// headers and struct declarations only, nothing that needs linking.
+#include "network.h"
 // See the matching comment in banlist_verify.cpp: tweetnacl.h has no
 // extern "C" guard of its own.
 extern "C" {
@@ -72,19 +81,39 @@ std::string ReadFixture(const char* name) {
 	return std::string(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
 }
 
+// Reads a client source file by its repo-root-relative path (as opposed to
+// ReadFixture, which is anchored under tests/fixtures/). Used only by
+// test_editor_never_calls_check_deck_content (FASE 34, cancello 5): that
+// test asserts a structural property of the SOURCE — which .cpp files call
+// DeckManager::CheckDeckContent — since the editor itself (deck_con.cpp,
+// needs irrlicht) has no place in this network-free binary.
+std::string ReadSourceFile(const std::string& path) {
+	std::ifstream f(path, std::ios::binary);
+	if(!f) {
+		std::printf("  SOURCE MISSING: %s (run the binary from the repository root)\n", path.c_str());
+		return {};
+	}
+	return std::string(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+}
+
 // Folds a real .lflist.conf the same way DeckManager::LoadLFListSingle does
 // (deck_manager.cpp): skip blank/comment/whitelist-marker lines, reset on a
-// `!name` header, and fold every entry / the list-level budget through the
-// exact functions LoadLFListSingle itself calls — ParseLFListEntryLine and
-// ParseLFListBudgetLine (lflist_conf.h), FoldLFListEntry and
-// FoldLFListBudget (lflist_hash.h). FASE 32 changed this from an
-// independent reimplementation of the parsing rules to calling the real
-// ones: two copies of "how to read a .conf line" is exactly how the
-// cancello-3 check below would end up tested by "these two call sites
-// share a function" instead of by actually running what each one runs.
-// Only the file-reading loop itself (and the two push-a-list-when-a-`!`-
-// line-or-EOF-is-hit moments) stays independent, since that part has no
-// gframe dependency to share in the first place.
+// `!name` header, and fold every entry through the exact function
+// LoadLFListSingle itself calls — ParseLFListEntryLine (lflist_conf.h) and
+// FoldLFListEntry (lflist_hash.h). FASE 32 changed this from an independent
+// reimplementation of the parsing rules to calling the real ones: two
+// copies of "how to read a .conf line" is exactly how the cancello-3 check
+// below would end up tested by "these two call sites share a function"
+// instead of by actually running what each one runs. Only the
+// file-reading loop itself (and the two push-a-list-when-a-`!`-line-or-
+// EOF-is-hit moments) stays independent, since that part has no gframe
+// dependency to share in the first place.
+//
+// FASE 34: a `$points_budget` directive is still recognized and skipped
+// (ParseLFListBudgetLine) — a malformed .conf must not have that line
+// misread as a garbled entry — but the parsed value is discarded rather
+// than folded in. Only the entries decide the hash now (lflist_hash.h has
+// the reasoning for why the budget was taken back out).
 uint32_t FoldConfFile(const char* path) {
 	std::ifstream f(path);
 	if(!f) {
@@ -92,7 +121,6 @@ uint32_t FoldConfFile(const char* path) {
 		return 0;
 	}
 	uint32_t hash = 0;
-	int points_budget = 0;
 	std::string line;
 	while(std::getline(f, line)) {
 		if(!line.empty() && line.back() == '\r')
@@ -101,16 +129,13 @@ uint32_t FoldConfFile(const char* path) {
 			continue;
 		if(line[0] == '!') {
 			hash = LFLIST_HASH_SEED;
-			points_budget = 0;
 			continue;
 		}
 		if(!hash)
 			continue;
 		int budget = 0;
-		if(ParseLFListBudgetLine(line, budget)) {
-			points_budget = budget;
+		if(ParseLFListBudgetLine(line, budget))
 			continue;
-		}
 		uint32_t code = 0;
 		int limit = 3;
 		int points = 0;
@@ -118,7 +143,7 @@ uint32_t FoldConfFile(const char* path) {
 			continue;
 		hash = FoldLFListEntry(hash, code, limit, points);
 	}
-	return FoldLFListBudget(hash, points_budget);
+	return hash;
 }
 
 // TweetNaCl's secret key format is 64 bytes: a 32-byte seed followed by the
@@ -336,97 +361,109 @@ void test_same_entries_hash_the_same_regardless_of_read_order() {
 	check(forward == reversed, "the same entries folded in a different order must produce the same hash");
 }
 
-// --- FASE 32: points_budget --------------------------------------------
-// design/banlist-distribution.md, "Il tetto di punti è un dato della
-// lista, non del binario".
+// --- FASE 32/34: points_budget -------------------------------------------
+// design/banlist-distribution.md, "Il tetto di punti: un valore della
+// lista, una regola della stanza". FASE 32 folded points_budget into the
+// hash (a list-level term, same shape as the per-entry points term); FASE
+// 34 (D195) took it back out, because a room-adjustable value cannot also
+// be part of what the hash identifies — see lflist_hash.h for the full
+// argument. The tests below replace the FASE 32 ones that asserted the
+// budget DID change the hash; they now assert the opposite.
 
-void test_absent_budget_folds_to_the_network_hash_and_never_rejects() {
-	// Cancello 1 — same real fixture as the FASE 31 check above, now also
-	// exercising the new FoldLFListBudget call FoldConfFile makes at the
-	// end: OCG.lflist.conf has no `$points_budget` line, so points_budget
-	// stays 0 and the fold must be a no-op. If it weren't, this would land
-	// on a different number than the one the live network already uses for
-	// this exact list — the same failure mode FASE 31 fixed for points.
+void test_budget_is_excluded_from_the_hash_and_zero_never_rejects() {
+	// Cancello 1/3 (FASE 34) — same real fixture as the FASE 31 check
+	// above. OCG.lflist.conf has no `$points_budget` line; more to the
+	// point after FASE 34, it wouldn't matter if it did — FoldConfFile no
+	// longer folds the budget in at all, so this must land on the exact
+	// number the live network already uses for this list regardless.
 	const uint32_t hash = FoldConfFile("runtime/repositories/lflists/OCG.lflist.conf");
 	check(hash == 0x857713b8u,
-		 "a list with no points_budget must still fold to exactly the hash the live network uses for it");
-	// The other half of cancello 1: no budget means no deck is ever
-	// rejected for points, regardless of how many it has.
-	check(!IsOverPointsBudget(0, 0), "a budget of 0 (absent) must never reject an empty deck");
-	check(!IsOverPointsBudget(999999, 0), "a budget of 0 (absent) must never reject any deck, however many points it has");
+		 "OCG.lflist.conf must still fold to exactly the hash the live network uses for it");
+	// Cancello 3: IsOverPointsBudget itself is untouched by FASE 34 — the
+	// budget it receives is now the ROOM's value rather than
+	// lflist->points_budget, but the zero-means-no-cap rule inside it is
+	// the same rule either way.
+	check(!IsOverPointsBudget(0, 0), "a budget of 0 (no cap) must never reject an empty deck");
+	check(!IsOverPointsBudget(999999, 0), "a budget of 0 (no cap) must never reject any deck, however many points it has");
 }
 
-void test_present_budget_changes_the_hash() {
-	// Cancello 2.
-	const uint32_t hash_no_budget = FoldLFListBudget(LFLIST_HASH_SEED, 0);
-	const uint32_t hash_budget_100 = FoldLFListBudget(LFLIST_HASH_SEED, 100);
-	const uint32_t hash_budget_80 = FoldLFListBudget(LFLIST_HASH_SEED, 80);
-	check(hash_no_budget == LFLIST_HASH_SEED, "a budget of 0 (absent) must fold to exactly the unmodified hash");
-	check(hash_no_budget != hash_budget_100, "a present points_budget must change the hash of an otherwise identical list");
-	check(hash_budget_100 != hash_budget_80, "two different non-zero budgets must hash differently from each other too");
-}
-
-void test_budget_hashes_the_same_regardless_of_provenance() {
-	// Cancello 3 — the same list (entries AND points_budget) must hash the
-	// same whether it comes from a .conf file or a signed banlist.json.
-	// Both real parsers are exercised here, not reimplemented:
-	// ParseLFListEntryLine/ParseLFListBudgetLine (lflist_conf.h) are the
-	// exact functions DeckManager::LoadLFListSingle calls for the .conf
-	// side, and banlist::Parse is the exact function
-	// BanlistUpdater::LoadActiveInto calls for the JSON side. Only the
-	// trivial fold-per-entry loop is repeated on both sides, because
-	// FoldLFListEntry/FoldLFListBudget are — by design — the single shared
-	// hash function; there is nothing to "provenance-test" about calling
-	// the one function that exists.
-	const std::string conf_text =
-		"!Test\n"
-		"$points_budget 100\n"
-		"11384280 3 0\n"
-		"44763025 1 462\n"
-		"20292186 2 15\n";
-	uint32_t hash_from_conf = LFLIST_HASH_SEED;
-	int budget_from_conf = 0;
-	{
-		std::istringstream conf_stream(conf_text);
+void test_hash_excludes_the_budget_regardless_of_provenance() {
+	// Cancello 1 — two lists identical in every entry, differing ONLY in
+	// points_budget, must hash the SAME: checked on both provenances this
+	// list can come from (.conf and banlist.json), using the real parsers
+	// each real caller uses (ParseLFListEntryLine/ParseLFListBudgetLine,
+	// banlist::Parse), not a reimplementation. Provenance parity for
+	// entries alone was already established by
+	// test_same_entries_hash_the_same_regardless_of_read_order; this is the
+	// same parity check, now for "does a present budget perturb it".
+	auto fold_conf_text = [](const std::string& text) {
+		uint32_t hash = 0;
+		std::istringstream stream(text);
 		std::string line;
-		while(std::getline(conf_stream, line)) {
-			if(line.empty() || line[0] == '#' || line[0] == '!')
+		while(std::getline(stream, line)) {
+			if(line.empty() || line[0] == '#')
 				continue;
-			int budget = 0;
-			if(ParseLFListBudgetLine(line, budget)) {
-				budget_from_conf = budget;
+			if(line[0] == '!') {
+				hash = LFLIST_HASH_SEED;
 				continue;
 			}
+			if(!hash)
+				continue;
+			int budget = 0;
+			if(ParseLFListBudgetLine(line, budget))
+				continue;
 			uint32_t code = 0;
 			int limit = 3;
 			int points = 0;
 			if(ParseLFListEntryLine(line, code, limit, points))
-				hash_from_conf = FoldLFListEntry(hash_from_conf, code, limit, points);
+				hash = FoldLFListEntry(hash, code, limit, points);
 		}
-		hash_from_conf = FoldLFListBudget(hash_from_conf, budget_from_conf);
-	}
-	check(budget_from_conf == 100, "the real .conf parser (ParseLFListBudgetLine) must read the directive for real");
+		return hash;
+	};
+	const uint32_t hash_conf_with_budget = fold_conf_text(
+		"!Test\n"
+		"$points_budget 100\n"
+		"11384280 3 0\n"
+		"44763025 1 462\n"
+		"20292186 2 15\n");
+	const uint32_t hash_conf_without_budget = fold_conf_text(
+		"!Test\n"
+		"11384280 3 0\n"
+		"44763025 1 462\n"
+		"20292186 2 15\n");
+	check(hash_conf_with_budget == hash_conf_without_budget,
+		 "a $points_budget directive must not change the hash of an otherwise identical .conf list");
 
-	const std::string json_text =
-		"{\"attribution\":{\"author\":\"test\",\"url\":\"test\"},"
-		"\"entries\":["
-		"{\"id\":11384280,\"limit\":3,\"macro\":\"Magia\",\"name\":\"A\",\"points\":0,\"source\":\"custom\"},"
-		"{\"id\":44763025,\"limit\":1,\"macro\":\"Magia\",\"name\":\"B\",\"points\":462,\"source\":\"custom\"},"
-		"{\"id\":20292186,\"limit\":2,\"macro\":\"Magia\",\"name\":\"C\",\"points\":15,\"source\":\"custom\"}],"
-		"\"expires_at\":\"2099-01-01T00:00:00Z\",\"format_version\":3,"
-		"\"generated_at\":\"2026-01-01T00:00:00Z\",\"license\":\"test\",\"points_budget\":100}";
-	banlist::Payload payload;
+	auto json_with_budget_field = [](const char* budget_field) {
+		return std::string(
+			"{\"attribution\":{\"author\":\"test\",\"url\":\"test\"},"
+			"\"entries\":["
+			"{\"id\":11384280,\"limit\":3,\"macro\":\"Magia\",\"name\":\"A\",\"points\":0,\"source\":\"custom\"},"
+			"{\"id\":44763025,\"limit\":1,\"macro\":\"Magia\",\"name\":\"B\",\"points\":462,\"source\":\"custom\"},"
+			"{\"id\":20292186,\"limit\":2,\"macro\":\"Magia\",\"name\":\"C\",\"points\":15,\"source\":\"custom\"}],"
+			"\"expires_at\":\"2099-01-01T00:00:00Z\",\"format_version\":3,"
+			"\"generated_at\":\"2026-01-01T00:00:00Z\",\"license\":\"test\"") + budget_field + "}";
+	};
+	banlist::Payload payload_with_budget, payload_without_budget;
 	std::string error;
-	const auto status = banlist::Parse(json_text, payload, error);
-	check(status == banlist::VerifyStatus::Ok, "budget_hashes_the_same_regardless_of_provenance: the JSON side must parse cleanly");
-	check(payload.points_budget == 100, "the real JSON parser (banlist::Parse) must read points_budget for real");
-	uint32_t hash_from_json = LFLIST_HASH_SEED;
-	for(const auto& entry : payload.entries)
-		hash_from_json = FoldLFListEntry(hash_from_json, entry.id, entry.limit, entry.points);
-	hash_from_json = FoldLFListBudget(hash_from_json, payload.points_budget);
+	check(banlist::Parse(json_with_budget_field(",\"points_budget\":100"), payload_with_budget, error) == banlist::VerifyStatus::Ok,
+		 "hash_excludes_the_budget: the JSON side (with points_budget) must parse cleanly");
+	check(banlist::Parse(json_with_budget_field(""), payload_without_budget, error) == banlist::VerifyStatus::Ok,
+		 "hash_excludes_the_budget: the JSON side (without points_budget) must parse cleanly");
+	check(payload_with_budget.points_budget == 100, "the real JSON parser (banlist::Parse) must still read points_budget for real");
 
-	check(hash_from_conf == hash_from_json,
-		 "the same list with the same budget must hash identically whether parsed from .conf or from banlist.json");
+	auto fold_entries = [](const banlist::Payload& payload) {
+		uint32_t hash = LFLIST_HASH_SEED;
+		for(const auto& entry : payload.entries)
+			hash = FoldLFListEntry(hash, entry.id, entry.limit, entry.points);
+		return hash;
+	};
+	const uint32_t hash_json_with_budget = fold_entries(payload_with_budget);
+	const uint32_t hash_json_without_budget = fold_entries(payload_without_budget);
+	check(hash_json_with_budget == hash_json_without_budget,
+		 "a present points_budget must not change the hash of an otherwise identical banlist.json payload");
+	check(hash_conf_with_budget == hash_json_with_budget,
+		 "the same entries must still hash identically whether parsed from .conf or from banlist.json, budget aside");
 }
 
 void test_points_budget_is_optional_and_validated_in_the_signed_artifact() {
@@ -481,6 +518,81 @@ void test_deck_over_budget_is_rejected_at_the_ready_check() {
 	check(IsOverPointsBudget(101, 100), "a deck one point over budget must be rejected");
 	check(IsOverPointsBudget(1000, 100), "a deck far over budget must be rejected");
 	check(!IsOverPointsBudget(0, 100), "an empty deck must always pass, budget or not");
+}
+
+void test_room_budget_overrides_the_list_default() {
+	// FASE 34, cancello 4 — "il tetto della stanza vince sul predefinito":
+	// list declares a default of 100, the room raises it to 150 — a
+	// 140-point deck must pass; the room instead lowers it to 80 — the
+	// SAME 140-point deck must be rejected. IsOverPointsBudget doesn't know
+	// or care where its second argument came from, which is exactly the
+	// point: CheckDeckContent (deck_manager.cpp) now passes the room's
+	// value (GenericDuel::room_points_budget), never lflist->points_budget,
+	// so whichever the caller passes IS what decides — verified by reading
+	// deck_manager.cpp/generic_duel.cpp, the same scope boundary as
+	// cancello 4 of FASE 32 above.
+	const int deck_points = 140;
+	check(!IsOverPointsBudget(deck_points, 150), "list default 100, room raised to 150: a 140-point deck must pass");
+	check(IsOverPointsBudget(deck_points, 80), "list default 100, room lowered to 80: the same 140-point deck must be rejected");
+}
+
+void test_host_info_layout_is_unchanged() {
+	// FASE 34, cancello 2 — "HostInfo non si tocca". The exhaustive,
+	// field-by-field guard is a static_assert in network.h itself, right
+	// after the struct: it fails the BUILD (of anything including
+	// network.h, which is effectively the whole client) the moment a field
+	// is added or moved, not just a run of this suite. Including
+	// network.h here is what makes that guard actually compile as part of
+	// this binary too — otherwise, with the client build currently blocked
+	// by an unrelated premake5 version mismatch, nothing would exercise it
+	// at all in this environment. This check is a visible, counted proxy
+	// for the same fact; sizeof is measured, not chosen (68 bytes, this
+	// compiler/platform, 2026-09-26).
+	check(sizeof(HostInfo) == 68, "HostInfo grew or shrank — see the static_assert in network.h for the field that moved");
+}
+
+void test_editor_never_calls_check_deck_content() {
+	// FASE 34, cancello 5 — "L'editor non blocca niente, ed è voluto".
+	// Already true (verified 2026-09-26: CheckDeckContent is called only
+	// from GenericDuel::PlayerReady) and must STAY true; protected here as
+	// a structural assertion on the source rather than exercised through
+	// the editor itself (deck_con.cpp needs irrlicht and has no place in
+	// this network-free binary — same scope boundary as everywhere else in
+	// this file). This is also the complete proof of the other half of the
+	// cancello ("save/load over budget succeeds"): if nothing on the
+	// save/load path can call CheckDeckContent, nothing on that path can
+	// ever produce DeckError::TOOMANYPOINTS, budget or no budget.
+	//
+	// Scans every gframe/*.cpp (not a fixed list) so a future file nobody
+	// remembered to add here can't silently go unchecked.
+	int call_sites = 0;
+	bool deck_con_checked = false;
+	std::error_code walk_error;
+	for(const auto& dirent : std::filesystem::directory_iterator("gframe", walk_error)) {
+		if(dirent.path().extension() != ".cpp")
+			continue;
+		const auto path_str = dirent.path().string();
+		const auto source = ReadSourceFile(path_str);
+		const bool is_deck_con = dirent.path().filename() == "deck_con.cpp";
+		if(is_deck_con) {
+			deck_con_checked = !source.empty();
+			check(source.find("CheckDeckContent") == std::string::npos,
+				 "the deck editor (deck_con.cpp) must never call CheckDeckContent — the ready-check is the only enforcement point");
+		}
+		// The qualified form every real call site uses. deck_manager.cpp
+		// itself matches too (its own definition line), so it's excluded
+		// from the count — we are counting CALLERS, not the one definition.
+		if(dirent.path().filename() == "deck_manager.cpp")
+			continue;
+		size_t pos = 0;
+		while((pos = source.find("DeckManager::CheckDeckContent(", pos)) != std::string::npos) {
+			++call_sites;
+			pos += 1;
+		}
+	}
+	check(!walk_error, "test_editor_never_calls_check_deck_content: could not list gframe/ (run the binary from the repository root)");
+	check(deck_con_checked, "test_editor_never_calls_check_deck_content: gframe/deck_con.cpp unreadable, cannot run");
+	check(call_sites == 1, "CheckDeckContent must be called from exactly one place in the whole client (GenericDuel::PlayerReady)");
 }
 
 void test_room_warns_only_when_the_returned_hash_differs_from_the_one_sent() {
@@ -585,11 +697,13 @@ int main() {
 	test_points_change_the_hash();
 	test_a_list_with_no_points_folds_to_the_network_hash();
 	test_same_entries_hash_the_same_regardless_of_read_order();
-	test_absent_budget_folds_to_the_network_hash_and_never_rejects();
-	test_present_budget_changes_the_hash();
-	test_budget_hashes_the_same_regardless_of_provenance();
+	test_budget_is_excluded_from_the_hash_and_zero_never_rejects();
+	test_hash_excludes_the_budget_regardless_of_provenance();
 	test_points_budget_is_optional_and_validated_in_the_signed_artifact();
 	test_deck_over_budget_is_rejected_at_the_ready_check();
+	test_room_budget_overrides_the_list_default();
+	test_host_info_layout_is_unchanged();
+	test_editor_never_calls_check_deck_content();
 	test_room_warns_only_when_the_returned_hash_differs_from_the_one_sent();
 	test_malformed_format_version_is_refused_like_a_bad_signature();
 	test_unknown_macro_value_is_a_schema_violation();

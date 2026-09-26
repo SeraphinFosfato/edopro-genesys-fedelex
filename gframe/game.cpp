@@ -1414,6 +1414,25 @@ void Game::PopulateGameHostWindows() {
 			ADD_DECK_SIZE_CHECKBOXES(Side);
 #undef ADD_DECK_SIZE_CHECKBOXES
 		}
+		// FASE 34 (D195, design/banlist-distribution.md, "Il tetto di punti:
+		// un valore della lista, una regola della stanza"). Literal text,
+		// not a sysstring: this fork's strings.conf additions (gitignored,
+		// from an external repo) have no entry for a field upstream never
+		// had — same reasoning as the TOOMANYPOINTS message in
+		// duelclient.cpp (FASE 32). Initial value is the last remembered
+		// override (gGameConfig->pointsBudget), not the active list's
+		// default: RefreshLFLists() runs on every startup for whichever
+		// list was last selected, and re-deriving from the list here would
+		// silently discard a host's remembered override the first time they
+		// reopen this window. The default IS shown, but only when the host
+		// deliberately changes the list (COMBOBOX_HOST_LFLIST case,
+		// menu_handler.cpp) — that is the moment "which list is active"
+		// actually changes, and precompiling then does not fight with
+		// "remembered between sessions".
+		env->addStaticText(L"Points cap (room override, 0 = none):", GetCurrentRectWithXOffset(20, 300), false, false, tDeckSettings);
+		ebPointsBudget = env->addEditBox(WStr(gGameConfig->pointsBudget), GetCurrentRectWithXOffset(310, 360), true, tDeckSettings, EDITBOX_NUMERIC);
+		ebPointsBudget->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
+		cur_y += y_incr;
 	}
 
 	{

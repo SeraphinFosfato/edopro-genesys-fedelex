@@ -13,10 +13,12 @@ namespace ygo {
 // decision itself needs none of that, so it lives here where both the real
 // caller and the test share the exact same code.
 //
-// `points_budget <= 0` means "no budget" — LFList::points_budget defaults
-// to 0 when neither the .conf file nor the signed artifact carries one
-// (FoldLFListBudget in lflist_hash.h treats that the same way) — so a deck
-// of any size passes.
+// `points_budget <= 0` means "no budget" — the same "zero or absent" rule
+// applies whether this is called with the list's own declared default
+// (LFList::points_budget) or, since FASE 34, with the ROOM's resolved
+// override (GenericDuel::room_points_budget) — the caller decides which,
+// this function only ever sees a plain int and doesn't care where it came
+// from. Either way a deck of any size passes when it's 0.
 inline bool IsOverPointsBudget(int total_points, int points_budget) {
 	return points_budget > 0 && total_points > points_budget;
 }

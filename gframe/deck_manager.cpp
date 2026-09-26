@@ -57,12 +57,6 @@ bool DeckManager::LoadLFListSingle(const epro::path_string& path) {
 			continue;
 		if(str[0] == '!') {
 			if(lflist.hash) {
-				// The budget term folds ONCE per list, at the point the list
-				// is finalized — not inline where the directive line happens
-				// to sit, which could be anywhere relative to the entries
-				// (lflist_hash.h: XOR order doesn't matter, but folding it
-				// twice by accident would).
-				lflist.hash = FoldLFListBudget(lflist.hash, lflist.points_budget);
 				_lfList.push_back(std::move(lflist));
 			}
 			lflist.listName = BufferIO::DecodeUTF8({ str.data() + 1, str.size() - 1 });
@@ -110,7 +104,6 @@ bool DeckManager::LoadLFListSingle(const epro::path_string& path) {
 	}
 
 	if (lflist.hash) {
-		lflist.hash = FoldLFListBudget(lflist.hash, lflist.points_budget);
 		_lfList.push_back(std::move(lflist));
 	}
 	return loaded;
@@ -243,7 +236,7 @@ static DeckError CheckCards(const Deck::Vector& cards, LFList const* curlist,
 	}
 	return { DeckError::NONE };
 }
-DeckError DeckManager::CheckDeckContent(const Deck& deck, LFList const* lflist, DuelAllowedCards allowedCards, uint32_t forbiddentypes, bool rituals_in_extra) {
+DeckError DeckManager::CheckDeckContent(const Deck& deck, LFList const* lflist, DuelAllowedCards allowedCards, uint32_t forbiddentypes, bool rituals_in_extra, int points_budget) {
 	DeckError ret{ DeckError::NONE };
 	if(TypeCount(deck.main, forbiddentypes) > 0 || TypeCount(deck.extra, forbiddentypes) > 0 || TypeCount(deck.side, forbiddentypes) > 0)
 		return ret.type = DeckError::FORBTYPE, ret;
@@ -283,12 +276,25 @@ DeckError DeckManager::CheckDeckContent(const Deck& deck, LFList const* lflist, 
 	// stays an unenforced aid (DeckBuilder::RefreshLimitationStatus). Main +
 	// Extra + Side (D89, declared assumption): matches what the editor
 	// already summed at deck_con.cpp:1524 before this existed.
+	//
+	// FASE 34: the budget enforced here is `points_budget`, the caller's
+	// argument — NOT `lflist->points_budget`. The two are different things
+	// now: `lflist->points_budget` is the list's declared DEFAULT (what the
+	// host window precompiles from and what the editor's "84 / 100" label
+	// still reads, since the editor has no room to belong to), while
+	// `points_budget` is the value the ROOM the deck is being checked
+	// against actually applies — the host's override when they raised or
+	// lowered it, same value zero and blank both mean "no cap" for either
+	// one. GenericDuel::PlayerReady is the only caller and passes its own
+	// room_points_budget, resolved once when the room was created
+	// (design/banlist-distribution.md, "Come il tetto raggiunge la
+	// stanza").
 	const int total_points = CountPoints(deck.main, lflist) + CountPoints(deck.extra, lflist) + CountPoints(deck.side, lflist);
-	if(IsOverPointsBudget(total_points, lflist->points_budget)) {
+	if(IsOverPointsBudget(total_points, points_budget)) {
 		ret.type = DeckError::TOOMANYPOINTS;
 		ret.count.current = static_cast<uint32_t>(total_points);
 		ret.count.minimum = 0;
-		ret.count.maximum = static_cast<uint32_t>(lflist->points_budget);
+		ret.count.maximum = static_cast<uint32_t>(points_budget);
 		return ret;
 	}
 	return ret;

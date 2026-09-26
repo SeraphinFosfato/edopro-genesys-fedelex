@@ -89,7 +89,12 @@ public:
 	LFList const* GetLFList(uint32_t lfhash) const;
 	epro::wstringview GetLFListName(uint32_t lfhash) const;
 	static void RefreshDeck(Deck& deck);
-	static DeckError CheckDeckContent(const Deck& deck, LFList const* lflist, DuelAllowedCards allowedCards, uint32_t forbiddentypes, bool rituals_in_extra);
+	// `points_budget` (FASE 34): the ROOM's applied cap, resolved by the
+	// caller — NOT necessarily `lflist->points_budget`, which is only the
+	// list's declared default. See the comment at the definition
+	// (deck_manager.cpp) and design/banlist-distribution.md, "Il tetto di
+	// punti: un valore della lista, una regola della stanza".
+	static DeckError CheckDeckContent(const Deck& deck, LFList const* lflist, DuelAllowedCards allowedCards, uint32_t forbiddentypes, bool rituals_in_extra, int points_budget);
 	static DeckError CheckDeckSize(const Deck& deck, const DeckSizes& sizes);
 	static int TypeCount(const Deck::Vector& cards, uint32_t type);
 	static int CountPoints(const Deck::Vector& cards, const LFList* flist);

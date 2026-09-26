@@ -1107,6 +1107,24 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 					mainGame->chkTypeLimit[i]->setChecked(mainGame->forbiddentypes & limits[i]);
 				break;
 			}
+			case COMBOBOX_HOST_LFLIST: {
+				// FASE 34 (D195, design/banlist-distribution.md, "Il tetto
+				// di punti: un valore della lista, una regola della
+				// stanza"): "chi ospita lo vede già riempito col valore
+				// predefinito della lista" — this is the one moment that
+				// applies, a deliberate change of which list is active.
+				// Startup (RefreshLFLists) deliberately does NOT do this;
+				// see the comment in Game::PopulateGameHostWindows.
+				auto combobox = static_cast<irr::gui::IGUIComboBox*>(event.GUIEvent.Caller);
+				const auto hash = combobox->getItemData(combobox->getSelected());
+				for(auto& list : gdeckManager->_lfList) {
+					if(list.hash == hash) {
+						mainGame->ebPointsBudget->setText(epro::to_wstring<int>(list.points_budget).data());
+						break;
+					}
+				}
+				break;
+			}
 			case COMBOBOX_BOT_DECK: {
 				gGameConfig->lastBot = mainGame->gBot.CurrentIndex();
 				mainGame->gBot.UpdateEngine();

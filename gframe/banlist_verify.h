@@ -40,12 +40,14 @@ struct Payload {
 	std::string author;
 	std::string url;
 	std::vector<Entry> entries;
-	// FASE 32 (design/banlist-distribution.md, "Il tetto di punti è un dato
-	// della lista, non del binario"): a LIST-level field, optional on the
-	// wire. 0 means the key was absent — "nessun tetto applicato" — which is
-	// also what FoldLFListBudget (lflist_hash.h) treats as "no term to fold
-	// in", so an artifact signed before this field existed keeps validating
-	// and keeps its hash unchanged.
+	// FASE 32 (design/banlist-distribution.md, "Il tetto di punti: un
+	// valore della lista, una regola della stanza"): a LIST-level field,
+	// optional on the wire. 0 means the key was absent — "nessun tetto
+	// applicato". Parsed here but, since FASE 34 (D195), never folded into
+	// the hash (lflist_hash.h) — it is the list's declared DEFAULT, and the
+	// room the host creates can override it without changing the list's
+	// identity. An artifact signed before this field existed still parses
+	// and still hashes the same, both before and after FASE 34.
 	int points_budget = 0;
 };
 

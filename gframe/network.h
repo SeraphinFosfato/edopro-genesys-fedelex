@@ -1,6 +1,7 @@
 #ifndef NETWORK_H
 #define NETWORK_H
 
+#include <cstddef>
 #include "dllinterface.h"
 #include "config.h"
 #include "core_utils.h"
@@ -59,6 +60,39 @@ struct HostInfo {
 	uint16_t extra_rules;
 	DeckSizes sizes;
 };
+// FASE 34 (D195, design/banlist-distribution.md, "Come il tetto raggiunge
+// la stanza"): HostInfo is shared byte-for-byte with upstream EDOPro over
+// CTOS_CREATE_GAME/STOC_JOIN_GAME. It must NEVER gain a field for the
+// points cap or anything else fork-specific — that would break the wire
+// format in both directions (our players locked out of vanilla rooms, and
+// vice versa), which is exactly the class of mistake this fork exists to
+// not repeat. Measured once (2026-09-26, this compiler/platform) and
+// pinned here so a struct member added anywhere above — by this fork or by
+// a future upstream merge — fails the BUILD, not a review: silence is
+// exactly how this would otherwise go unnoticed until it was already
+// shipped.
+static_assert(sizeof(HostInfo) == 68, "HostInfo size changed: this struct travels byte-for-byte with upstream EDOPro, see the comment above");
+static_assert(offsetof(HostInfo, lflist) == 0 &&
+			 offsetof(HostInfo, rule) == 4 &&
+			 offsetof(HostInfo, mode) == 5 &&
+			 offsetof(HostInfo, duel_rule) == 6 &&
+			 offsetof(HostInfo, no_check_deck_content) == 7 &&
+			 offsetof(HostInfo, no_shuffle_deck) == 8 &&
+			 offsetof(HostInfo, start_lp) == 12 &&
+			 offsetof(HostInfo, start_hand) == 16 &&
+			 offsetof(HostInfo, draw_count) == 17 &&
+			 offsetof(HostInfo, time_limit) == 18 &&
+			 offsetof(HostInfo, duel_flag_high) == 20 &&
+			 offsetof(HostInfo, handshake) == 24 &&
+			 offsetof(HostInfo, version) == 28 &&
+			 offsetof(HostInfo, team1) == 32 &&
+			 offsetof(HostInfo, team2) == 36 &&
+			 offsetof(HostInfo, best_of) == 40 &&
+			 offsetof(HostInfo, duel_flag_low) == 44 &&
+			 offsetof(HostInfo, forbiddentypes) == 48 &&
+			 offsetof(HostInfo, extra_rules) == 52 &&
+			 offsetof(HostInfo, sizes) == 54,
+			 "a HostInfo field moved: this struct travels byte-for-byte with upstream EDOPro, see the comment above");
 struct HostPacket {
 	uint16_t identifier;
 	uint16_t version;

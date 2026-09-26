@@ -2,6 +2,7 @@
 #include "generic_duel.h"
 #include "netserver.h"
 #include "game.h"
+#include "game_config.h"
 #include "core_utils.h"
 
 namespace ygo {
@@ -9,7 +10,14 @@ namespace ygo {
 ReplayStream GenericDuel::replay_stream;
 
 GenericDuel::GenericDuel(int team1, int team2, bool relay, int best_of) :
-	last_response(2), relay(relay), best_of(best_of), match_kill(0), swapped(false), turn_count(0), grace_period(0) {
+	last_response(2), relay(relay), best_of(best_of), match_kill(0), swapped(false), turn_count(0), grace_period(0),
+	// Read at construction time, i.e. exactly when netserver.cpp's
+	// CTOS_CREATE_GAME handler creates the room (design/banlist-
+	// distribution.md, "Come il tetto raggiunge la stanza"): later changes
+	// to gGameConfig->pointsBudget — the host opening the window again for
+	// a DIFFERENT future room — must not reach back into a room already
+	// running.
+	room_points_budget(gGameConfig->pointsBudget) {
 	players.home.resize(team1);
 	players.opposing.resize(team2);
 	players.home_size = team1;
@@ -378,7 +386,8 @@ void GenericDuel::PlayerReady(DuelPlayer* dp, bool is_ready) {
 			} else {
 				bool rituals_in_extra = host_info.duel_flag_high & (DUEL_EXTRA_DECK_RITUAL >> 32);
 				deck_error = DeckManager::CheckDeckContent(dueler.pdeck, gdeckManager->GetLFList(host_info.lflist),
-														   static_cast<DuelAllowedCards>(host_info.rule), host_info.forbiddentypes, rituals_in_extra);
+														   static_cast<DuelAllowedCards>(host_info.rule), host_info.forbiddentypes, rituals_in_extra,
+														   room_points_budget);
 			}
 		}
 		if(deck_error.type != DeckError::NONE) {

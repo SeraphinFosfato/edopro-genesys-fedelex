@@ -272,6 +272,10 @@ struct host_creation_panel_elements {
 	irr::gui::IGUIEditBox* ebExtraMax;
 	irr::gui::IGUIEditBox* ebSideMin;
 	irr::gui::IGUIEditBox* ebSideMax;
+	// FASE 34: the room's points cap override — see
+	// Game::PopulateGameHostWindows and design/banlist-distribution.md, "Il
+	// tetto di punti: un valore della lista, una regola della stanza".
+	irr::gui::IGUIEditBox* ebPointsBudget;
 };
 
 struct host_panel_elements {

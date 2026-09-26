@@ -149,6 +149,16 @@ protected:
 	std::vector<uint8_t> match_result;
 	uint16_t time_limit[2];
 	int16_t grace_period;
+	// FASE 34 (D195, design/banlist-distribution.md, "Come il tetto
+	// raggiunge la stanza"): the points cap this room actually applies —
+	// NOT necessarily the active list's declared default. HostInfo cannot
+	// carry this (it is wire-shared with upstream, see network.h), so it is
+	// resolved once, in the constructor, from the same process-global
+	// gGameConfig->pointsBudget the host window writes to right before
+	// sending CTOS_CREATE_GAME — the same "read a global at the moment the
+	// room is born" pattern netserver.cpp already uses for
+	// gdeckManager->_lfList. 0 = no cap (IsOverPointsBudget, points_budget.h).
+	int room_points_budget{ 0 };
 };
 
 }

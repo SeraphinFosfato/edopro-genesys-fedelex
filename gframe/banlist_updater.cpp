@@ -287,12 +287,14 @@ bool BanlistUpdater::LoadActiveInto(DeckManager& deckManager) {
 		lflist.content[entry.id] = BanlistEntry{ entry.limit, entry.points };
 		lflist.hash = FoldLFListEntry(lflist.hash, entry.id, entry.limit, entry.points);
 	}
-	// List-level term, folded once — not per entry (FASE 32). A payload
-	// with no points_budget key parses to 0, and FoldLFListBudget treats 0
-	// as "nothing to fold", so this line is a no-op for every artifact
-	// signed before this field existed: same hash as before FASE 32.
+	// The list's declared default cap (design/banlist-distribution.md, "Il
+	// tetto di punti: un valore della lista, una regola della stanza").
+	// FASE 32 also folded this into lflist.hash; FASE 34 (D195) took it back
+	// out — it is a per-room override now, never part of what the hash
+	// identifies (lflist_hash.h has the full reasoning). Assigning it here
+	// still matters: it is what the host window precompiles from and what
+	// the editor's counter still shows.
 	lflist.points_budget = payload.points_budget;
-	lflist.hash = FoldLFListBudget(lflist.hash, lflist.points_budget);
 	// Nothing here is written to disk (D8): the plaintext list only ever
 	// exists in this in-memory LFList, built fresh from the verified payload
 	// every time this runs.

@@ -37,6 +37,13 @@ OPTION(uint32_t, bestOf, 1)
 OPTION(uint32_t, startLP, 8000)
 OPTION(uint32_t, startHand, 5)
 OPTION(uint32_t, drawCount, 1)
+// The points cap the host window last sent when creating a room (FASE 34,
+// design/banlist-distribution.md, "Il tetto di punti: un valore della
+// lista, una regola della stanza"). Remembered across sessions like every
+// other host setting above — NOT part of HostInfo, and deliberately not
+// re-derived from the active list's own default on every startup: see the
+// comment in Game::PopulateGameHostWindows for why. 0 = no cap.
+OPTION(uint32_t, pointsBudget, 0)
 OPTION(bool, relayDuel, false)
 OPTION(bool, noShuffleDeck, false)
 OPTION(bool, noCheckDeckContent, false)
