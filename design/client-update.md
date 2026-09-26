@@ -145,6 +145,39 @@ Ne discende una regola operativa: **l'URL del manifesto è compilato nel
 binario** insieme alla chiave. Un URL configurabile da file sposterebbe la
 fiducia su un file modificabile a mano, che è il difetto da cui siamo partiti.
 
+**I due URL, fissati il 2026-09-26** (prima erano descritti e mai scritti):
+
+```
+https://seraphinfosfato.github.io/Banlist-dist/update.json
+https://seraphinfosfato.github.io/Banlist-dist/update.json.sig
+```
+
+Stanno accanto a `banlist.json` e `banlist.json.sig` nella radice dello stesso
+Pages, con lo stesso schema firma-a-fianco. Nessuna infrastruttura nuova:
+il workflow della banlist pubblica già in quella radice.
+
+### 7bis. I file del manifesto devono essere ZIP — e oggi non lo sono
+
+Verificato leggendo il codice il 2026-09-26, non assunto: ogni voce di
+`files[]` viene scaricata in `./updates/<name>` e poi passata a
+`Utils::UnzipArchive` (`client_updater.cpp`, `ClientUpdater::Unzip`), che
+apre l'archivio con irrlicht in modalità **`EFAT_ZIP`** (`utils.cpp:747`).
+Solo ZIP: né `.tar.gz`, né un binario nudo.
+
+Gli allegati della Release `v0.0.4-alpha` sono invece
+`edopro-custom-linux-x64.tar.gz`, `ygopro.exe` e `ygoprodll` — **nessuno dei
+tre è installabile dall'aggiornatore**. Un manifesto che li indirizzasse
+verificherebbe la firma, verificherebbe le SHA-256, e poi fallirebbe a
+scompattare: cioè fallirebbe **dopo** aver spostato l'eseguibile in `.old`,
+che è il momento peggiore in cui fallire.
+
+Quindi: prima del primo manifesto, la pipeline di release deve produrre
+**uno ZIP per piattaforma**, con dentro i file ai percorsi relativi alla
+cartella d'installazione (l'eseguibile in radice; su Windows anche il core,
+che `Unzip` sposta e ripristina a parte). I `.tar.gz` e i binari nudi possono
+restare come allegati per chi installa a mano: il manifesto semplicemente non
+li nomina.
+
 ### 8. Un controllo per avvio, su thread separato
 
 Stessa forma della banlist, e per la stessa ragione (`banlist-distribution.md`,
