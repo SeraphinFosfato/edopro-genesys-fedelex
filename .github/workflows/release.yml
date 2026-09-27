@@ -93,11 +93,20 @@ jobs:
       # (l'eseguibile in radice — Utils::GetExePath()). Su Linux il core e'
       # collegato staticamente dentro l'eseguibile (nessuna libocgcore.so a
       # fianco nella release), quindi non c'e' un secondo file da spostare.
+      # FASE 40 (ultimo miglio, D202): strings/fedelex.conf viaggia insieme
+      # all'eseguibile. -j mette ygoprodll alla RADICE (Utils::GetExePath()),
+      # il secondo `zip` (senza -j, lanciato dalla radice del repo) aggiunge
+      # fedelex.conf mantenendo il percorso relativo "strings/" dentro
+      # l'archivio: e' quello che Utils::UnzipArchive si aspetta per
+      # ricreare la sottocartella all'estrazione (verificato leggendo e
+      # riproducendo Utils::CreatePath, che cammina i segmenti separati da
+      # '/' e chiama MakeDirectory su ognuno prima di scrivere il file).
       - name: Crea lo ZIP per l'aggiornatore
         run: |
           mkdir -p tools/release/out
           rm -f tools/release/out/edopro-custom-linux-x64.zip
           zip -j tools/release/out/edopro-custom-linux-x64.zip bin/x64/release/ygoprodll
+          zip tools/release/out/edopro-custom-linux-x64.zip strings/fedelex.conf
           echo "-- contenuto dello ZIP --"
           unzip -l tools/release/out/edopro-custom-linux-x64.zip
 
@@ -163,13 +172,30 @@ jobs:
       # core tornasse un .dll a fianco, questo passo va rifatto per includerlo
       # (e quel cambio tocca ClientUpdater::Unzip, non solo lo ZIP: vedi i
       # punti di risalita di FASE 37 in PHASES.md).
+      # FASE 40 (ultimo miglio, D202): strings/fedelex.conf viaggia insieme
+      # a ygopro.exe. Compress-Archive non sa mettere un file in una
+      # sottocartella dell'archivio mantenendo un altro file alla radice in
+      # un colpo solo con -Path multipli (appiattisce), quindi si prepara
+      # uno stage con la stessa struttura relativa che l'estrazione deve
+      # produrre (exe alla radice, strings/fedelex.conf sotto strings/) e si
+      # comprime lo stage intero. Stesso ragionamento del job Linux: verificato
+      # leggendo e riproducendo Utils::CreatePath (utils.cpp) che l'estrazione
+      # crea le directory intermedie da sola.
       - name: Crea lo ZIP per l'aggiornatore
         shell: pwsh
         run: |
+          $stageDir = "tools/release/.stage-windows-zip"
+          if (Test-Path $stageDir) { Remove-Item -Recurse -Force $stageDir }
+          New-Item -ItemType Directory -Force -Path "$stageDir/strings" | Out-Null
+          Copy-Item bin/release/ygopro.exe -Destination $stageDir
+          Copy-Item strings/fedelex.conf -Destination "$stageDir/strings/fedelex.conf"
+
           New-Item -ItemType Directory -Force -Path tools/release/out | Out-Null
           $zipPath = "tools/release/out/edopro-custom-windows-x86.zip"
           if (Test-Path $zipPath) { Remove-Item $zipPath }
-          Compress-Archive -Path bin/release/ygopro.exe -DestinationPath $zipPath
+          Compress-Archive -Path "$stageDir/*" -DestinationPath $zipPath
+          Remove-Item -Recurse -Force $stageDir
+
           Write-Host "-- contenuto dello ZIP --"
           Expand-Archive -Path $zipPath -DestinationPath tools/release/out/.zip-check -Force
           Get-ChildItem -Recurse tools/release/out/.zip-check | ForEach-Object { Write-Host $_.FullName }

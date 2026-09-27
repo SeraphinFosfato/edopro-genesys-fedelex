@@ -273,6 +273,14 @@ mkdir -p "$STAGE/lib"
 cp "$BIN" "$STAGE/$(basename "$BIN")"
 chmod +x "$STAGE/$(basename "$BIN")"
 
+# FASE 40 (ultimo miglio, D202): strings/fedelex.conf accanto al binario,
+# stessa cartella che install.sh poi rsynca in $PROGRAM_DIR senza bisogno di
+# un'eccezione: non e' in nessuna delle sue --exclude. Senza questo file
+# tracciato le etichette del filtro per costo ("Points:"/"Stats:") restano
+# "???" in ogni lingua, inglese compreso (vedi header di strings/fedelex.conf).
+mkdir -p "$STAGE/strings"
+cp "$REPO_ROOT/strings/fedelex.conf" "$STAGE/strings/fedelex.conf"
+
 ESCLUSE=()
 INCLUSE=()
 DA_GUARDARE=()
@@ -418,11 +426,17 @@ Installazione manuale (alternativa)
   2. Copia dentro, accanto a quell'eseguibile:
        ygoprodll
        lib/          (la cartella intera)
+       strings/      (la cartella intera)
   3. Avvia ./ygoprodll da quella cartella.
 
 La cartella lib/ deve restare accanto a ygoprodll: il binario ci cerca
 dentro le librerie che si porta appresso. Se la sposti o la rinomini, il
 client non parte piu'.
+
+La cartella strings/ contiene le etichette che questo fork aggiunge
+("Points:"/"Stats:" nel filtro per costo della point list). Senza di
+essa il client parte comunque, ma quelle due etichette restano "???" in
+ogni lingua.
 
 Se all'avvio compare "error while loading shared libraries", esegui
   ldd ./ygoprodll
