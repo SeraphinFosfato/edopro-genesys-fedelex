@@ -309,7 +309,11 @@ cd "\$DATA_DIR" || {
 	echo "Cartella dati non trovata: \$DATA_DIR" >&2
 	exit 1
 }
-exec "\$PROGRAM_DIR/$BINARY_NAME" "\$@"
+# Il cd sopra non basta: senza -C il programma rifa' chdir sulla cartella
+# dell'eseguibile (gframe/gframe.cpp, in assenza del flag WORK_DIR) e lo
+# annulla. -C e' l'unico meccanismo che porta davvero la cartella dati
+# scelta dall'utente al client (FASE 35-bis, PHASES.md).
+exec "\$PROGRAM_DIR/$BINARY_NAME" -C "\$DATA_DIR" "\$@"
 LAUNCHER_EOF
 	chmod +x "$LAUNCHER"
 
