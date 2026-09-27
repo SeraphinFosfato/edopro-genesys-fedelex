@@ -103,18 +103,40 @@ void NameThread(const char* name, const wchar_t* wname) {
 
 //Dump creation routines taken from Postgres
 //https://github.com/postgres/postgres/blob/27b77ecf9f4d5be211900eda54d8155ada50d696/src/backend/port/win32/crashdump.c
+//
+// NOTE (FASE 40 / D201): this handler and ygo::ErrorLog (error.log) are two
+// SEPARATE mechanisms. The absence of a crash dump says nothing about
+// whether error.log has anything in it, and vice versa - conflating the two
+// produced a wrong diagnosis on 2026-09-27. Every exit below logs its own
+// reason to error.log; this function never guesses at *why* the process
+// crashed, only at why the dump could not be written.
 LONG WINAPI crashDumpHandler(EXCEPTION_POINTERS* pExceptionInfo) {
 	using MiniDumpWriteDump_t = BOOL(WINAPI*) (HANDLE hProcess, DWORD ProcessId, HANDLE hFile, MINIDUMP_TYPE DumpType,
 											   PMINIDUMP_EXCEPTION_INFORMATION ExceptionParam,
 											   PMINIDUMP_USER_STREAM_INFORMATION UserStreamParam,
 											   PMINIDUMP_CALLBACK_INFORMATION CallbackParam
 											   );
-	ygo::GUIUtils::ShowErrorWindow("Crash", "The program crashed, a crash dump will be created");
+	//This popup only says a dump is being attempted: 5 of the 6 exits below
+	//don't produce a file, so promising one here would be a lie in most crashes.
+	ygo::GUIUtils::ShowErrorWindow("Crash", "The program crashed, trying to write a crash dump...");
 
-	if(!ygo::Utils::MakeDirectory(EPRO_TEXT("./crashdumps")))
-		return EXCEPTION_CONTINUE_SEARCH;
+	auto dumpDir = epro::path_string{ EPRO_TEXT("./crashdumps") };
+	if(!ygo::Utils::MakeDirectory(dumpDir)) {
+		ygo::ErrorLog("Crash dump: could not create \"{}\" ({}), retrying in the user storage folder",
+					  ygo::Utils::ToUTF8IfNeeded(dumpDir), ygo::Utils::GetLastErrorString());
+		//Case 1, and the most likely of the five: "./crashdumps" (relative to
+		//the working directory) can be unwritable - Program Files, a OneDrive
+		//sync folder, a read-only mount. Fall back to the per-user storage
+		//directory before giving up (gframe.cpp already sets it up).
+		dumpDir = ygo::Utils::GetUserFolderPathFor(EPRO_TEXT("crashdumps"));
+		if(!ygo::Utils::MakeDirectory(dumpDir)) {
+			ygo::ErrorLog("Crash dump: could not create \"{}\" either ({}), giving up",
+						  ygo::Utils::ToUTF8IfNeeded(dumpDir), ygo::Utils::GetLastErrorString());
+			return EXCEPTION_CONTINUE_SEARCH;
+		}
+	}
 
-	/* 'crashdumps' exists and is a directory. Try to write a dump' */
+	/* 'dumpDir' exists and is a directory. Try to write a dump' */
 	HANDLE selfProcHandle = GetCurrentProcess();
 	DWORD selfPid = GetCurrentProcessId();
 
@@ -122,12 +144,15 @@ LONG WINAPI crashDumpHandler(EXCEPTION_POINTERS* pExceptionInfo) {
 
 	/* Load the dbghelp.dll library and functions */
 	auto* dbgHelpDLL = LoadLibrary(EPRO_TEXT("dbghelp.dll"));
-	if(dbgHelpDLL == nullptr)
+	if(dbgHelpDLL == nullptr) {
+		ygo::ErrorLog("Crash dump: LoadLibrary(\"dbghelp.dll\") failed, GetLastError={}", (unsigned long)GetLastError());
 		return EXCEPTION_CONTINUE_SEARCH;
+	}
 
 	auto* miniDumpWriteDumpFn = function_cast<MiniDumpWriteDump_t>(GetProcAddress(dbgHelpDLL, "MiniDumpWriteDump"));
 
 	if(miniDumpWriteDumpFn == nullptr) {
+		ygo::ErrorLog("Crash dump: dbghelp.dll does not export MiniDumpWriteDump (too old), GetLastError={}", (unsigned long)GetLastError());
 		FreeLibrary(dbgHelpDLL);
 		return EXCEPTION_CONTINUE_SEARCH;
 	}
@@ -146,19 +171,26 @@ LONG WINAPI crashDumpHandler(EXCEPTION_POINTERS* pExceptionInfo) {
 	}
 
 	auto systemTicks = GetTickCount();
-	const auto dumpPath = epro::format(EPRO_TEXT("./crashdumps/EDOPro-pid{}-{}.mdmp"), (int)selfPid, (int)systemTicks);
+	const auto dumpPath = epro::format(EPRO_TEXT("{}/EDOPro-pid{}-{}.mdmp"), dumpDir, (int)selfPid, (int)systemTicks);
 
 	auto dumpFile = CreateFile(dumpPath.data(), GENERIC_WRITE, FILE_SHARE_WRITE,
 							   nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
 							   nullptr);
 
 	if(dumpFile == INVALID_HANDLE_VALUE) {
+		ygo::ErrorLog("Crash dump: could not open \"{}\" for writing, GetLastError={}",
+					  ygo::Utils::ToUTF8IfNeeded(dumpPath), (unsigned long)GetLastError());
 		FreeLibrary(dbgHelpDLL);
 		return EXCEPTION_CONTINUE_SEARCH;
 	}
 
-	if(miniDumpWriteDumpFn(selfProcHandle, selfPid, dumpFile, dumpType, &ExInfo, nullptr, nullptr))
+	if(miniDumpWriteDumpFn(selfProcHandle, selfPid, dumpFile, dumpType, &ExInfo, nullptr, nullptr)) {
+		//This is the only exit that still promises a file - it just wrote one.
 		ygo::GUIUtils::ShowErrorWindow("Crash dump", epro::format("Succesfully wrote crash dump to file \"{}\"\n", ygo::Utils::ToUTF8IfNeeded(dumpPath)));
+	} else {
+		ygo::ErrorLog("Crash dump: MiniDumpWriteDump failed for \"{}\", GetLastError={}",
+					  ygo::Utils::ToUTF8IfNeeded(dumpPath), (unsigned long)GetLastError());
+	}
 
 	CloseHandle(dumpFile);
 	FreeLibrary(dbgHelpDLL);

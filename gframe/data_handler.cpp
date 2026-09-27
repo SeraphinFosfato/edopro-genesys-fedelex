@@ -132,6 +132,15 @@ DataHandler::DataHandler() {
 	strings_loaded = dataManager->LoadStrings(EPRO_TEXT("./expansions/strings.conf")) || strings_loaded;
 	if(!strings_loaded)
 		throw std::runtime_error("Failed to load strings!");
+	// FASE 40.2 / D202: this fork's own added system strings (3315 "Points:",
+	// 3316 "Stats:" today) don't belong in either file above - those are
+	// upstream/Project Ignis assets this client is dropped into, not ours to
+	// ship. strings/fedelex.conf is OUR tracked file (see its header) for
+	// exactly that: codes this fork owns. Loaded last and not required for
+	// startup (no throw on failure - a player without this file yet still
+	// gets a working client, just with "???" for these two labels again,
+	// same as before this fase).
+	dataManager->LoadStrings(EPRO_TEXT("./strings/fedelex.conf"));
 	Utils::filesystem = filesystem;
 	LoadZipArchives();
 	deckManager = std::make_unique<DeckManager>();
