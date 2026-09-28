@@ -27,7 +27,7 @@ struct Entry {
 	int points = 0;
 	std::string name;
 	std::string macro;  // closed enumeration of ten values (D60)
-	std::string source; // "custom" | "genesys"
+	std::string source; // "custom" | "genesys" | "blocco" — free string, not validated against this list
 	std::string reason; // empty iff !has_reason
 	bool has_reason = false;
 };
