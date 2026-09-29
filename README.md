@@ -10,6 +10,30 @@ Minor client modifications to support the Genesys banlists in the EDOPro deckbui
 4. ATK/DEF filters are compressed together in a single Stats label
 5. New points filter, with 2 independent inputs to achieve conditions of the type `A < x < B`
 
+## Download
+
+Vai alla pagina [Releases](../../releases) di questo repository e prendi
+l'ultimo tag pubblicato.
+
+<!-- artifacts:start -->
+Ogni release allega questi file (generato da
+`tools/release/artifacts.json`, non modificare a mano qui sotto):
+
+- **`ygoprodll`** (Linux, da scaricare a mano)
+  Client Linux x64 nudo. Linka dinamicamente le librerie del sistema che ha compilato (ubuntu-latest): su una distribuzione diversa puo' non partire ("error while loading shared libraries"). Resta per chi ha gia' le librerie giuste.
+- **`edopro-custom-linux-x64.tar.gz`** (Linux, da scaricare a mano)
+  Client Linux x64 con la propria chiusura di dipendenze accanto (lib/), un installatore (install.sh, mai sudo) e le licenze delle librerie ridistribuite (notices/). Da preferire per un'installazione manuale: vedi il LEGGIMI.txt dentro il pacchetto.
+- **`ygopro.exe`** (Windows, da scaricare a mano)
+  Client Windows x86 nudo, compilato su Windows con MSVC, runtime e core collegati staticamente (un file solo, nessun redistribuibile da installare). Non porta strings/fedelex.conf: senza quel file le etichette del filtro per costo restano "???". Mai eseguito su hardware Windows reale, trattalo come beta.
+- **`edopro-custom-linux-x64.zip`** (Linux, SOLO per l'aggiornatore integrato — non scaricarlo a mano)
+  Stesso eseguibile Linux di sopra, impacchettato nel solo formato che il ClientUpdater integrato sa installare da solo (ZIP). Non scaricarlo a mano: e' per il manifesto di aggiornamento firmato.
+- **`edopro-custom-windows-x86.zip`** (Windows, SOLO per l'aggiornatore integrato — non scaricarlo a mano)
+  Stesso eseguibile Windows di sopra, impacchettato nel solo formato che il ClientUpdater integrato sa installare da solo (ZIP). Non scaricarlo a mano: e' per il manifesto di aggiornamento firmato.
+<!-- artifacts:end -->
+
+Le istruzioni d'installazione per ciascun file sono nel `LEGGIMI.txt` dentro
+il pacchetto stesso (dove esiste) o nella sezione **Installation** sotto.
+
 ## Installation
 
 Every mentioned path is relative to your preexisting edopro installation (the folder where you have your `EDOPro` executable).

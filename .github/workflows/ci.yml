@@ -11,6 +11,18 @@ on:
   workflow_dispatch:
 
 jobs:
+  check-artifacts-manifest:
+    # D218 (FASE 48): la fonte unica di cosa una release allega e'
+    # tools/release/artifacts.json. Questo job non compila niente — legge
+    # solo .github/workflows/release.yml, artifacts.json e README.md — e
+    # gira su ogni push, cosi' un file tolto da uno dei tre posti si vede
+    # subito, non il giorno del tag.
+    name: Manifesto artefatti (D218)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/release/check_artifacts_manifest.py
+
   test:
     name: Test (banlist_tests)
     runs-on: ubuntu-latest

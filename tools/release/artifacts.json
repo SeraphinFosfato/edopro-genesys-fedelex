@@ -1,0 +1,35 @@
+{
+  "_comment": "Fonte unica per cosa allega una release (D218, FASE 48). Una voce per artefatto allegato da release.yml. destinatario: 'persona' = pensato per essere scaricato ed estratto a mano; 'aggiornatore' = installabile solo dal ClientUpdater integrato (Utils::UnzipArchive sa aprire solo ZIP), non va scaricato a mano. Il testo per le persone (README.md) si genera da qui con tools/release/gen_release_text.py, verificato idempotente da check_artifacts_manifest.py.",
+  "artifacts": [
+    {
+      "file": "ygoprodll",
+      "sistema": "linux",
+      "destinatario": "persona",
+      "contenuto": "Client Linux x64 nudo. Linka dinamicamente le librerie del sistema che ha compilato (ubuntu-latest): su una distribuzione diversa puo' non partire (\"error while loading shared libraries\"). Resta per chi ha gia' le librerie giuste."
+    },
+    {
+      "file": "edopro-custom-linux-x64.tar.gz",
+      "sistema": "linux",
+      "destinatario": "persona",
+      "contenuto": "Client Linux x64 con la propria chiusura di dipendenze accanto (lib/), un installatore (install.sh, mai sudo) e le licenze delle librerie ridistribuite (notices/). Da preferire per un'installazione manuale: vedi il LEGGIMI.txt dentro il pacchetto."
+    },
+    {
+      "file": "ygopro.exe",
+      "sistema": "windows",
+      "destinatario": "persona",
+      "contenuto": "Client Windows x86 nudo, compilato su Windows con MSVC, runtime e core collegati staticamente (un file solo, nessun redistribuibile da installare). Non porta strings/fedelex.conf: senza quel file le etichette del filtro per costo restano \"???\". Mai eseguito su hardware Windows reale, trattalo come beta."
+    },
+    {
+      "file": "edopro-custom-linux-x64.zip",
+      "sistema": "linux",
+      "destinatario": "aggiornatore",
+      "contenuto": "Stesso eseguibile Linux di sopra, impacchettato nel solo formato che il ClientUpdater integrato sa installare da solo (ZIP). Non scaricarlo a mano: e' per il manifesto di aggiornamento firmato."
+    },
+    {
+      "file": "edopro-custom-windows-x86.zip",
+      "sistema": "windows",
+      "destinatario": "aggiornatore",
+      "contenuto": "Stesso eseguibile Windows di sopra, impacchettato nel solo formato che il ClientUpdater integrato sa installare da solo (ZIP). Non scaricarlo a mano: e' per il manifesto di aggiornamento firmato."
+    }
+  ]
+}

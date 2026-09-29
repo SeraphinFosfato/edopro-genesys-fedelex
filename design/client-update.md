@@ -190,6 +190,22 @@ che `Unzip` sposta e ripristina a parte). I `.tar.gz` e i binari nudi possono
 restare come allegati per chi installa a mano: il manifesto semplicemente non
 li nomina.
 
+> **Nota FASE 48 (D218) — perché il nome dello ZIP resta scritto qui, a
+> differenza delle guide del vault.** D218 toglie i nomi dei file scaricabili
+> dalle guide che *descrivono* una release (`RILASCIO.md`,
+> `Contesto/Come si pubblica il client` nel vault), perché un nome ripetuto
+> in un documento prosa invecchia in silenzio a ogni cambio di
+> pacchettizzazione. Questo documento è l'eccezione dichiarata: qui il nome
+> del file (`edopro-custom-linux-x64.zip` / `edopro-custom-windows-x86.zip`,
+> vedi `tests/fixtures/update_manifest.json`) non è una descrizione, è il
+> **contratto stesso** — il campo `files[].name` del manifesto firmato, che
+> il client confronta byte per byte con quello che scarica prima di
+> verificarne lo SHA-256. Toglierlo da qui non lo disaccoppierebbe da
+> `artifacts.json`, lo renderebbe solo implicito e più facile da disallineare
+> per davvero. Una regola che non ammette eccezioni dichiarate viene aggirata
+> invece che seguita (CLAUDE.md del vault, FASE 48 tabella E) — quindi
+> l'eccezione sta scritta qui, non taciuta.
+
 ### 8. Un controllo per avvio, su thread separato
 
 Stessa forma della banlist, e per la stessa ragione (`banlist-distribution.md`,
