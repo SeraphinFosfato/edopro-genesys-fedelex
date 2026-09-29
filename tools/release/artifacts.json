@@ -20,6 +20,12 @@
       "contenuto": "Client Windows x86 nudo, compilato su Windows con MSVC, runtime e core collegati staticamente (un file solo, nessun redistribuibile da installare). Non porta strings/fedelex.conf: senza quel file le etichette del filtro per costo restano \"???\". Mai eseguito su hardware Windows reale, trattalo come beta."
     },
     {
+      "file": "edopro-custom-windows-x86-package.zip",
+      "sistema": "windows",
+      "destinatario": "persona",
+      "contenuto": "Client Windows x86, da preferire per un'installazione manuale. Contiene ygopro.exe, strings/fedelex.conf (senza, le etichette del filtro punti restano \"???\", D202) e notices/ con le licenze delle 19 librerie collegate staticamente (D219). Istruzioni nel LEGGIMI.txt dentro il pacchetto."
+    },
+    {
       "file": "edopro-custom-linux-x64.zip",
       "sistema": "linux",
       "destinatario": "aggiornatore",

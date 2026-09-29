@@ -25,6 +25,8 @@ Ogni release allega questi file (generato da
   Client Linux x64 con la propria chiusura di dipendenze accanto (lib/), un installatore (install.sh, mai sudo) e le licenze delle librerie ridistribuite (notices/). Da preferire per un'installazione manuale: vedi il LEGGIMI.txt dentro il pacchetto.
 - **`ygopro.exe`** (Windows, da scaricare a mano)
   Client Windows x86 nudo, compilato su Windows con MSVC, runtime e core collegati staticamente (un file solo, nessun redistribuibile da installare). Non porta strings/fedelex.conf: senza quel file le etichette del filtro per costo restano "???". Mai eseguito su hardware Windows reale, trattalo come beta.
+- **`edopro-custom-windows-x86-package.zip`** (Windows, da scaricare a mano)
+  Client Windows x86, da preferire per un'installazione manuale. Contiene ygopro.exe, strings/fedelex.conf (senza, le etichette del filtro punti restano "???", D202) e notices/ con le licenze delle 19 librerie collegate staticamente (D219). Istruzioni nel LEGGIMI.txt dentro il pacchetto.
 - **`edopro-custom-linux-x64.zip`** (Linux, SOLO per l'aggiornatore integrato — non scaricarlo a mano)
   Stesso eseguibile Linux di sopra, impacchettato nel solo formato che il ClientUpdater integrato sa installare da solo (ZIP). Non scaricarlo a mano: e' per il manifesto di aggiornamento firmato.
 - **`edopro-custom-windows-x86.zip`** (Windows, SOLO per l'aggiornatore integrato — non scaricarlo a mano)

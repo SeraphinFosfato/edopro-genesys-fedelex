@@ -208,6 +208,32 @@ jobs:
           path: tools/release/out/edopro-custom-windows-x86.zip
           if-no-files-found: error
 
+      # D218 punto A / D219: pacchetto Windows PER LE PERSONE, distinto
+      # dallo ZIP dell'aggiornatore sopra (che NON si tocca: un manifesto
+      # firmato lo nomina, design/client-update.md). Si AGGIUNGE: ygopro.exe
+      # nudo non porta strings/fedelex.conf (D202, le etichette del filtro
+      # punti restano "???") ne' le licenze delle librerie collegate
+      # staticamente (D219, 19 port trovati ispezionando la cache vcpkg).
+      # notices-windows/ e' versionato nel repo (non riscaricato in CI, la
+      # cache e' 128 MB e cambia raramente): tools/release/gen_windows_notices.py
+      # lo rigenera a mano quando la cache vcpkg viene aggiornata.
+      # Scritto in Python (non PowerShell puro) perche' windows-latest ha
+      # Python 3 preinstallato e lo stesso script e' quello testato in
+      # sviluppo su Linux prima che questo job girasse la prima volta.
+      - name: Crea il pacchetto Windows per le persone
+        shell: pwsh
+        run: |
+          python tools/release/package_windows_release.py `
+            --exe bin/release/ygopro.exe `
+            --out tools/release/out/edopro-custom-windows-x86-package.zip
+
+      - name: Carica il pacchetto Windows per le persone
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-package
+          path: tools/release/out/edopro-custom-windows-x86-package.zip
+          if-no-files-found: error
+
   publish:
     name: Pubblica la Release
     needs: [build-linux, build-windows]
@@ -250,6 +276,14 @@ jobs:
           name: windows-zip
           path: dist/
 
+      # D218 punto A / D219: pacchetto Windows per le persone (exe +
+      # strings/fedelex.conf + LEGGIMI.txt + notices/). AGGIUNTO, non in
+      # sostituzione di ygopro.exe nudo sopra.
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-package
+          path: dist/
+
       - name: Crea la Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -257,6 +291,7 @@ jobs:
           gh release create "${{ github.ref_name }}" \
             dist/ygoprodll dist/edopro-custom-linux-x64.tar.gz dist/ygopro.exe \
             dist/edopro-custom-linux-x64.zip dist/edopro-custom-windows-x86.zip \
+            dist/edopro-custom-windows-x86-package.zip \
             --title "${{ github.ref_name }}" \
             --notes "$(cat <<EOF
           Build automatica dal commit \`${{ github.sha }}\` (AGPLv3, sorgente
@@ -283,5 +318,11 @@ jobs:
             l'aggiornatore integrato sa installare da solo (ZIP). Non
             scaricarli a mano: sono per il manifesto di aggiornamento
             firmato, non hanno la chiusura di dipendenze del tarball Linux.
+          - \`edopro-custom-windows-x86-package.zip\` — **client Windows
+            x86, da preferire per un'installazione manuale.** Contiene
+            \`ygopro.exe\`, \`strings/fedelex.conf\` (senza, le etichette
+            del filtro punti restano "???") e \`notices/\` con le licenze
+            delle librerie collegate staticamente. Istruzioni in
+            \`LEGGIMI.txt\` dentro il pacchetto.
           EOF
           )"
