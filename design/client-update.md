@@ -236,6 +236,60 @@ pubblica la release, una per una: non è una soglia cablata.
 
 ## Cosa resta davvero aperto
 
-- **Le due chiavi di aggiornamento non esistono ancora.** Finché
-  `update_keys.h` ha i segnaposto a zero, l'aggiornatore è spento per
-  costruzione e `UPDATE_URL` non va definito in nessuna build.
+### Stato reale, verificato il 2026-09-29 — leggere questo prima di tutto
+
+**L'aggiornatore è SPENTO nei binari distribuiti, e non per le chiavi.**
+
+`--update-url` non è passato da nessuna delle due build di release
+(`tools/release/build_linux.sh`, `tools/release/build_windows.ps1`): zero
+occorrenze. `gframe/premake5.lua:53` definisce `UPDATE_URL` **solo se**
+l'opzione c'è, e tutto l'aggiornatore è dentro `#if defined(UPDATE_URL)`.
+Al suo posto si compila lo stub di `client_updater.h`, che risponde
+`HasUpdate() == false`, `UpdateFailed() == true`, `OnlineDisabled() == false`.
+
+Quindi, nei client che i giocatori hanno oggi:
+
+| Cosa | Stato reale |
+|---|---|
+| Lettura del manifesto | **mai**, l'URL non è compilato |
+| `min_supported` | **non chiude niente a nessuno**, lo stub dice sempre no |
+| `CLIENT_UPDATE_VERSION` | **nessuna riga in esecuzione lo legge** |
+| Aggiornamento del client | **non esiste** |
+
+Quello che invece si aggiorna davvero, e non passa da qui: i dati di gioco
+via `repo_manager` (cloni git di `ProjectIgnis/CardScripts`, `BabelCDB`,
+`windbot`) e la banlist firmata via `banlist_updater`. Sono meccanismi
+separati, e funzionano.
+
+**Il resto della macchina è pronto e corretto**, e questo è il punto: le due
+chiavi in `update_keys.h` sono reali (generate il 2026-09-26, custodia in
+D196), `update.json` e `update.json.sig` sono pubblicati e rispondono, le
+impronte puntano a file veri di `v0.0.5-alpha`. Manca **solo** l'opzione di
+compilazione. FASE 49 la accende.
+
+### La riga che stava qui, e perché è un avvertimento
+
+Fino al 2026-09-29 questa sezione diceva: *«Le due chiavi di aggiornamento
+non esistono ancora. Finché `update_keys.h` ha i segnaposto a zero,
+l'aggiornatore è spento per costruzione e `UPDATE_URL` non va definito in
+nessuna build.»*
+
+Era vera quando fu scritta. Poi le chiavi sono arrivate e **nessuno è
+tornato a togliere il vincolo**: il documento ha continuato a dare la
+ragione giusta per uno stato che nel frattempo aveva un'altra causa. Lo
+stesso in `gframe/client_update_version.h`, dove un commento affermava che
+la build 5 era «la PRIMA release che porta UPDATE_URL» — una intenzione
+scritta al presente, mai verificata.
+
+Il costo è stato pagato per intero: una sessione ha letto quei due testi,
+ne ha dedotto che i client leggevano il manifesto, e ha fatto ragionare
+l'utente per ore su `min_supported` e sul numero di build — cioè sui
+parametri di un meccanismo che non girava.
+
+**Due regole che ne discendono, per chi scrive qui:**
+
+1. **Non si descrive un'intenzione al presente.** Se una cosa non è ancora
+   fatta si scrive che non è fatta, con la data.
+2. **Un vincolo condizionale ("finché X") ha bisogno di qualcuno che
+   controlli X.** Se nessuno lo fa, non è una cautela: è una bugia con la
+   data di scadenza, e chi la legge la prende per una verifica.
