@@ -111,6 +111,38 @@ def main() -> int:
 
     with zipfile.ZipFile(zip_path) as z:
         nomi_zip = set(z.namelist())
+
+        # I due versi non sono simmetrici, ed e' il motivo per cui questo
+        # blocco esiste. Un port SPARITO dalla cache lo vede gia' il ciclo
+        # sotto, e il danno sarebbe una licenza di troppo: innocuo. Un port
+        # AGGIUNTO non lo vedrebbe nessuno — si spedirebbe una libreria
+        # collegata staticamente SENZA la sua licenza, che e' la violazione
+        # vera. Un elenco fisso da solo copre solo il verso innocuo.
+        prefisso = "installed/x86-windows-static/share/"
+        presenti = {
+            n[len(prefisso):].split("/")[0]
+            for n in nomi_zip
+            if n.startswith(prefisso) and n.endswith("/copyright")
+        }
+        noti = set(LIBRERIE_STATICHE_WINDOWS) | set(STRUMENTI_BUILD_ESCLUSI)
+        inattesi = sorted(presenti - noti)
+        if inattesi:
+            print(
+                "ERRORE: la cache contiene port che questo elenco non conosce.",
+                file=sys.stderr,
+            )
+            for p in inattesi:
+                print(f"  {p}", file=sys.stderr)
+            print(
+                "Decidi per ognuno se finisce nel binario distribuito: se si', "
+                "aggiungilo a LIBRERIE_STATICHE_WINDOWS; se e' uno strumento di "
+                "build, a STRUMENTI_BUILD_ESCLUSI. Aggiorna anche D219. Non "
+                "lasciarlo fuori senza deciderlo: una libreria spedita senza "
+                "licenza e' una violazione, e nessuno se ne accorgerebbe.",
+                file=sys.stderr,
+            )
+            return 1
+
         for port in LIBRERIE_STATICHE_WINDOWS:
             entry = f"installed/x86-windows-static/share/{port}/copyright"
             if entry not in nomi_zip:
