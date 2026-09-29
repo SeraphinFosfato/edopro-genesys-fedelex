@@ -314,12 +314,6 @@ jobs:
             ubuntu-latest: su una distribuzione diversa puo' non partire
             affatto (\`error while loading shared libraries\`). Resta qui per
             chi ha gia' le librerie giuste.
-          - \`ygopro.exe\` — client Windows x86, compilato su Windows con
-            MSVC (D183). Un file solo, autosufficiente: non serve installare
-            nessun redistribuibile. **Mai eseguito su Windows vero**:
-            compilarlo su Windows non e' averlo provato su Windows, e
-            nessuno lo ha ancora aperto su hardware reale. Trattalo come
-            beta.
           - \`edopro-custom-linux-x64.zip\` / \`edopro-custom-windows-x86.zip\`
             — stessi eseguibili di sopra, impacchettati nel solo formato che
             l'aggiornatore integrato sa installare da solo (ZIP). Non
