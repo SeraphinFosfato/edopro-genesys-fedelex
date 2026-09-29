@@ -255,11 +255,18 @@ jobs:
           path: dist/
 
       # Solo il nome dell'artefatto, allineato a quello che il job Windows
-      # carica ora (D178). Niente altro di questo job e' toccato.
-      - uses: actions/download-artifact@v4
-        with:
-          name: edopro-custom-windows-x86
-          path: dist/
+      # NON si scarica piu' `edopro-custom-windows-x86` (l'exe nudo): dal
+      # 2026-09-29 non e' piu' un allegato della release. Su Windows le
+      # librerie di terze parti sono collegate STATICAMENTE dentro l'exe,
+      # quindi distribuirlo da solo significa ridistribuirle senza le loro
+      # licenze; il pacchetto (`-package.zip`) porta `notices/` e sostituisce
+      # questa strada. Su Linux l'eseguibile nudo resta allegato, e non e'
+      # un'incoerenza: li' le librerie vengono dal sistema dell'utente, noi
+      # non ridistribuiamo niente.
+      # Il passo `upload-artifact` nel job Windows invece RESTA: serve a
+      # verificare che il link abbia prodotto un eseguibile
+      # (`if-no-files-found: error`) e a recuperarlo dalla run quando serve
+      # provarlo a mano. Un artefatto di CI non e' una distribuzione.
 
       # FASE 37: i due ZIP installabili dall'aggiornatore. Allegati IN PIU'
       # rispetto ai file di sempre, mai in sostituzione — chi installa a
@@ -289,7 +296,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${{ github.ref_name }}" \
-            dist/ygoprodll dist/edopro-custom-linux-x64.tar.gz dist/ygopro.exe \
+            dist/ygoprodll dist/edopro-custom-linux-x64.tar.gz \
             dist/edopro-custom-linux-x64.zip dist/edopro-custom-windows-x86.zip \
             dist/edopro-custom-windows-x86-package.zip \
             --title "${{ github.ref_name }}" \
