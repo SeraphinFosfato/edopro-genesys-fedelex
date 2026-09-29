@@ -256,6 +256,16 @@ Quindi, nei client che i giocatori hanno oggi:
 | `CLIENT_UPDATE_VERSION` | **nessuna riga in esecuzione lo legge** |
 | Aggiornamento del client | **non esiste** |
 
+<!-- verifica(NON): grep -rq "update-url" EdoproForkGSY/edopro_custom/tools/release/ -->
+<!-- verifica: grep -q 'if _OPTIONS\["update-url"\] then' EdoproForkGSY/edopro_custom/gframe/premake5.lua -->
+<!-- verifica: grep -q 'constexpr bool OnlineDisabled() { return false; }' EdoproForkGSY/edopro_custom/gframe/client_updater.h -->
+
+La tabella qui sopra porta le proprie verifiche (`controlla_documenti.py`,
+D223). **Quando FASE 49 accendera' l'aggiornatore, la prima diventera'
+rossa**: e' voluto, ed e' l'unico modo perche' chi accende l'opzione sia
+costretto a tornare qui invece di lasciare in piedi un testo che descrive un
+client che non esiste piu'. Il rosso non si spegne togliendo la riga.
+
 Quello che invece si aggiorna davvero, e non passa da qui: i dati di gioco
 via `repo_manager` (cloni git di `ProjectIgnis/CardScripts`, `BabelCDB`,
 `windbot`) e la banlist firmata via `banlist_updater`. Sono meccanismi
@@ -263,7 +273,8 @@ separati, e funzionano.
 
 **Il resto della macchina è pronto e corretto**, e questo è il punto: le due
 chiavi in `update_keys.h` sono reali (generate il 2026-09-26, custodia in
-D196), `update.json` e `update.json.sig` sono pubblicati e rispondono, le
+D196)
+<!-- verifica(NON): grep -q "0x00, 0x00, 0x00, 0x00, 0x00, 0x00" EdoproForkGSY/edopro_custom/gframe/update_keys.h -->, `update.json` e `update.json.sig` sono pubblicati e rispondono, le
 impronte puntano a file veri di `v0.0.5-alpha`. Manca **solo** l'opzione di
 compilazione. FASE 49 la accende.
 
