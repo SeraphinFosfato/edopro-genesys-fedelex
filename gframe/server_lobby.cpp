@@ -285,6 +285,40 @@ void ServerLobby::JoinServer(bool host) {
 	// function and are unaffected.
 	if(gClientUpdater && gClientUpdater->OnlineDisabled()) {
 		ErrorLog(gClientUpdater->GetOnlineDisabledReason());
+		// Fino alla v0.1.0-alpha qui c'era SOLO la riga sopra, e ErrorLog
+		// scrive su error.log e basta: il giocatore premeva "ospita" o
+		// "entra" e non succedeva NIENTE. La sanzione arrivava, la
+		// spiegazione no. Il ramo gemello venti righe piu' sotto (dati di
+		// gioco non pronti) ha sempre avuto anche un PopupMessage: era la
+		// prova a fianco che qui ne mancava uno.
+		//
+		// Vale la pena sapere che questo avviso NON puo' aiutare chi e'
+		// gia' rimasto fuori: sta nel binario nuovo, e chi e' sotto la
+		// soglia ha per definizione quello vecchio. Serve alla PROSSIMA
+		// soglia, non a quella che l'ha resa necessaria.
+		// La pagina si apre UNA volta per sessione: una scheda del browser
+		// a ogni clic sarebbe una molestia, non un aiuto. Il testo segue
+		// quella scelta invece di contraddirla — dire "si e' appena aperta"
+		// anche al secondo clic sarebbe una piccola bugia detta al
+		// giocatore proprio mentre gli si spiega un divieto.
+		static bool pagina_aperta = false;
+		const bool apri_ora = !pagina_aperta;
+		mainGame->PopupMessage(
+			Utils::ToUnicodeIfNeeded(gClientUpdater->GetOnlineDisabledReason())
+			+ L"\n\nPuoi ancora giocare in locale, contro l'IA e rivedere i replay."
+			  L"\nAccetta l'aggiornamento che il client propone all'avvio, oppure"
+			+ (apri_ora
+			   ? std::wstring(L" scarica l'ultima versione dalla pagina che si e'"
+							  L" appena aperta nel browser.")
+			   : std::wstring(L" scarica l'ultima versione dalla pagina delle release"
+							  L" gia' aperta nel browser.")),
+			L"Online non disponibile");
+		if(apri_ora) {
+			pagina_aperta = true;
+			Utils::SystemOpen(
+				EPRO_TEXT("https://github.com/SeraphinFosfato/edopro-genesys-fedelex/releases"),
+				Utils::OPEN_URL);
+		}
 		return;
 	}
 	// FASE 38: the same choke point (design/client-update.md §9, FASE 36)
