@@ -67,3 +67,8 @@ NotoSansJP-Regular.otf
 # Output di premake per il workspace di test: la regola /[Bb]uild*/ sopra
 # vale solo a root e non copre questo.
 /tests/build/
+
+# Cache di Python: i due script di tools/release/ la creano appena girano,
+# e §1.4 del vault dice che un file inatteso in git status e' un segnale da
+# non ignorare — quindi va tolto di mezzo, non guardato ogni volta.
+__pycache__/
