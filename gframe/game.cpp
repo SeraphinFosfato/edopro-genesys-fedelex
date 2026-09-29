@@ -89,27 +89,11 @@ static inline epro::path_string NoSkinLabel() {
 	return Utils::ToPathString(gDataManager->GetSysString(2065));
 }
 
-// Player-facing text for a title state change (FASE 4f, §8). Deliberately
-// three distinct messages, never conflated: what the player needs to DO
-// differs by state (talk to a judge vs. just wait for a payment to clear vs.
-// simply reconnect), so a generic "access denied" would send them to the
-// wrong place. Only Revoked/Suspended/TitleExpired ever reach this — Active
-// and NoTitle never queue a notification (see the call site).
-static inline std::wstring TitleNotificationText(title::AccessState state) {
-	switch(state) {
-	case title::AccessState::Revoked:
-		return L"Your access to the custom point list has been revoked. Contact a judge for details.";
-	case title::AccessState::Suspended:
-		return L"Your access to the custom point list is suspended for an unpaid balance. "
-			   L"It unlocks automatically once it is settled — no need to contact anyone.";
-	case title::AccessState::TitleExpired:
-		return L"Your access to the custom point list could not be renewed. Reconnect to the bot to refresh it.";
-	case title::AccessState::Active:
-	case title::AccessState::NoTitle:
-	default:
-		return L"";
-	}
-}
+// Player-facing text for a title state change moved to title_state.h: as a
+// static inline here it could not be reached by a test, and the defect that
+// prompted the move — a notice asserting a reason the client cannot know —
+// is precisely the kind a test catches and a reader does not. The invariant
+// it now carries (state, never cause) is documented at the declaration.
 
 
 Game::~Game() {
@@ -2445,7 +2429,7 @@ bool Game::MainLoop() {
 		if(title_notification_pending) {
 			std::lock_guard<epro::mutex> lock(gMutex);
 			title_notification_pending = false;
-			stMessage->setText(TitleNotificationText(title_notification_state).data());
+			stMessage->setText(title::NotificationText(title_notification_state).data());
 			PopupElement(wMessage);
 		}
 		if(gTitleCheckin) {
@@ -2832,8 +2816,8 @@ inline void TrySaveInt(T& dest, const irr::gui::IGUIElement* src) {
 	catch (...) {}
 }
 void Game::UpdateTitleAuthButton() {
-	// Raw literals, not GetSysString: see the comment on TitleNotificationText
-	// above — this text has no entry in strings.conf (gitignored, pulled from
+	// Raw literals, not GetSysString: see the comment on title::NotificationText
+	// in title_state.h — this text has no entry in strings.conf (gitignored, pulled from
 	// an external repo this fork doesn't own), same precedent as the
 	// Wayland-backend prompt.
 	btnTitleAuth->setText(gGameConfig->titleCredential.empty() ? L"Login" : L"Logout");

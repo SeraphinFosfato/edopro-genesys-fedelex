@@ -458,6 +458,51 @@ void test_mismatched_user_ref_is_rejected_even_if_it_would_otherwise_be_valid() 
 		 "a user_ref that does not match the bound one must be rejected regardless of signature validity");
 }
 
+// --- D217 / F-012: the notification says the state, never the cause -------
+
+// A guard, not a golden-text test: it does not pin the wording (which will
+// change), it pins the one property that must survive every rewording.
+// Deliberately checks the WHOLE set of cause-words rather than just
+// "balance", because the defect it guards against was not a typo — it was a
+// sentence written for a different cause entirely, and the next one will be
+// too.
+void test_suspension_notice_never_names_a_cause() {
+	const std::wstring text = NotificationText(AccessState::Suspended);
+	// The signed suspension message carries user_ref + suspended_at and
+	// nothing else (title_verify.h), so the client cannot know any of these.
+	const wchar_t* invented_causes[] = {
+		L"balance", L"unpaid", L"paid", L"payment", L"settle", L"owe", L"fee",
+	};
+	for(const wchar_t* word : invented_causes) {
+		check(text.find(word) == std::wstring::npos,
+			 "the suspension notice must not name a cause the signed message does not carry");
+	}
+	// The other half of F-012, and the part that actually hurt: the old text
+	// told a player sanctioned for conduct not to contact anyone, removing
+	// the only remedy they had.
+	check(text.find(L"no need to contact") == std::wstring::npos,
+		 "the suspension notice must never tell the player not to seek anyone");
+	// Saying nothing useful is its own failure: a blocked player with no next
+	// step is a dead end too.
+	check(text.find(L"bot") != std::wstring::npos,
+		 "the suspension notice must point the player somewhere that knows the cause");
+}
+
+void test_every_notified_state_says_something_and_silent_states_stay_silent() {
+	check(!NotificationText(AccessState::Revoked).empty(),
+		 "a revoked player must be told");
+	check(!NotificationText(AccessState::Suspended).empty(),
+		 "a suspended player must be told");
+	check(!NotificationText(AccessState::TitleExpired).empty(),
+		 "an expired title must be explained");
+	// Active/NoTitle never queue a notification: an empty string here is the
+	// contract the call site relies on, not an oversight.
+	check(NotificationText(AccessState::Active).empty(),
+		 "an active title must not raise a notification");
+	check(NotificationText(AccessState::NoTitle).empty(),
+		 "having no title at all must not raise a notification");
+}
+
 }
 
 int RunTitleTests() {
@@ -485,6 +530,8 @@ int RunTitleTests() {
 	test_first_message_establishes_the_binding();
 	test_matching_user_ref_is_accepted_once_bound();
 	test_mismatched_user_ref_is_rejected_even_if_it_would_otherwise_be_valid();
+	test_suspension_notice_never_names_a_cause();
+	test_every_notified_state_says_something_and_silent_states_stay_silent();
 
 	std::printf("title_tests: %d checks, %d failures\n", checks, failures);
 	return failures;

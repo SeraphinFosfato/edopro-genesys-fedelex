@@ -90,6 +90,31 @@ AccessState ComputeAccess(const StoredTitle& title, const StoredBlock& block, st
 bool UserRefAccepted(bool has_bound_user_ref, const std::string& bound_user_ref,
 					 const std::string& incoming_user_ref);
 
+// D217: the player-facing line for a state change. Lives here, with the
+// rest of the pure logic, for one reason — it used to be a static inline in
+// game.cpp, which made it unreachable from a test, and F-012 is exactly the
+// kind of defect a test catches and a reader does not.
+//
+// THE INVARIANT, and it is the whole point of D217: this text states WHAT
+// the access is, never WHY. The client cannot know why. The signed
+// suspension message carries `user_ref` + `suspended_at` and nothing else
+// (title_verify.h:74-83), so any sentence here naming a cause is the client
+// inventing one.
+//
+// It named one for two weeks: the text for Suspended asserted a specific
+// reason, inherited from an earlier draft in which only one kind of
+// suspension existed. Once a second kind could produce the same state, that
+// sentence was simply wrong for anyone in the second case — and it also told
+// them not to contact anyone, removing the one remedy they had.
+//
+// So: say the state, and send them to the bot, which does know why and is
+// where the remedy is exercised anyway. The upside beyond the fix is that
+// another cause, later, needs no client release at all.
+//
+// Only Revoked/Suspended/TitleExpired ever reach this — Active and NoTitle
+// never queue a notification (see the call site in game.cpp).
+std::wstring NotificationText(AccessState state);
+
 }
 
 #endif //TITLE_STATE_H
