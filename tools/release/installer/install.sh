@@ -72,6 +72,9 @@ SEARCH_CANDIDATES=(
 	"$HOME/Games/EDOPro"
 	"$HOME/Giochi/EDOPro"
 	"$XDG_DATA_HOME/EDOPro"
+	# layout di un'installazione EDOPro manuale/portabile sotto $HOME
+	# (non un pacchetto di sistema: quella resta esclusa, vedi sopra).
+	"$HOME/.local/opt/edopro/app"
 )
 
 # Elenco dei posti dove cercare un config/configs.json da COPIARE IN SOLA
