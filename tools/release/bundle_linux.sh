@@ -422,7 +422,9 @@ Installazione consigliata
   in tools/release/installer/install.sh --help.
 
 Installazione manuale (alternativa)
-  1. Apri la cartella dove sta il tuo eseguibile EDOPro.
+  1. Apri la cartella dove sta il tuo eseguibile EDOPro (es.
+     ~/.local/opt/edopro/app, o /opt/edopro se l'hai installato dal
+     gestore pacchetti della tua distribuzione).
   2. Copia dentro, accanto a quell'eseguibile:
        ygoprodll
        lib/          (la cartella intera)
