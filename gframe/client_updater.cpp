@@ -151,6 +151,17 @@ void ClientUpdater::Unzip(void* payload, unzip_callback callback) {
 	const auto& corepath = ygo::Utils::GetCorePath();
 	ygo::Utils::FileMove(corepath, epro::format(EPRO_TEXT("{}.old"), corepath));
 #endif
+	// Extract next to the running executable (Utils::GetExeFolder()), never
+	// into UnzipArchive's default "./": that default is the CURRENT WORKING
+	// DIRECTORY, which vanilla EDOPro always launches from the same folder
+	// as the executable, but THIS fork's own installer
+	// (tools/release/installer/install.sh) does not — it runs the client
+	// with -C pointed at a separate data directory (design/licensing.md,
+	// "cartella dati" split). Found 2026-09-30: a real update on such an
+	// install renamed the running executable aside (above) and then
+	// extracted the new one into the data dir instead, leaving the program
+	// dir with only "ygoprodll.old" and no "ygoprodll" at all.
+	const auto& exe_folder = ygo::Utils::GetExeFolder();
 	unzip_payload cbpayload{};
 	UnzipperPayload uzpl;
 	uzpl.payload = payload;
@@ -158,15 +169,38 @@ void ClientUpdater::Unzip(void* payload, unzip_callback callback) {
 	uzpl.tot = static_cast<int>(update_urls.size());
 	cbpayload.payload = &uzpl;
 	int i = 1;
+	bool all_ok = true;
 	for(const auto& file : update_urls) {
 		uzpl.cur = i++;
 		auto name = epro::format(UPDATES_FOLDER, ygo::Utils::ToPathString(file.name));
 		uzpl.filename = name.data();
-		ygo::Utils::UnzipArchive(name, callback, &cbpayload);
+		if(!ygo::Utils::UnzipArchive(name, callback, &cbpayload, exe_folder)) {
+			all_ok = false;
+			ygo::ErrorLog("Aggiornamento: impossibile scompattare {}, l'aggiornamento verra' annullato.", file.name);
+		}
 	}
 #if EDOPRO_WINDOWS
 	if(!Utils::FileExists(corepath)) {
 		Utils::FileMove(epro::format(EPRO_TEXT("{}.old"), corepath), corepath);
+	}
+#endif
+#if EDOPRO_WINDOWS || EDOPRO_LINUX
+	// "Il client attuale resta disponibile" (design/client-update.md §5,
+	// stessa riga dell'endpoint irraggiungibile): uno scompattamento fallito
+	// non deve MAI lasciare il giocatore senza un eseguibile funzionante.
+	// Si ripristina il vecchio (solo se lo scompattamento non l'ha davvero
+	// scritto: non si sovrascrive un file arrivato bene per un fallimento
+	// altrove nello stesso lotto) e non si riavvia — Reboot() rilancerebbe
+	// un file che potrebbe non esistere ed uscirebbe comunque (vedi il ramo
+	// Linux di Utils::Reboot(), che chiama exit(0) a prescindere dal
+	// risultato dell'exec), lasciando il processo morto senza che nessuno
+	// se ne accorga: e' esattamente il guasto reale del 2026-09-30.
+	if(!all_ok) {
+		if(!Utils::FileExists(path))
+			Utils::FileMove(epro::format(EPRO_TEXT("{}.old"), path), path);
+		failed = true;
+		status_message = "Aggiornamento: scompattamento fallito, il client attuale e' stato mantenuto.";
+		return;
 	}
 #endif
 	Utils::Reboot();

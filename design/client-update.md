@@ -129,6 +129,34 @@ una versione con una vulnerabilità nota.
 programma che si riscrive da solo senza dirlo è la cosa che fa disinstallare
 un client. L'utente vede cosa sta per succedere e conferma.
 
+### 6bis. Lo scompattamento deve avvenire ACCANTO all'eseguibile, non nella CWD
+
+Incidente reale del 2026-09-30: un aggiornamento ha rinominato l'eseguibile in
+uso in `ygoprodll.old` (`ClientUpdater::Unzip`, `gframe/client_updater.cpp`),
+poi ha scompattato lo ZIP scaricato con `Utils::UnzipArchive` **senza passare
+`dest`**, che di default vale `"./"` — la cartella di lavoro corrente. Nel
+client vanilla CWD coincide sempre con la cartella dell'eseguibile, ma
+**l'installer di questo fork non lo garantisce**: `install.sh` lancia il
+client con `-C <cartella-dati>` separata dalla cartella del programma (per
+il motivo opposto e altrettanto valido: la cartella dati deve sopravvivere
+agli aggiornamenti del programma). Risultato: il nuovo `ygoprodll` finiva
+scompattato nella cartella dati, mentre la cartella del programma restava
+con solo `ygoprodll.old` — nessun eseguibile funzionante. `Utils::Reboot()`
+tentava comunque di rilanciare il vecchio percorso (ormai inesistente),
+falliva silenziosamente nel figlio e usciva (`exit(0)`) comunque nel padre:
+il client si chiudeva "con successo" lasciando l'utente bloccato, sintomo
+identico alla regola 6 sopra ma per una causa diversa (non un consenso
+mancante, un percorso sbagliato).
+
+Corretto passando `Utils::GetExeFolder()` come `dest`, e aggiungendo un
+controllo del valore di ritorno di `UnzipArchive`: se anche un solo file
+fallisce, l'intero aggiornamento si annulla, il vecchio eseguibile (se non
+già sostituito da un file scritto correttamente) viene ripristinato da
+`.old`, e **non si chiama `Reboot()`** — il client attuale resta in
+esecuzione, esattamente come nel caso "endpoint irraggiungibile" di §5.
+Stessa lezione di 6bis applicata a un livello diverso: un binario che si
+riscrive da solo deve poter fallire senza sparire.
+
 ## Onestà sui deterrenti
 
 Vale quanto scritto nel `CLAUDE.md`: ogni controllo compilato in un binario
