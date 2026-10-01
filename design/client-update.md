@@ -241,6 +241,12 @@ Stessa forma della banlist, e per la stessa ragione (`banlist-distribution.md`,
 riavvio, quindi controllare più spesso non anticipa niente e aggiunge solo
 traffico e modi di fallire. Nessun polling in sottofondo durante la sessione.
 
+**Rivisto il 2026-10-02 (D237).** Per la *proposta* di aggiornamento il
+ragionamento regge ancora. Per la *soglia online* no: il blocco deve poter
+scattare a sessione aperta, con un periodo di grazia per chi sta giocando,
+quindi la lettura di `min_supported` torna a guardare il manifesto a
+intervalli. Forma in [blocco-online.md](blocco-online.md).
+
 Il controllo **non blocca l'avvio**: se l'endpoint non risponde, il client
 parte com'è e lo dice una volta.
 
@@ -262,6 +268,21 @@ la porta online è la misura che colpisce il danno vero; riscrivere il binario
 di qualcuno a sua insaputa no. Il valore di `min_supported` lo decide chi
 pubblica la release, una per una: non è una soglia cablata.
 
+**Corretto il 2026-10-02: il ragionamento qui sopra è sbagliato in un punto,
+e la regola è stata rivista (D237, [blocco-online.md](blocco-online.md)).**
+In una stanza online il duello **non** lo esegue il core del client: lo
+esegue il server. Nel codice di rete del client non c'è nessuna chiamata al
+core. Il core del client gira solo quando è il client a ospitare
+(`NetServer::StartServer` crea un `GenericDuel`: host in LAN o per IP, e i
+duelli contro l'IA, che passano dallo stesso host locale), nei puzzle e nella
+riproduzione dei replay di vecchio formato. Quindi chiudere ospitare ed
+entrare **online** non protegge l'avversario da un duello rotto, e la porta
+lasciata aperta, l'host per IP, è proprio quella dove un core vecchio lo
+rompe anche all'avversario. La soglia resta utile, ma per un'altra ragione: è
+la leva che obbliga ad aggiornare.
+<!-- verifica(NON): grep -q "OCG_" EdoproForkGSY/edopro_custom/gframe/duelclient.cpp -->
+<!-- verifica: grep -q "new GenericDuel" EdoproForkGSY/edopro_custom/gframe/netserver.cpp -->
+
 ### 6ter. Riuscire a scompattare non è riuscire ad aggiornare
 
 **Scritto il 2026-10-01**, e completa §6bis, che copriva **solo** il caso in
@@ -272,10 +293,21 @@ nome. Allora si chiama `Reboot()` su un file che non c'è, e il suo ramo Linux
 chiama `exit(0)` a prescindere dall'esito dell'`exec`: il processo muore e
 nella cartella del programma resta **solo `<exe>.old`**.
 
-Non è un'ipotesi. Il 2026-10-01, in un'installazione reale, la cartella del
-programma conteneva un `ygoprodll` **senza bit di esecuzione** e, accanto, un
-`ygopro.exe` di Windows.
-<!-- verifica: test -x ~/.local/opt/edopro/app/ygoprodll -->
+Non è un'ipotesi, ma la prima stesura di questo paragrafo (e il messaggio
+del commit `024c67cc8`) la raccontava **sbagliata** — corretto il 2026-10-02.
+Il `ygoprodll` senza bit di esecuzione e il `ygopro.exe` di Windows trovati il
+2026-10-01 in un'installazione Linux reale stavano nella **cartella dei dati**
+(quella passata con `-C`), **non** in quella del programma: ce li aveva
+scompattati un aggiornatore precedente a §6bis, che estraeva nella CWD. Il
+client che la persona avvia stava nella cartella del programma ed era integro
+ed eseguibile. Quei due file sono spazzatura: si cancellano, non si riparano.
+
+E il bit di esecuzione mancante **non** viene da `stat()` (punto 2 sotto):
+`UnzipArchive` non applica i permessi registrati nell'archivio, quindi ogni
+file estratto nasce senza bit di esecuzione, e solo `Reboot()` glielo rimette
+— sul percorso dell'eseguibile, non nella CWD. Il punto 2 resta un difetto
+vero, ma non è la causa di questo incidente.
+<!-- verifica: grep -q 'if(!Utils::FileExists(path))' EdoproForkGSY/edopro_custom/gframe/client_updater.cpp -->
 
 Due buchi chiusi insieme, perché sono lo stesso guasto visto da due lati:
 
@@ -294,13 +326,35 @@ Due buchi chiusi insieme, perché sono lo stesso guasto visto da due lati:
 piattaforma. Un client Linux scarica e scompatta quindi **anche** il pacchetto
 Windows, ed è la ragione per cui un `ygopro.exe` si trova in
 un'installazione Linux.
-<!-- verifica: grep -n "for(const auto& file : manifest.files)" gframe/client_updater.cpp -->
+<!-- verifica: grep -q "for(const auto& file : manifest.files)" EdoproForkGSY/edopro_custom/gframe/client_updater.cpp -->
 
 **Non è un difetto da toppare qui**: cambiarlo tocca il formato di un
 artefatto **firmato**, quindi riguarda anche chi pubblica. Le due strade sono
 un campo nuovo nel manifesto (esplicito, ma cambia lo schema e va versionato)
 oppure un filtro sul nome del file (nessun cambio di schema, ma è una
 convenzione fragile). È una decisione, non un'implementazione.
+
+### 6quinquies. La versione installata si registra prima di installare — APERTO
+
+**Trovato il 2026-10-02.** `DownloadUpdate` scrive `.edopro_update_version`
+appena i file scaricati superano la verifica, **prima** di `Unzip()` e
+`Reboot()`. Se l'applicazione fallisce dopo (§6bis, §6ter), il file dice già
+la versione nuova mentre gira ancora la vecchia: al controllo successivo
+`CompareVersion` risponde *già aggiornato* e l'aggiornamento **non viene più
+proposto, mai**. Il file sta per di più nella CWD, cioè nella cartella dei
+dati, non accanto all'eseguibile che dovrebbe descrivere.
+<!-- verifica: grep -q 'UPDATE_VERSION_FILE EPRO_TEXT("./.edopro_update_version")' EdoproForkGSY/edopro_custom/gframe/client_updater.cpp -->
+
+Col blocco dell'online (D237) diventa una trappola: il client resta sotto
+soglia, l'online è chiuso, e l'unico rimedio che gli si indica, cioè
+l'aggiornamento, non gli viene più offerto.
+
+**Forma della correzione, decisa (D238), da implementare:** la versione
+installata **è** il `CLIENT_UPDATE_VERSION` del binario in esecuzione, non un
+file. L'anti-rollback (§4) resta identico: un manifesto con versione
+inferiore al binario che sta girando è rifiutato. E sparisce anche il difetto
+dell'installazione fresca che si propone ciò che ha già (file assente = 0).
+Il file non si scrive più; uno già presente si ignora.
 
 ## Cosa resta davvero aperto
 
@@ -312,5 +366,7 @@ convenzione fragile). È una decisione, non un'implementazione.
   sopravvissuta in un secondo punto del medesimo documento — cioè esattamente
   il difetto che §1.8 del `CLAUDE.md` del vault descrive: un cambio non è
   finito finché **ogni** posto che descrive la forma vecchia non è aggiornato.
-<!-- verifica: grep -c "0x[1-9a-fA-F]" gframe/update_keys.h -->
+<!-- verifica: grep -q "0x[1-9a-fA-F]" EdoproForkGSY/edopro_custom/gframe/update_keys.h -->
 - **Il manifesto non distingue i sistemi operativi** (§6quater).
+- **La versione installata registrata prima di installare** (§6quinquies):
+  forma decisa (D238), da implementare.
