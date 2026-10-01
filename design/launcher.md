@@ -88,11 +88,20 @@ Al suo posto, due proprietà che costano meno e coprono di più:
 
 ## 6. Il core, e la regola che vale più del meccanismo
 
-Il launcher gira **prima** del gioco: è l'unico momento in cui il core è un
-file qualunque e non una libreria già caricata. Quindi può verificare che core
-e script siano compatibili e dirlo con una frase chiara, invece di lasciare
-scoprire l'incompatibilità a metà duello con un errore Lua
-(`attempt to call a nil value`, visto il 2026-09-25).
+~~Il launcher gira prima del gioco, quindi può verificare che core e script
+siano compatibili.~~ **Ritirato il 2026-10-02**, dopo averlo misurato:
+
+- Il launcher gira **prima** della sincronizzazione dei repository, e la
+  sincronizzazione avviene dentro il simulatore. Quindi il launcher non sa
+  quale core il repository consegnerà, né se lo scambio riuscirà.
+- Non esiste un dato di versione confrontabile: `OCG_GetVersion` risponde
+  `11.0` sia per il core di aprile 2025 sia per quello di settembre 2026.
+- Su Windows il core è compilato dentro l'eseguibile: non c'è un file da
+  controllare.
+
+Il controllo si fa **dentro il simulatore**, dopo la sincronizzazione, e
+chiude l'online invece di bloccare l'avvio: forma in
+[blocco-online.md](blocco-online.md) (D237). Il launcher non ci entra.
 
 > **Un solo scrittore per file.** Il meccanismo di Project Ignis
 > (`configs.json`, `has_core: true`) scarica già un core. Il launcher
@@ -127,14 +136,14 @@ scoprire l'incompatibilità a metà duello con un errore Lua
 
 ## 9. Cosa questo documento NON decide
 
-- **Se un core troppo vecchio blocca l'avvio o solo avvisa** (D-57 nel
-  registro dei sospesi). Bloccare protegge e infastidisce; avvisare è gentile
-  e produce partite che si spezzano in catena. Scritto qui come **blocco**,
-  dichiaratamente come ipotesi, finché l'utente non risponde.
-- **Come si riconosce "il core è troppo vecchio"**: serve un dato
-  confrontabile, e non è stato misurato se gli script lo dichiarino da
-  qualche parte o vada dedotto. Da misurare prima di implementare: se non
-  esiste un dato, questa parte del disegno cambia.
+- ~~Se un core troppo vecchio blocca l'avvio o solo avvisa~~ **Deciso
+  dall'utente il 2026-10-02 (D237):** non blocca l'avvio, **chiude
+  l'online**, con 60 minuti di grazia per chi è in partita. Non è più compito
+  del launcher: [blocco-online.md](blocco-online.md).
+- ~~Come si riconosce "il core è troppo vecchio"~~ **Misurato il
+  2026-10-01:** non con la versione del core (identica fra un core di aprile
+  2025 e uno di settembre 2026). I segnali veri sono in
+  [blocco-online.md](blocco-online.md) §2.
 - **Il formato con cui il launcher scopre cosa c'è da aggiornare.** Oggi il
   manifesto è firmato e non distingue i sistemi operativi (D-54): chi
   implementa non deve inventare uno schema.
