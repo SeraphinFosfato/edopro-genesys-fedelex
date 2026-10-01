@@ -66,8 +66,8 @@ ogni lingua.
 
 Questa build e' compilata su Windows con MSVC, un file solo, nessun
 redistribuibile da installare (runtime e core collegati staticamente
-dentro ygopro.exe). E' pero' MAI stata eseguita su hardware Windows
-reale finora: trattala come beta e segnala qualunque problema.
+dentro ygopro.exe). E' una versione di prova: segnala qualunque
+problema, allegando il file error.log se c'e'.
 
 Licenza: AGPLv3, vedi LICENSE nel repository sorgente. Il sorgente
 completo di questa build sta su
