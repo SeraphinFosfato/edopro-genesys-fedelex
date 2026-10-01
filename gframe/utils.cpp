@@ -896,8 +896,11 @@ namespace ygo {
 #else
 #if EDOPRO_LINUX
 		struct stat fileStat;
-		stat(path.data(), &fileStat);
-		chmod(path.data(), fileStat.st_mode | S_IXUSR | S_IXGRP | S_IXOTH);
+		// stat() can fail (the executable may be missing after an update that
+		// went wrong). Unchecked, fileStat.st_mode is then uninitialised stack
+		// memory and the chmod below applies a garbage mode to the file.
+		if(stat(path.data(), &fileStat) == 0)
+			chmod(path.data(), fileStat.st_mode | S_IXUSR | S_IXGRP | S_IXOTH);
 #endif
 		{
 			[[maybe_unused]] const auto* path_cstr = path.data();

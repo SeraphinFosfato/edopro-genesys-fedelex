@@ -202,6 +202,19 @@ void ClientUpdater::Unzip(void* payload, unzip_callback callback) {
 		status_message = "Aggiornamento: scompattamento fallito, il client attuale e' stato mantenuto.";
 		return;
 	}
+	// A successful unzip does NOT guarantee the executable landed where
+	// Reboot() will look for it: the archive may not contain it, or may
+	// contain it under a different name. Without this check Reboot() execs a
+	// file that is not there, and its Linux branch calls exit(0) regardless
+	// of the exec result (Utils::Reboot in utils.cpp) — the process dies and
+	// the program folder is left holding only "<exe>.old". Found 2026-10-01
+	// on a real installation whose program folder had no runnable client.
+	if(!Utils::FileExists(path)) {
+		Utils::FileMove(epro::format(EPRO_TEXT("{}.old"), path), path);
+		failed = true;
+		status_message = "Aggiornamento: l'archivio non conteneva l'eseguibile atteso, il client attuale e' stato mantenuto.";
+		return;
+	}
 #endif
 	Utils::Reboot();
 }
