@@ -262,8 +262,55 @@ la porta online è la misura che colpisce il danno vero; riscrivere il binario
 di qualcuno a sua insaputa no. Il valore di `min_supported` lo decide chi
 pubblica la release, una per una: non è una soglia cablata.
 
+### 6ter. Riuscire a scompattare non è riuscire ad aggiornare
+
+**Scritto il 2026-10-01**, e completa §6bis, che copriva **solo** il caso in
+cui `UnzipArchive` *ritorna falso*. Il caso peggiore restava scoperto: lo
+scompattamento riesce, ma l'eseguibile **non finisce dove `Reboot()` lo
+cercherà** — perché l'archivio non lo contiene, o lo contiene sotto un altro
+nome. Allora si chiama `Reboot()` su un file che non c'è, e il suo ramo Linux
+chiama `exit(0)` a prescindere dall'esito dell'`exec`: il processo muore e
+nella cartella del programma resta **solo `<exe>.old`**.
+
+Non è un'ipotesi. Il 2026-10-01, in un'installazione reale, la cartella del
+programma conteneva un `ygoprodll` **senza bit di esecuzione** e, accanto, un
+`ygopro.exe` di Windows.
+<!-- verifica: test -x ~/.local/opt/edopro/app/ygoprodll -->
+
+Due buchi chiusi insieme, perché sono lo stesso guasto visto da due lati:
+
+1. **Si verifica che l'eseguibile esista** al percorso atteso dopo uno
+   scompattamento riuscito. Se non c'è, si ripristina il vecchio da `.old` e
+   **non si riavvia** — stessa riga di condotta dell'endpoint irraggiungibile
+   (§5): il client attuale resta disponibile.
+2. **`Utils::Reboot()` non controllava il ritorno di `stat()`.** Se `stat()`
+   fallisce, `fileStat.st_mode` è memoria di stack non inizializzata e il
+   `chmod` subito dopo applica al file un **modo casuale**. Ora il `chmod`
+   avviene solo se `stat()` è riuscita.
+
+### 6quater. Il manifesto non è filtrato per sistema operativo — APERTO
+
+`CheckUpdate` accoda **ogni** voce di `manifest.files` senza guardare la
+piattaforma. Un client Linux scarica e scompatta quindi **anche** il pacchetto
+Windows, ed è la ragione per cui un `ygopro.exe` si trova in
+un'installazione Linux.
+<!-- verifica: grep -n "for(const auto& file : manifest.files)" gframe/client_updater.cpp -->
+
+**Non è un difetto da toppare qui**: cambiarlo tocca il formato di un
+artefatto **firmato**, quindi riguarda anche chi pubblica. Le due strade sono
+un campo nuovo nel manifesto (esplicito, ma cambia lo schema e va versionato)
+oppure un filtro sul nome del file (nessun cambio di schema, ma è una
+convenzione fragile). È una decisione, non un'implementazione.
+
 ## Cosa resta davvero aperto
 
-- **Le due chiavi di aggiornamento non esistono ancora.** Finché
-  `update_keys.h` ha i segnaposto a zero, l'aggiornatore è spento per
-  costruzione e `UPDATE_URL` non va definito in nessuna build.
+- ~~**Le due chiavi di aggiornamento non esistono ancora.**~~ **FALSO,
+  corretto il 2026-10-01.** `update_keys.h` contiene chiavi **reali**, non
+  segnaposto a zero, e l'aggiornatore **è attivo**: i client aggiornano
+  davvero. Era la stessa affermazione falsa già ritirata una volta (commit
+  `dfa1191d2`, *"l'aggiornatore NON era spento, documento falso"*),
+  sopravvissuta in un secondo punto del medesimo documento — cioè esattamente
+  il difetto che §1.8 del `CLAUDE.md` del vault descrive: un cambio non è
+  finito finché **ogni** posto che descrive la forma vecchia non è aggiornato.
+<!-- verifica: grep -c "0x[1-9a-fA-F]" gframe/update_keys.h -->
+- **Il manifesto non distingue i sistemi operativi** (§6quater).
