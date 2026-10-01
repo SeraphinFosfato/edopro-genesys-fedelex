@@ -97,7 +97,8 @@ siano compatibili.~~ **Ritirato il 2026-10-02**, dopo averlo misurato:
 - Non esiste un dato di versione confrontabile: `OCG_GetVersion` risponde
   `11.0` sia per il core di aprile 2025 sia per quello di settembre 2026.
 - Su Windows il core è compilato dentro l'eseguibile: non c'è un file da
-  controllare.
+  controllare. (Vero fino a FASE 60: con D239 anche Windows lo caricherà dal
+  repository, e il ragionamento del primo punto varrà anche lì.)
 
 Il controllo si fa **dentro il simulatore**, dopo la sincronizzazione, e
 chiude l'online invece di bloccare l'avvio: forma in

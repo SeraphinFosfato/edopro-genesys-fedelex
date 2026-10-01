@@ -10,8 +10,8 @@
 > dopo vieni cacciato dall'online e portato al menù principale.
 
 Questo documento fissa la **forma**. Il codice lo scrive chi implementa,
-seguendo il brief di fase. I punti ancora da decidere sono in §8 e non vanno
-inventati.
+seguendo il brief di fase (FASE 59; per Windows anche FASE 60). Le quattro
+scelte che restavano aperte le ha fatte l'utente il 2026-10-02: §8.
 
 ---
 
@@ -35,6 +35,10 @@ repository chiamavano `Duel.GetReasonEffect`, e il sottomodulo è stato portato
 avanti il 2026-09-25 (commit `b2a22a1c0`). Da `v0.0.3-alpha` in poi tutte le
 release portano lo stesso core (`efc21aa`).
 
+**Deciso il 2026-10-02 (D239): anche Windows passera' al core caricato dal
+repository**, come Linux. **Non e' ancora fatto** (FASE 60): fino ad allora
+vale la tabella qui sopra, e su Windows l'unico segnale resta R1.
+
 ## 2. Come si riconosce "troppo vecchio" — e come NO
 
 **Non con la versione del core.** `OCG_GetVersion` risponde `11.0` sia per il
@@ -50,22 +54,27 @@ Le due ragioni che chiudono, e solo queste:
   **l'unico** segnale possibile: il core è parte della build, quindi un core
   vecchio *è* una build vecchia. Funziona solo se qualcuno alza la soglia
   quando Project Ignis aggiorna il core (§8, D-58).
-- **R2 — core non allineato** (solo build a core separato, cioè Linux oggi).
-  Un repository che dichiara un core ha finito di sincronizzarsi, il suo core
-  è stato passato allo scambio, e lo scambio **non è riuscito**: il client
-  usa gli script nuovi del repository con il core vecchio della cartella dei
-  dati. Oggi `LoadCoreFromRepos` in quel caso fa `continue` e non lo dice a
-  nessuno: è questo silenzio che R2 trasforma in un segnale.
+- **R2 — il core in uso non è quello del repository** (solo build a core
+  separato: Linux oggi, Windows dopo FASE 60). Una regola sola, che copre tre
+  casi (D240):
+  1. un repository che dichiara un core si è sincronizzato, ma lo scambio
+     **non è riuscito**: script nuovi del repository su core vecchio della
+     cartella dei dati. È il caso degli errori Lua. Oggi `LoadCoreFromRepos`
+     fa `continue` e non lo dice a nessuno;
+  2. quel repository **non si è sincronizzato**: il client ne scarta sia gli
+     script sia il core e gioca con quelli dell'installazione, vecchi ma
+     coerenti fra loro;
+  3. **nessun** repository dichiara un core. Con la configurazione che
+     installiamo non succede.
 
 Quello che **non** chiude:
 
 - **Manifesto irraggiungibile o non valido**: regola già in vigore, l'assenza
   di un'opinione firmata non chiude mai la porta.
-- **Repository che non si è sincronizzato.** Il codice in quel caso scarta sia
-  gli script sia il core del repository (ritorno anticipato prima di
-  `script_dirs` e `cores_to_load`), quindi il client gira con script e core
-  **della stessa installazione**: vecchi, ma coerenti. Se chiudere anche
-  questo caso è una decisione aperta (§8, D-61).
+Il caso 2 di R2 **chiude** per scelta, non per necessità (D240): una regola
+che si dice in una frase, *online solo col core del repository*, invece di
+due. Il costo, accettato: chi avvia il client mentre GitHub non risponde resta
+fuori dall'online per quella sessione, e aggiornare non lo aiuta.
 <!-- verifica: grep -q "if(repo->has_core)" EdoproForkGSY/edopro_custom/gframe/game.cpp -->
 
 R2 è sempre noto **prima** che si possa entrare online: il cancello dei dati
@@ -85,7 +94,9 @@ vecchio formato.
 Quindi il blocco dell'online è **la leva che obbliga ad aggiornare**, ed è
 quello che è stato chiesto. Non protegge l'avversario in una stanza online,
 perché lì non è in pericolo. La porta dove un core vecchio rompe il duello
-**anche all'avversario** è l'host per IP, che oggi resta aperta (§8, D-60).
+**anche all'avversario** è l'host per IP: per questo il cancello chiude anche
+quella (D240). Con il cancello chiuso **si gioca solo da soli**: IA, replay,
+puzzle. Tutto ciò che mette davanti un'altra persona si chiude.
 
 ## 4. Il cancello: un solo predicato
 
@@ -111,6 +122,15 @@ corso: un cancello che si apre e si chiude da solo insegna a non fidarsene.
   dalla guardia già esistente in `JoinServer`: due testi per lo stesso divieto
   finiscono per dire due cose diverse.
 - `JoinServer` resta la seconda linea di difesa, com'è oggi.
+- **Entrare per IP** nella stanza di qualcun altro (finestra LAN) mostra lo
+  stesso avviso e non si connette.
+- **Ospitare in LAN resta possibile, ma solo per sé**: la stanza accetta
+  connessioni soltanto dal proprio computer, così l'IA (che si collega in
+  locale) continua a funzionare e nessun altro può entrare. Non si annuncia
+  sulla rete locale. **Trappola:** ascoltare solo su `::1` sembra la stessa
+  cosa e non lo è, perché il client e l'IA si collegano a `127.0.0.1`. La
+  proprietà da garantire è *chi si collega*, non *dove si ascolta*.
+<!-- verifica: grep -q "0x100007F; //127.0.0.1" EdoproForkGSY/edopro_custom/gframe/menu_handler.cpp -->
 
 ## 6. Chi È in partita quando il cancello si chiude
 
@@ -136,6 +156,9 @@ finire: si esce subito, con l'avviso.
   se il duello era iniziato; dopo, menu principale invece di lista stanze. Da
   sapere: per il server e per l'avversario è un **abbandono**.
 - **Rivincita**: con il cancello chiuso non si offre.
+- **Se si sta ospitando** una stanza con dentro un'altra persona, la grazia
+  vale uguale: la partita in corso finisce (entro i 60 minuti), ma nessun
+  altro può più entrare da fuori.
 
 ## 7. Il controllo a intervalli
 
@@ -144,25 +167,23 @@ volta all'avvio, cioè prima che chiunque sia in partita. Il cancello deve
 poter scattare a sessione aperta, quando viene pubblicato un manifesto con
 una soglia più alta.
 
-- Ogni **P minuti** (§8, D-59) il client rilegge il manifesto **con la stessa
-  verifica** di avvio: firma prima di interpretare, anti-rollback.
+- Ogni **15 minuti** (D240) il client rilegge il manifesto **con la stessa
+  verifica** di avvio: firma prima di interpretare, anti-rollback. È il
+  ritardo massimo fra la pubblicazione di una soglia nuova e il momento in
+  cui un client acceso se ne accorge: chi è in partita esce al più tardi 75
+  minuti dopo la pubblicazione.
 - Il risultato alimenta **solo** il cancello (R1) e l'eventuale proposta da
   mostrare all'uscita. Non apre finestre da solo.
 - Un controllo fallito (rete, firma) non apre e non chiude niente.
 
-## 8. Cosa questo documento NON decide
+## 8. Le quattro scelte, fatte dall'utente il 2026-10-02
 
-Ognuna è nel registro dei sospesi del progetto; chi implementa non le sceglie.
-
-- **D-58 — il core di Windows**: resta compilato dentro (e allora R1 funziona
-  solo se qualcuno si accorge degli aggiornamenti di Project Ignis e alza la
-  soglia), oppure Windows passa al core separato come Linux (e allora R2 vale
-  anche lì, e il core segue il repository da solo). La DLL del repository è
-  a 32 bit, come il nostro eseguibile: la seconda strada è praticabile.
-- **D-59 — ogni quanti minuti** si ricontrolla il manifesto.
-- **D-60 — se il cancello chiude anche l'host per IP**, che è la porta dove
-  un core vecchio rompe il duello all'avversario (§3).
-- **D-61 — se un repository non sincronizzato chiude l'online** (§2).
+- **Core di Windows** (D239): si carica dal repository, come su Linux. Il
+  core segue Project Ignis da solo e R2 vale anche lì. Da implementare in
+  FASE 60; la DLL del repository è a 32 bit come il nostro eseguibile.
+- **Intervallo di controllo** (D240): 15 minuti.
+- **Host per IP** (D240): chiuso agli altri, aperto solo all'IA (§5).
+- **Repository non sincronizzato** (D240): chiude (§2, R2 caso 2).
 
 ## 9. Prerequisito: la versione installata
 
@@ -178,7 +199,8 @@ la versione installata è quella compilata nel binario) va fatta **prima** o
 - L'eseguibile non si sostituisce senza consenso (`client-update.md` §6):
   "obbligato all'aggiornamento" vuol dire che l'online resta chiuso finché non
   si aggiorna, non che l'aggiornamento parte da solo.
-- IA, replay, puzzle e deck editor restano disponibili.
+- IA, replay, puzzle e deck editor restano disponibili. Tutto il resto, cioè
+  ogni partita con un'altra persona, si chiude.
 - Il launcher (D236) non entra in questo meccanismo: gira **prima** della
   sincronizzazione dei repository, quindi non può sapere quale core il
   repository consegnerà. R2 si può valutare solo dentro il simulatore.
