@@ -359,6 +359,43 @@ binario che sta girando è rifiutato da `CompareVersion`, che non è cambiato.
 <!-- verifica(NON): grep -q "UPDATE_VERSION_FILE" EdoproForkGSY/edopro_custom/gframe/client_updater.cpp -->
 <!-- verifica: grep -q "return ygo::update::CLIENT_UPDATE_VERSION;" EdoproForkGSY/edopro_custom/gframe/client_updater.cpp -->
 
+### 6sexies. L'installatore Linux ripulisce da solo i residui che porta la sua firma — FASE 61 (D241)
+
+**Scritto il 2026-10-02.** §6quinquies diceva che ripulire la cartella dati
+non era compito di `GetInstalledVersion()`/`SetInstalledVersion()`: resta
+vero, ma qualcuno doveva comunque farlo, perché un vecchio aggiornatore
+difettoso (§6bis/§6ter, prima delle correzioni) aveva scompattato
+`ygoprodll`, `ygopro.exe` e `.edopro_update_version` dentro la cartella
+**dati** (misurato su un'installazione reale il 2026-10-01/02) invece che
+in quella del programma, e nessuno glieli toglieva.
+
+`tools/release/installer/install.sh` ora lo fa da solo a ogni installazione,
+in una funzione dedicata (`cleanup_data_dir_remnants`, chiamata da
+`do_install` dopo `ensure_configs_json`):
+
+- `strings/fedelex.conf` nella cartella dati si **sovrascrive sempre**: il
+  client lo legge da lì (`gframe/data_handler.cpp`), non dalla cartella
+  programma, quindi senza questo passo un'installazione che riusa una
+  cartella dati esistente non vedeva mai le stringhe aggiornate — un
+  secondo difetto scoperto misurando per D241, distinto dai residui sopra.
+- `ygoprodll`/`ygopro.exe` nella cartella dati si tolgono **solo se portano
+  l'impronta `fedelex`** (la stringa compare in ogni binario del fork, per
+  esempio `UPDATE_DOMAIN` in `gframe/update_verify.h`; non compare
+  nell'EDOPro ufficiale). Un file con quel nome ma senza l'impronta non si
+  tocca: non è detto che sia nostro.
+- `.edopro_update_version` si toglie sempre: esiste solo nel nostro fork e
+  dopo D238 non lo legge più nessuno.
+- Se la cartella dati coincide con quella del programma, la pulizia di
+  `ygoprodll`/`ygopro.exe` non si applica: sarebbe il binario appena
+  installato, non un residuo.
+- Niente altro della cartella dati viene toccato (`script/`, i `.cdb`,
+  `ocgcore`, mazzi, replay, `config/`).
+
+Ogni azione si stampa file per file; una reinstallazione su una cartella già
+pulita dice esplicitamente "Niente da ripulire nella cartella dati".
+<!-- verifica: grep -q "cleanup_data_dir_remnants" EdoproForkGSY/edopro_custom/tools/release/installer/install.sh -->
+<!-- verifica: grep -q "grep -qa fedelex" EdoproForkGSY/edopro_custom/tools/release/installer/install.sh -->
+
 ## Cosa resta davvero aperto
 
 - ~~**Le due chiavi di aggiornamento non esistono ancora.**~~ **FALSO,
@@ -371,5 +408,9 @@ binario che sta girando è rifiutato da `CompareVersion`, che non è cambiato.
   finito finché **ogni** posto che descrive la forma vecchia non è aggiornato.
 <!-- verifica: grep -q "0x[1-9a-fA-F]" EdoproForkGSY/edopro_custom/gframe/update_keys.h -->
 - **Il manifesto non distingue i sistemi operativi** (§6quater).
-- **La versione installata registrata prima di installare** (§6quinquies):
-  forma decisa (D238), da implementare.
+- ~~**La versione installata registrata prima di installare**~~ **corretto
+  (D238, §6quinquies)**, non ancora in una release pubblicata.
+- ~~**I residui del vecchio aggiornatore restano nella cartella dati**~~
+  **corretto (D241, FASE 61, §6sexies)**: l'installatore Linux li toglie da
+  solo a ogni installazione. Non ancora in una release pubblicata — il
+  tarball `v0.1.1-alpha` porta ancora l'`install.sh` precedente.

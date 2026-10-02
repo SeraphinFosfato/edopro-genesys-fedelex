@@ -234,6 +234,94 @@ ensure_configs_json() {
 	return 1
 }
 
+# ───────────── pulizia della cartella dati (FASE 61, D241) ─────────────────
+# Un vecchio aggiornatore difettoso scompattava lo zip di aggiornamento nella
+# CWD invece che accanto all'eseguibile (client-update.md §6bis/§6ter nel
+# fork): su un'installazione reale questo ha lasciato `ygoprodll` e
+# `ygopro.exe` dentro la cartella DATI (quella passata con -C), non in quella
+# del programma. Quel difetto e' corretto a monte, ma i residui restano sul
+# disco di chi ha gia' installato e l'utente non deve toglierli a mano.
+#
+# Regola (D241): si tocca solo cio' che e' chiaramente nostro.
+#   1. strings/fedelex.conf si SOVRASCRIVE sempre nella cartella dati: il
+#      client lo legge da li' (gframe/data_handler.cpp), non dalla cartella
+#      programma, quindi senza questo passo un'installazione che riusa una
+#      cartella dati esistente non vede mai le stringhe aggiornate.
+#   2. ygoprodll/ygopro.exe nella cartella dati si tolgono SOLO se portano
+#      l'impronta "fedelex" (compilata in ogni nostra build, assente
+#      nell'EDOPro originale). Un file senza impronta non si tocca: non e'
+#      detto che sia nostro.
+#   3. .edopro_update_version si toglie sempre: esiste solo nel nostro fork
+#      e dopo D238 (CLIENT_UPDATE_VERSION letto dal binario) non lo legge
+#      piu' nessuno.
+#   4. Nient'altro della cartella dati si tocca (script/, cdb, ocgcore,
+#      mazzi, replay, config/).
+#   5. Se la cartella dati coincide con la cartella programma, il punto 2
+#      non si applica: sarebbe il programma appena installato, non un
+#      residuo.
+#
+# Un file ha "l'impronta fedelex" se la stringa compare al suo interno —
+# e' compilata in ogni binario del fork (es. UPDATE_DOMAIN in
+# gframe/update_verify.h) e non compare nell'EDOPro ufficiale.
+has_fedelex_fingerprint() {
+	local file="$1"
+	[[ -f "$file" ]] || return 1
+	grep -qa fedelex "$file" 2>/dev/null
+}
+
+cleanup_data_dir_remnants() {
+	local data_dir="$1"
+	local program_dir="$2"
+
+	# Punto 1: strings/fedelex.conf si sovrascrive sempre.
+	local conf_src="$SCRIPT_DIR/strings/fedelex.conf"
+	if [[ -f "$conf_src" ]]; then
+		mkdir -p "$data_dir/strings"
+		cp "$conf_src" "$data_dir/strings/fedelex.conf"
+		log "strings/fedelex.conf aggiornato nella cartella dati: $data_dir/strings/fedelex.conf"
+	else
+		warn "strings/fedelex.conf non trovato nel pacchetto ($conf_src): la cartella dati non e' stata aggiornata."
+	fi
+
+	# Tiene traccia se questa chiamata ha tolto davvero qualcosa, per poter
+	# dire esplicitamente "niente da ripulire" quando non c'e' nulla da
+	# togliere (reinstallazione su una cartella dati gia' pulita, cancello 3).
+	local rimosso_qualcosa=0
+
+	# Punto 5: su cartella dati = cartella programma il binario appena
+	# installato ricadrebbe nel punto 2 e verrebbe cancellato per sbaglio.
+	if [[ "$data_dir" == "$program_dir" ]]; then
+		log "Cartella dati e cartella programma coincidono: salto la pulizia di ygoprodll/ygopro.exe."
+	else
+		# Punto 2: solo con impronta fedelex, altrimenti non si tocca.
+		local nome
+		for nome in ygoprodll ygopro.exe; do
+			local candidato="$data_dir/$nome"
+			if [[ -e "$candidato" ]]; then
+				if has_fedelex_fingerprint "$candidato"; then
+					rm -f "$candidato"
+					log "Rimosso residuo con impronta fedelex dalla cartella dati: $candidato"
+					rimosso_qualcosa=1
+				else
+					log "$candidato presente ma senza impronta fedelex: lasciato intatto."
+				fi
+			fi
+		done
+	fi
+
+	# Punto 3: file di versione del vecchio aggiornatore, esiste solo da noi.
+	local version_file="$data_dir/.edopro_update_version"
+	if [[ -e "$version_file" ]]; then
+		rm -f "$version_file"
+		log "Rimosso .edopro_update_version dalla cartella dati (non piu' letto da nessuno, D238): $version_file"
+		rimosso_qualcosa=1
+	fi
+
+	if ((!rimosso_qualcosa)); then
+		log "Niente da ripulire nella cartella dati (nessun residuo fedelex trovato)."
+	fi
+}
+
 # ───────────────────────────── verifica librerie ───────────────────────────
 check_libraries() {
 	local binario="$1"
@@ -275,6 +363,8 @@ do_install() {
 	mkdir -p "$data_dir"
 
 	ensure_configs_json "$data_dir" || true # non bloccante: vedi funzione
+
+	cleanup_data_dir_remnants "$data_dir" "$PROGRAM_DIR"
 
 	log "Installo il programma in: $PROGRAM_DIR"
 	mkdir -p "$PROGRAM_DIR"
