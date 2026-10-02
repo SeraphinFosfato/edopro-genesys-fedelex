@@ -236,7 +236,15 @@ jobs:
           $stageDir = "tools/release/.stage-windows-zip"
           if (Test-Path $stageDir) { Remove-Item -Recurse -Force $stageDir }
           New-Item -ItemType Directory -Force -Path "$stageDir/strings" | Out-Null
-          Copy-Item bin/release/ygoprodll.exe -Destination "$stageDir/ygopro.exe"
+          New-Item -ItemType Directory -Force -Path "$stageDir/bin" | Out-Null
+          # D244.7/8: ygopro.exe e' il LAUNCHER, il simulatore sta in bin/.
+          # L'aggiornatore interno dei client fino alla build 10 scompatta
+          # questo zip accanto all'eseguibile: e' cosi' che il launcher arriva
+          # su Windows senza reinstallare. Con il simulatore al posto di
+          # ygopro.exe il giocatore resterebbe senza launcher e, da D244.6,
+          # senza nessun aggiornamento.
+          Copy-Item bin/release/fedelex-launcher.exe -Destination "$stageDir/ygopro.exe"
+          Copy-Item bin/release/ygoprodll.exe -Destination "$stageDir/bin/ygoprodll.exe"
           Copy-Item strings/fedelex.conf -Destination "$stageDir/strings/fedelex.conf"
 
           New-Item -ItemType Directory -Force -Path tools/release/out | Out-Null

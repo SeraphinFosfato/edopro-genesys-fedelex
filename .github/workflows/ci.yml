@@ -152,3 +152,21 @@ jobs:
           path: tools/release/out/edopro-custom-linux-x64.tar.gz
           if-no-files-found: error
           retention-days: 14
+
+  # La build Windows si compila SOLO su un runner Windows: senza questo job il
+  # primo a provarla era il tag di release, che brucia un numero di versione
+  # quando fallisce (v0.2.4-alpha). Stesso script del job di release, nessun
+  # allegato, nessuna firma.
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        shell: pwsh
+        run: tools/release/build_windows.ps1 release
+      - name: Verifica che il core non sia collegato dentro
+        shell: pwsh
+        run: python tools/release/verify_core_not_linked.py bin/release/ygoprodll.exe
+      - name: Il launcher esiste
+        shell: pwsh
+        run: if (-not (Test-Path bin/release/fedelex-launcher.exe)) { throw "fedelex-launcher.exe non prodotto" }

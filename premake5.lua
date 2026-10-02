@@ -447,14 +447,21 @@ project "fedelex-launcher"
 		-- windowed subsystem (MessageBoxW only, no console), never built or
 		-- run in this environment (no Windows toolchain here; see the
 		-- file-level comment in launcher/main.cpp).
+		-- WindowedApp with a plain main(): without this MSVC looks for WinMain
+		-- and the link fails (v0.2.4-alpha). The file is renamed ygopro.exe
+		-- only when packaged, so the build output keeps one name everywhere.
 		kind "WindowedApp"
-		targetname "ygopro"
-		links { "bcrypt" } -- tweetnacl/randombytes.c, same as gframe/premake5.lua
+		entrypoint "mainCRTStartup"
+		-- curl comes from the vcpkg static triplet, like ygoprodll's
+		-- (gframe/premake5.lua): without CURL_STATICLIB every curl call is an
+		-- unresolved __imp_ symbol.
+		defines "CURL_STATICLIB"
+		links { "curl", "zlib", "bcrypt", "ws2_32", "wldap32", "crypt32", "advapi32", "Secur32", "Normaliz", "user32" }
 	filter "system:not windows"
 		kind "ConsoleApp"
-		targetname "fedelex-launcher"
 		links { "curl" }
 	filter {}
+	targetname "fedelex-launcher"
 
 local function vcpkgStaticTriplet(prj)
 	premake.w('<VcpkgTriplet Condition="\'$(Platform)\'==\'Win32\'">x86-windows-static</VcpkgTriplet>')
