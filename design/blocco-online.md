@@ -196,55 +196,6 @@ offerto. **Corretto (D238), FASE 59 punto 1**: la versione installata è
 `client-update.md` §6quinquies per il dettaglio.
 <!-- verifica: grep -q "return ygo::update::CLIENT_UPDATE_VERSION;" EdoproForkGSY/edopro_custom/gframe/client_updater.cpp -->
 
-## 11. Stato dell'implementazione
-
-**Scritto il 2026-10-02, insieme al primo lavoro di FASE 59.**
-
-Fatto:
-
-- **D238** (§9): la versione installata è `CLIENT_UPDATE_VERSION`, non un
-  file. Commit `72142ca2d`.
-- **Il predicato del cancello (R1/R2), puro e testato**:
-  `gframe/online_gate.h` (`EvaluateOnlineGate`, `OnlineGateLatch` per la
-  monotonia di §4). Non ancora chiamato da nessun punto del client reale.
-<!-- verifica: grep -q "EvaluateOnlineGate" EdoproForkGSY/edopro_custom/gframe/online_gate.h -->
-- **Il filtro "chi si collega" (§5)**: `gframe/local_connection.h`
-  (`IsLocalCallerAddress`), puro e testato su 127.0.0.1/::1/::ffff:127.0.0.1
-  contro LAN e indirizzi pubblici. **Non collegato a `NetServer`**: oggi
-  `NetServer` accetta ancora qualunque chiamante, a cancello aperto o chiuso.
-<!-- verifica: grep -q "IsLocalCallerAddress" EdoproForkGSY/edopro_custom/gframe/local_connection.h -->
-- **La macchina a stati della grazia (§6)**: `gframe/grace_period.h`
-  (`EvaluateGrace`, `GraceWarningLatch`). **Non collegata a nessun timer né
-  a `duelclient.cpp`**: oggi non esiste ancora un orologio che la interroghi
-  durante una partita reale.
-<!-- verifica: grep -q "EvaluateGrace" EdoproForkGSY/edopro_custom/gframe/grace_period.h -->
-
-**Non fatto — resta da cablare**, nell'ordine del brief di fase (PHASES.md,
-FASE 59):
-
-- Il bottone "Online" (`menu_handler.cpp`, `BUTTON_ONLINE_MULTIPLAYER`) non
-  consulta ancora il cancello: apre sempre `wRoomListPlaceholder`.
-- `BUTTON_JOIN_HOST` (ingresso per IP) non consulta il cancello.
-- Nessun testo unico d'avviso: `ServerLobby::JoinServer` ha ancora il proprio
-  testo per `OnlineDisabled()` (FASE 36), scritto prima di D237/D240 e non
-  ancora unificato con R2 né con la proposta di aggiornamento a intervalli.
-- Nessun rilettura del manifesto ogni 15 minuti: il controllo resta quello
-  di un colpo solo all'avvio (`client-update.md` §8).
-- `R2` non è calcolato da nessuna parte: `Game::LoadCoreFromRepos` (game.cpp)
-  non distingue ancora i tre casi di §2 e non scrive niente in `error.log`
-  per nessuno di essi.
-- `NetServer::StartServer` non filtra i chiamanti con
-  `IsLocalCallerAddress`: ospitare in LAN a cancello chiuso accetta ancora
-  chiunque sulla rete locale, non solo sé stessi.
-- Il ramo `STOC_DUEL_END` (`duelclient.cpp`) non controlla il cancello: non
-  porta ancora al menu principale invece che alla lista delle stanze.
-- Nessuna rivincita viene ancora soppressa a cancello chiuso.
-
-In breve: **la forma e la logica pura ci sono e sono verificate (34
-controlli in `tests/online_gate_tests.cpp`), il cablaggio nel client vero
-non c'è**. Un giocatore che gioca oggi con questo codice non vede alcun
-comportamento diverso da prima di questo documento.
-
 ## 10. Cosa resta invariato
 
 - L'eseguibile non si sostituisce senza consenso (`client-update.md` §6):
@@ -255,3 +206,81 @@ comportamento diverso da prima di questo documento.
 - Il launcher (D236) non entra in questo meccanismo: gira **prima** della
   sincronizzazione dei repository, quindi non può sapere quale core il
   repository consegnerà. R2 si può valutare solo dentro il simulatore.
+
+## 11. Stato dell'implementazione
+
+**Scritto il 2026-10-02, insieme al lavoro di FASE 59 — aggiornato lo stesso
+giorno quando il cablaggio e' stato completato.**
+
+Tutti e dodici i punti del brief (PHASES.md, FASE 59) sono cablati nel
+client reale, non solo nella forma pura:
+
+- **D238** (§9): la versione installata è `CLIENT_UPDATE_VERSION`, non un
+  file. Commit `72142ca2d`.
+- **Il predicato (R1/R2), puro e testato**: `gframe/online_gate.h`
+  (`EvaluateOnlineGate`, `OnlineGateLatch` per la monotonia di §4).
+  Proprietario della sessione: `Game::online_gate_latch`
+  (`Game::RefreshOnlineGate()`, chiamata ogni frame da `MainLoop()`).
+<!-- verifica: grep -q "EvaluateOnlineGate" EdoproForkGSY/edopro_custom/gframe/online_gate.h -->
+<!-- verifica: grep -q "online_gate_latch.Update" EdoproForkGSY/edopro_custom/gframe/game.cpp -->
+- **R2, i tre casi di §2**: `Game::LoadCoreFromRepos()` logga in `error.log`
+  quando nessuno dei core candidati del repository si carica (caso 1,
+  scambio fallito) con il core rimasto in uso; `Game::RefreshOnlineGate()`
+  logga, la prima volta che il cancello chiude per R2, se e' perche'
+  nessun repository dichiara un core (caso 3) o perche' un repository con
+  core non si e' sincronizzato (caso 2).
+<!-- verifica: grep -q "Online gate R2" EdoproForkGSY/edopro_custom/gframe/game.cpp -->
+- **Il filtro "chi si collega" (§5, punto 7c)**: `gframe/local_connection.h`
+  (`IsLocalCallerAddress`) e' collegato a `NetServer::ServerAccept`
+  (netserver.cpp): a cancello chiuso un chiamante non locale viene chiuso
+  prima di diventare un `DuelPlayer`. Il listener continua ad accettare
+  sempre — si filtra chi si connette, non dove si ascolta.
+<!-- verifica: grep -q "IsLocalCallerAddress" EdoproForkGSY/edopro_custom/gframe/netserver.cpp -->
+- **La macchina a stati della grazia (§6)**: `gframe/grace_period.h`
+  (`EvaluateGrace`, `GraceWarningLatch`), consultata ogni frame da
+  `Game::MainLoop()` solo mentre si e' in una stanza online connessa.
+  Stanza non iniziata o 60 minuti scaduti forzano `DuelClient::StopClient()`,
+  che il percorso di disconnessione gia' esistente
+  (`INTERNAL_HANDLE_CONNECTION_END`, duelclient.cpp) gestisce com'era —
+  replay compreso — cambiando solo la finestra finale.
+<!-- verifica: grep -q "ygo::EvaluateGrace" EdoproForkGSY/edopro_custom/gframe/game.cpp -->
+- **Il bottone "Online"** (`BUTTON_ONLINE_MULTIPLAYER`, menu_handler.cpp) e
+  **l'ingresso per IP** (`BUTTON_JOIN_HOST`) consultano il cancello e
+  mostrano l'avviso invece di procedere.
+<!-- verifica: grep -q "mainGame->ShowOnlineGateWarning()" EdoproForkGSY/edopro_custom/gframe/menu_handler.cpp -->
+- **Un solo testo** (punto 6): `Game::GetOnlineGateMessage()` /
+  `Game::ShowOnlineGateWarning()` (game.cpp), usati da
+  `ServerLobby::JoinServer`, dal bottone Online, dall'ingresso per IP,
+  dall'uscita a fine partita (`STOC_DUEL_END`) e dalla scadenza della
+  grazia a partita in corso.
+- **Il controllo ogni 15 minuti** (§7): `ClientUpdater::CheckOnlineGateThreshold()`,
+  chiamato da `Game::MainLoop()` su un orologio monotono
+  (`std::chrono::steady_clock`), con la stessa verifica (firma prima di
+  interpretare, anti-rollback) di `CheckUpdate()` — fattorizzata in
+  `ClientUpdater::FetchVerifiedManifest()`.
+<!-- verifica: grep -q "CheckOnlineGateThreshold" EdoproForkGSY/edopro_custom/gframe/client_updater.cpp -->
+- **La rivincita** (punto 11): `STOC_REMATCH` (duelclient.cpp) risponde no
+  da solo a cancello chiuso, senza mostrare la domanda.
+<!-- verifica: grep -q "crr.rematch = false;" EdoproForkGSY/edopro_custom/gframe/duelclient.cpp -->
+
+**Verificato con la build reale** (non solo gli standalone test): il
+premake pinnato nella radice del fork (`./premake5`, non quello di sistema)
+genera i makefile e `make -C build config=release_x64 ygoprodll` compila
+senza errori — un solo avviso preesistente (curl deprecato), non di questo
+lavoro. Comandi esatti in fondo a questo paragrafo, per chi vuole
+riprodurlo:
+
+```
+./premake5 gmake2 --no-core=true --sound=sfml --no-joystick=true --irrlicht-root=../irrlicht-custom
+make -C build config=release_x64 -j$(nproc) ygoprodll
+```
+
+**Non verificato dal vivo**: nessuno scenario e' stato eseguito con il
+client reale avviato (bottone premuto, grazia scaduta davvero, un secondo
+peer che si connette durante l'host locale) — l'ambiente di sviluppo usato
+per questo lavoro non ha un display, quindi il binario GUI non puo'
+partire qui. Le righe di `error.log` attese per R2 e per ogni chiusura sono
+state lette nel codice, non in un file prodotto da un avvio vero — il
+cancello 6 del brief di fase chiede esplicitamente quest'ultima cosa, e
+resta una prova da fare a mano, con un client vero avviato davvero.
+
