@@ -494,6 +494,90 @@ void test_title_domain_signature_does_not_verify_as_update() {
 		 "a document signed under fedelex-title-v1 must NOT verify as an update manifest");
 }
 
+// --- D243 (design/client-update.md §6quater): os parsing and the platform filter ---
+
+void test_manifest_without_os_is_valid_and_os_defaults_empty() {
+	// Older manifests, or a files[] entry a publisher simply forgot to tag —
+	// neither is a schema violation. SelectFilesForPlatform() is what turns
+	// an absent os into "never installed", not Parse().
+	const auto document = MinimalManifest(3);
+	Manifest out;
+	std::string error;
+	const auto status = Parse(document, out, error);
+	check(status == VerifyStatus::Ok, "a manifest without os must still parse as Ok");
+	check(out.files.size() == 1 && out.files[0].os.empty(),
+		 "files[].os must default to empty when the manifest omits it");
+}
+
+void test_os_round_trips_verbatim() {
+	const std::string document =
+		"{\"version\":1,\"files\":["
+		"{\"name\":\"a\",\"url\":\"https://example.invalid/a\",\"sha256\":\"" + std::string(64, 'e') + "\",\"os\":\"linux\"}"
+		"]}";
+	Manifest out;
+	std::string error;
+	const auto status = Parse(document, out, error);
+	check(status == VerifyStatus::Ok, "a manifest with a string os must parse as Ok");
+	check(out.files.size() == 1 && out.files[0].os == "linux", "files[].os must round-trip verbatim");
+}
+
+void test_non_string_os_is_schema_violation() {
+	const std::string document =
+		"{\"version\":1,\"files\":["
+		"{\"name\":\"a\",\"url\":\"https://example.invalid/a\",\"sha256\":\"" + std::string(64, 'f') + "\",\"os\":42}"
+		"]}";
+	Manifest out;
+	std::string error;
+	const auto status = Parse(document, out, error);
+	check(status == VerifyStatus::SchemaViolation, "a non-string files[].os must be a schema violation");
+}
+
+void test_select_files_for_platform_keeps_only_matching_os() {
+	std::vector<ManifestFile> files;
+	files.push_back(ManifestFile{"linux.zip", "https://example.invalid/l", std::string(64, 'a'), "", "linux"});
+	files.push_back(ManifestFile{"windows.zip", "https://example.invalid/w", std::string(64, 'b'), "", "windows"});
+	size_t discarded = 0;
+	const auto selected = SelectFilesForPlatform(files, PlatformLinux, &discarded);
+	check(selected.size() == 1 && selected[0].name == "linux.zip",
+		 "linux must keep only the linux-tagged entry");
+	check(discarded == 1, "exactly one entry (windows) must be counted as discarded");
+}
+
+void test_select_files_for_platform_discards_missing_os() {
+	std::vector<ManifestFile> files;
+	files.push_back(ManifestFile{"mystery.zip", "https://example.invalid/m", std::string(64, 'a'), "", ""});
+	size_t discarded = 0;
+	const auto selected = SelectFilesForPlatform(files, PlatformLinux, &discarded);
+	check(selected.empty(), "an entry with empty os must never be installed, even on linux");
+	check(discarded == 1, "an entry with empty os must be counted as discarded");
+}
+
+void test_select_files_for_platform_discards_unrecognized_os() {
+	std::vector<ManifestFile> files;
+	files.push_back(ManifestFile{"mac.zip", "https://example.invalid/m", std::string(64, 'a'), "", "macos"});
+	size_t discarded = 0;
+	const auto selected = SelectFilesForPlatform(files, PlatformLinux, &discarded);
+	check(selected.empty(), "an unrecognized os (e.g. macos) must be discarded, not installed as a fallback");
+	check(discarded == 1, "an unrecognized os must be counted as discarded");
+}
+
+void test_select_files_for_platform_empty_result_when_nothing_matches() {
+	std::vector<ManifestFile> files;
+	files.push_back(ManifestFile{"windows.zip", "https://example.invalid/w", std::string(64, 'b'), "", "windows"});
+	const auto selected = SelectFilesForPlatform(files, PlatformLinux, nullptr);
+	check(selected.empty(), "a linux client selecting from a windows-only manifest must get an empty list, not a fallback");
+}
+
+void test_select_files_for_platform_discarded_count_is_optional() {
+	// The nullptr form must not crash — callers that only care about the
+	// filtered list (none today, but the signature promises it) are allowed
+	// to skip the count.
+	std::vector<ManifestFile> files;
+	files.push_back(ManifestFile{"linux.zip", "https://example.invalid/l", std::string(64, 'a'), "", "linux"});
+	const auto selected = SelectFilesForPlatform(files, PlatformLinux, nullptr);
+	check(selected.size() == 1, "passing nullptr for discarded_count must still filter correctly");
+}
+
 void test_update_domain_signature_does_not_verify_under_title_domain() {
 	const auto key = LoadTestKey();
 	if(!key.loaded) {
@@ -547,6 +631,14 @@ int RunUpdateTests() {
 	test_is_client_supported_false_when_below_min_supported();
 	test_is_client_supported_true_when_no_floor_declared();
 	test_json_is_never_parsed_before_the_signature_verifies();
+	test_manifest_without_os_is_valid_and_os_defaults_empty();
+	test_os_round_trips_verbatim();
+	test_non_string_os_is_schema_violation();
+	test_select_files_for_platform_keeps_only_matching_os();
+	test_select_files_for_platform_discards_missing_os();
+	test_select_files_for_platform_discards_unrecognized_os();
+	test_select_files_for_platform_empty_result_when_nothing_matches();
+	test_select_files_for_platform_discarded_count_is_optional();
 	test_python_signed_manifest_verifies_in_cpp();
 	test_python_banlist_style_signature_does_not_verify_as_update();
 	test_update_signature_does_not_verify_as_banlist();

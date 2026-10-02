@@ -45,6 +45,16 @@ struct ManifestFile {
 	std::string url;
 	std::string sha256; // 64 lowercase hex chars — the only thing that authorizes installing this file
 	std::string md5;    // optional, upstream compatibility only (see .cpp); never a verification
+	// D243 (design/client-update.md §6quater): which platform this file
+	// installs on — "linux" or "windows" (see PlatformLinux/PlatformWindows
+	// below). Empty when the wire manifest omits the field; that is a VALID
+	// manifest (older manifests never had "os", and a manifest entry simply
+	// missing it is not a schema violation — see Parse() in the .cpp), but
+	// SelectFilesForPlatform() below treats empty exactly like any
+	// unrecognized string: discarded, never "install everywhere". The
+	// signature still covers the raw document bytes only — this field adds
+	// no new trust domain.
+	std::string os;
 };
 
 struct Manifest {
@@ -100,6 +110,30 @@ VerifyStatus Parse(const std::string& document, Manifest& out, std::string& erro
 // parses second, and cannot be made to do it in the other order.
 VerifyStatus VerifyAndParse(const std::string& document, const std::string& signature,
 							Manifest& out, std::string& error);
+
+// D243 (design/client-update.md §6quater). The two values the publishing
+// side (banlist/scripts/build_update_manifest.py) is required to emit —
+// kept as named constants here, not re-typed as string literals on the
+// client_updater.cpp call site, so the client side and this header can
+// never drift on the exact spelling.
+inline constexpr const char* PlatformLinux = "linux";
+inline constexpr const char* PlatformWindows = "windows";
+
+// Pure filter: keeps only the entries whose `os` matches `platform` BYTE
+// FOR BYTE. An entry with an empty `os` (field absent from the manifest) or
+// any value other than `platform` is discarded and counted into
+// `*discarded_count` (left untouched if null) — never installed "to be
+// safe". This is deliberately strict (design/decisioni.md D243, "Regola
+// stretta"): a manifest published without `os` installs nothing through
+// this filter on a client new enough to call it, which is the point —
+// whoever publishes is the one required to always write it. `platform` is
+// the CALLING client's own platform, fixed at compile time by the caller
+// (client_updater.cpp); this function has no notion of "the current
+// platform" on its own; that is what makes it testable without a single
+// #if.
+std::vector<ManifestFile> SelectFilesForPlatform(const std::vector<ManifestFile>& files,
+												 const std::string& platform,
+												 size_t* discarded_count = nullptr);
 
 enum class VersionDecision {
 	Accept,        // strictly newer — install it

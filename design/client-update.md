@@ -320,19 +320,48 @@ Due buchi chiusi insieme, perché sono lo stesso guasto visto da due lati:
    `chmod` subito dopo applica al file un **modo casuale**. Ora il `chmod`
    avviene solo se `stat()` è riuscita.
 
-### 6quater. Il manifesto non è filtrato per sistema operativo — APERTO
+### 6quater. Il manifesto è filtrato per sistema operativo — CORRETTO il 2026-10-02 (D243, FASE 63)
 
-`CheckUpdate` accoda **ogni** voce di `manifest.files` senza guardare la
-piattaforma. Un client Linux scarica e scompatta quindi **anche** il pacchetto
-Windows, ed è la ragione per cui un `ygopro.exe` si trova in
-un'installazione Linux.
-<!-- verifica: grep -q "for(const auto& file : manifest.files)" EdoproForkGSY/edopro_custom/gframe/client_updater.cpp -->
+**Era aperto fino al 2026-10-02**: `CheckUpdate` accodava **ogni** voce di
+`manifest.files` senza guardare la piattaforma — un client Linux scaricava e
+scompattava quindi **anche** il pacchetto Windows, ed era la ragione per cui
+un `ygopro.exe` si trovava in un'installazione Linux.
 
-**Non è un difetto da toppare qui**: cambiarlo tocca il formato di un
-artefatto **firmato**, quindi riguarda anche chi pubblica. Le due strade sono
-un campo nuovo nel manifesto (esplicito, ma cambia lo schema e va versionato)
-oppure un filtro sul nome del file (nessun cambio di schema, ma è una
-convenzione fragile). È una decisione, non un'implementazione.
+**Corretto (D243, scelta (a)):** ogni voce di `files[]` porta un campo `os`
+stringa (`"linux"` o `"windows"`), letto da `update_verify.cpp` come
+**facoltativo a livello di schema** — un manifesto senza `os` resta un
+manifesto valido (i client vecchi, da prima di questa build, continuano a
+ignorarlo come fanno con qualunque campo sconosciuto; `os` non string invece
+è una violazione di schema, stesso trattamento di `sha256`/`md5`). Il filtro
+vero e proprio è una funzione pura separata,
+`ygo::update::SelectFilesForPlatform(files, platform, &discarded_count)`
+(`gframe/update_verify.h/.cpp`): tiene solo le voci il cui `os` combacia
+**esattamente** col proprio, e scarta tutto il resto — `os` assente, vuoto, o
+un valore non riconosciuto (es. `"macos"`) — mai un fallback "installa
+comunque". `ClientUpdater::CheckUpdate()` (`gframe/client_updater.cpp`) la
+chiama con `kThisClientPlatform`, fissato a compilazione dalle macro
+`EDOPRO_LINUX`/`EDOPRO_WINDOWS` di `compiler_features.h`: se dopo il filtro
+non resta niente, non accoda nessuna voce, lo scrive nel log e non dichiara
+mai un aggiornamento disponibile.
+
+**La firma resta sui byte grezzi**: `os` non apre nessun dominio nuovo, è
+solo un campo in più nel JSON già firmato — l'autorità resta la SHA-256 per
+file, come prima.
+
+**Chi pubblica** (`banlist/scripts/build_update_manifest.py`, nel vault)
+tiene una tabella esplicita `ALLEGATO_OS` (allegato → os) e la build
+**fallisce** se un allegato installabile non vi compare — un file senza `os`
+pubblicato non lo installerebbe nessun client, quindi è un errore di
+pubblicazione, non un file "morto" ma innocuo.
+
+**Compatibilità, verificata sul sorgente** ai tag v0.0.5/v0.1.1/v0.2.1: il
+parser ignora i campi sconosciuti, quindi quei client (fino alla build 9)
+continuano a scaricare tutto da un manifesto senza `os` — nessun
+peggioramento. Il beneficio parte dalla prima build che contiene questo
+filtro (non ancora pubblicata in una release alla scrittura di questa nota).
+<!-- verifica: grep -q "SelectFilesForPlatform" EdoproForkGSY/edopro_custom/gframe/update_verify.h -->
+<!-- verifica: grep -q "kThisClientPlatform" EdoproForkGSY/edopro_custom/gframe/client_updater.cpp -->
+<!-- verifica: grep -q "ALLEGATO_OS" banlist/scripts/build_update_manifest.py -->
 
 ### 6quinquies. La versione installata si registra prima di installare — CORRETTO il 2026-10-02 (D238)
 
@@ -445,7 +474,8 @@ sull'intera cartella come prima.
   il difetto che §1.8 del `CLAUDE.md` del vault descrive: un cambio non è
   finito finché **ogni** posto che descrive la forma vecchia non è aggiornato.
 <!-- verifica: grep -q "0x[1-9a-fA-F]" EdoproForkGSY/edopro_custom/gframe/update_keys.h -->
-- **Il manifesto non distingue i sistemi operativi** (§6quater).
+- ~~**Il manifesto non distingue i sistemi operativi**~~ **corretto (D243,
+  FASE 63, §6quater)**: non ancora in una release pubblicata.
 - ~~**La versione installata registrata prima di installare**~~ **corretto
   (D238, §6quinquies)**, non ancora in una release pubblicata.
 - ~~**I residui del vecchio aggiornatore restano nella cartella dati**~~

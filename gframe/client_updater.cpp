@@ -29,6 +29,22 @@
 #define LOCKFILE EPRO_TEXT("./.edopro_lock")
 #define UPDATES_FOLDER EPRO_TEXT("./updates/{}")
 
+// D243 (design/client-update.md §6quater): THIS client's own platform,
+// fixed at compile time — never read from the manifest, never guessed at
+// runtime. Only linux/windows are installable today (the manifest only
+// ever carries those two zips, see build_update_manifest.py's
+// ALLEGATI_INSTALLABILI); any other platform compiling this file (macOS,
+// were UPDATE_URL ever defined there) gets an empty string, which
+// SelectFilesForPlatform() never matches — every entry is discarded, same
+// as "no manifest reached", not "install whatever's left".
+#if EDOPRO_LINUX
+static constexpr const char* kThisClientPlatform = ygo::update::PlatformLinux;
+#elif EDOPRO_WINDOWS
+static constexpr const char* kThisClientPlatform = ygo::update::PlatformWindows;
+#else
+static constexpr const char* kThisClientPlatform = "";
+#endif
+
 struct WritePayload {
 	std::vector<char>* outbuffer = nullptr;
 	std::ostream* outstream = nullptr;
@@ -424,8 +440,24 @@ void ClientUpdater::CheckUpdate() {
 			break;
 	}
 
+	// D243 (design/client-update.md §6quater): a Linux client must never
+	// even queue the Windows zip (or vice versa). kThisClientPlatform is
+	// fixed at compile time below; the filter itself is pure and lives in
+	// update_verify.cpp so it is testable without any of this.
+	size_t discarded = 0;
+	const auto selected_files = ygo::update::SelectFilesForPlatform(manifest.files, kThisClientPlatform, &discarded);
+	if(discarded > 0) {
+		ygo::ErrorLog("Aggiornamento: manifesto, {} voce/i scartata/e perche' per un sistema operativo diverso dal nostro ({}).",
+					 discarded, kThisClientPlatform);
+	}
+	if(selected_files.empty()) {
+		status_message = "Aggiornamento: il manifesto non ha nessuna voce per questo sistema operativo, nessun aggiornamento.";
+		ygo::ErrorLog(status_message);
+		return;
+	}
+
 	update_urls.clear();
-	for(const auto& file : manifest.files)
+	for(const auto& file : selected_files)
 		update_urls.emplace_back(DownloadInfo{ file.name, file.url, file.sha256, file.md5 });
 	status_message = epro::format("Aggiornamento disponibile: versione {} -> versione {}.", installed_version, manifest.version);
 	has_update = !update_urls.empty();

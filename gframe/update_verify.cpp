@@ -196,6 +196,21 @@ VerifyStatus Parse(const std::string& document, Manifest& out, std::string& erro
 				file.md5 = md5_it->get<std::string>();
 			}
 
+			// D243: os is OPTIONAL at the schema level — a manifest entry
+			// missing it is valid (older manifests, or a publisher bug this
+			// layer does not police). SelectFilesForPlatform() is what
+			// turns a missing/unrecognized os into "never installed"; this
+			// parser only rejects a non-string value, same treatment as
+			// every other field above.
+			auto os_it = raw_file.find("os");
+			if(os_it != raw_file.end()) {
+				if(!os_it->is_string()) {
+					error = "files[]." + file.name + ".os is present but not a string";
+					return VerifyStatus::SchemaViolation;
+				}
+				file.os = os_it->get<std::string>();
+			}
+
 			manifest.files.push_back(std::move(file));
 		}
 
@@ -228,6 +243,23 @@ bool IsClientSupported(int min_supported, int client_version) {
 	if(min_supported <= 0)
 		return true; // no floor declared — nothing to enforce
 	return client_version >= min_supported;
+}
+
+std::vector<ManifestFile> SelectFilesForPlatform(const std::vector<ManifestFile>& files,
+												 const std::string& platform,
+												 size_t* discarded_count) {
+	std::vector<ManifestFile> selected;
+	selected.reserve(files.size());
+	size_t discarded = 0;
+	for(const auto& file : files) {
+		if(!file.os.empty() && file.os == platform)
+			selected.push_back(file);
+		else
+			++discarded;
+	}
+	if(discarded_count)
+		*discarded_count = discarded;
+	return selected;
 }
 
 }
