@@ -239,6 +239,14 @@ VerifyStatus Parse(const std::string& document, Manifest& out, std::string& erro
 				error = "launcher_files is present but not an array";
 				return VerifyStatus::SchemaViolation;
 			}
+			// Keyed by name+"\x1f"+os, not name alone: the same logical
+			// asset (e.g. fedelex.conf, OS-agnostic content installed on
+			// both platforms — design/decisioni.md D244 point 7/8) is
+			// legitimately one release upload that needs one launcher_files
+			// entry PER platform it installs on, since os is what
+			// SelectLauncherFilesForPlatform() actually scopes by. A true
+			// duplicate — same name AND same os — still means the
+			// publisher's own build produced something it should not have.
 			std::unordered_set<std::string> seen_launcher_names;
 			manifest.launcher_files.reserve(launcher_files_it->size());
 			for(const auto& raw_file : *launcher_files_it) {
@@ -254,10 +262,6 @@ VerifyStatus Parse(const std::string& document, Manifest& out, std::string& erro
 				}
 				if(file.name.empty()) {
 					error = "launcher_files[].name is empty";
-					return VerifyStatus::SchemaViolation;
-				}
-				if(!seen_launcher_names.insert(file.name).second) {
-					error = "duplicate launcher_files[].name " + file.name;
 					return VerifyStatus::SchemaViolation;
 				}
 
@@ -286,6 +290,10 @@ VerifyStatus Parse(const std::string& document, Manifest& out, std::string& erro
 				// without one.
 				if(!ReadRequiredString(raw_file, "os", file.os)) {
 					error = "launcher_files[].os is missing or not a string";
+					return VerifyStatus::SchemaViolation;
+				}
+				if(!seen_launcher_names.insert(file.name + "\x1f" + file.os).second) {
+					error = "duplicate launcher_files[] entry for name " + file.name + " os " + file.os;
 					return VerifyStatus::SchemaViolation;
 				}
 

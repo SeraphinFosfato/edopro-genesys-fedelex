@@ -686,14 +686,28 @@ void test_launcher_files_missing_role_is_schema_violation() {
 	check(status == VerifyStatus::SchemaViolation, "launcher_files[] missing role must be a schema violation");
 }
 
-void test_launcher_files_duplicate_name_is_schema_violation() {
+void test_launcher_files_duplicate_name_and_os_is_schema_violation() {
 	const auto document = ManifestWithLauncherFiles(
 		"{\"name\":\"dup\",\"url\":\"https://example.invalid/a\",\"sha256\":\"" + std::string(64, 'f') + "\",\"os\":\"linux\",\"role\":\"simulator\"},"
-		"{\"name\":\"dup\",\"url\":\"https://example.invalid/b\",\"sha256\":\"" + std::string(64, 'f') + "\",\"os\":\"windows\",\"role\":\"simulator\"}");
+		"{\"name\":\"dup\",\"url\":\"https://example.invalid/b\",\"sha256\":\"" + std::string(64, 'f') + "\",\"os\":\"linux\",\"role\":\"simulator\"}");
 	Manifest out;
 	std::string error;
 	const auto status = Parse(document, out, error);
-	check(status == VerifyStatus::SchemaViolation, "a duplicate launcher_files[].name must be a schema violation");
+	check(status == VerifyStatus::SchemaViolation, "a duplicate (name, os) pair in launcher_files[] must be a schema violation");
+}
+
+void test_launcher_files_same_name_different_os_is_valid() {
+	// D244 points 7/8: fedelex.conf is one upload (role "strings") that
+	// installs on BOTH platforms — this must be two launcher_files entries
+	// sharing a name, scoped apart by os, never a duplicate.
+	const auto document = ManifestWithLauncherFiles(
+		"{\"name\":\"fedelex.conf\",\"url\":\"https://example.invalid/fedelex.conf\",\"sha256\":\"" + std::string(64, '1') + "\",\"os\":\"linux\",\"role\":\"strings\"},"
+		"{\"name\":\"fedelex.conf\",\"url\":\"https://example.invalid/fedelex.conf\",\"sha256\":\"" + std::string(64, '1') + "\",\"os\":\"windows\",\"role\":\"strings\"}");
+	Manifest out;
+	std::string error;
+	const auto status = Parse(document, out, error);
+	check(status == VerifyStatus::Ok, "the same name with two different os values must parse as Ok, not a duplicate");
+	check(out.launcher_files.size() == 2, "both per-platform entries for the same name must round-trip");
 }
 
 void test_launcher_files_not_array_is_schema_violation() {
@@ -778,7 +792,8 @@ int RunUpdateTests() {
 	test_launcher_files_unknown_role_is_not_schema_violation();
 	test_launcher_files_missing_os_is_schema_violation();
 	test_launcher_files_missing_role_is_schema_violation();
-	test_launcher_files_duplicate_name_is_schema_violation();
+	test_launcher_files_duplicate_name_and_os_is_schema_violation();
+	test_launcher_files_same_name_different_os_is_valid();
 	test_launcher_files_not_array_is_schema_violation();
 	test_select_launcher_files_keeps_matching_os_and_known_role();
 	test_select_launcher_files_discards_unknown_role_even_with_matching_os();
