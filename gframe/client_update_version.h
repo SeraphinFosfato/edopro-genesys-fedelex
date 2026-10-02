@@ -32,7 +32,7 @@ namespace ygo::update {
 // one: those clients are updated by reinstalling, once, and that is why the
 // first manifest's min_supported is a decision about build 5 and later, not
 // a way to shut out builds that cannot hear it.
-inline constexpr int CLIENT_UPDATE_VERSION = 9;
+inline constexpr int CLIENT_UPDATE_VERSION = 10;
 
 }
 
