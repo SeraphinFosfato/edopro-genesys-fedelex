@@ -49,6 +49,7 @@ int RunUpdateTests();
 // Defined in game_data_ready_tests.cpp — same reasoning, for the FASE 38
 // "game data ready" gate (PHASES.md).
 int RunGameDataReadyTests();
+int RunOnlineGateTests();
 
 using namespace ygo;
 
@@ -731,5 +732,6 @@ int main() {
 	const int title_failures = RunTitleTests();
 	const int update_failures = RunUpdateTests();
 	const int game_data_ready_failures = RunGameDataReadyTests();
-	return (failures == 0 && diff_failures == 0 && title_failures == 0 && update_failures == 0 && game_data_ready_failures == 0) ? 0 : 1;
+	const int online_gate_failures = RunOnlineGateTests();
+	return (failures == 0 && diff_failures == 0 && title_failures == 0 && update_failures == 0 && game_data_ready_failures == 0 && online_gate_failures == 0) ? 0 : 1;
 }
