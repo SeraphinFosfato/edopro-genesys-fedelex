@@ -68,6 +68,30 @@ jobs:
           path: bin/x64/release/ygoprodll
           if-no-files-found: error
 
+      # FASE 64 cancello 6 (D244.7): il launcher, quello che il giocatore
+      # avvia davvero. Allegato nudo accanto al simulatore nudo: non e' un
+      # launcher_files (D244.9, il launcher non si auto-aggiorna), serve
+      # solo a chi vuole prenderlo senza installatore/tarball.
+      - name: Carica il launcher Linux
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-launcher-binary
+          path: bin/x64/release/fedelex-launcher
+          if-no-files-found: error
+
+      # D244 punto 3 (ALLEGATI_LAUNCHER in banlist/scripts/build_update_manifest.py
+      # del vault): il launcher scarica FILE SINGOLI per aggiornare
+      # (`role: strings`), non archivi. Questo e' lo stesso
+      # strings/fedelex.conf gia' dentro il tarball/zip, allegato nudo con
+      # lo stesso nome ("fedelex.conf") perche' e' cosi' che
+      # ALLEGATI_LAUNCHER lo cerca fra gli asset della release.
+      - name: Carica fedelex.conf nudo (per il launcher)
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedelex-conf
+          path: strings/fedelex.conf
+          if-no-files-found: error
+
       # Il binario nudo linka le librerie di ubuntu-latest: su Arch/CachyOS
       # il 2026-09-25 non partiva ("libFLAC.so.12: cannot open shared object
       # file"). Il tarball si porta dietro la propria chiusura di dipendenze.
@@ -246,13 +270,19 @@ jobs:
       # Python 3 preinstallato e lo stesso script e' quello testato in
       # sviluppo su Linux prima che questo job girasse la prima volta.
       # FASE 60 (D239): --exe punta a ygoprodll.exe (il nome che premake
-      # produce ora); package_windows_release.py rinomina a ygopro.exe
-      # DENTRO lo zip, non prima — vedi il docstring di quello script.
+      # produce ora, il simulatore). FASE 64 cancello 6 (D244.7): --launcher-exe
+      # punta al launcher appena compilato — package_windows_release.py lo
+      # mette alla radice come ygopro.exe (quello che il giocatore avvia) e
+      # sposta il simulatore sotto bin/ygoprodll.exe. Mai verificato su un
+      # runner Windows vero (nessun toolchain in questo ambiente): la logica
+      # di staging e' la stessa testata su Linux con due binari ELF al posto
+      # di due PE, vedi il docstring dello script.
       - name: Crea il pacchetto Windows per le persone
         shell: pwsh
         run: |
           python tools/release/package_windows_release.py `
             --exe bin/release/ygoprodll.exe `
+            --launcher-exe bin/release/fedelex-launcher.exe `
             --out tools/release/out/edopro-custom-windows-x86-package.zip
 
       - name: Carica il pacchetto Windows per le persone
@@ -282,19 +312,40 @@ jobs:
           name: linux-tarball
           path: dist/
 
-      # Solo il nome dell'artefatto, allineato a quello che il job Windows
-      # NON si scarica piu' `edopro-custom-windows-x86` (l'exe nudo): dal
-      # 2026-09-29 non e' piu' un allegato della release. Su Windows le
-      # librerie di terze parti sono collegate STATICAMENTE dentro l'exe,
-      # quindi distribuirlo da solo significa ridistribuirle senza le loro
-      # licenze; il pacchetto (`-package.zip`) porta `notices/` e sostituisce
-      # questa strada. Su Linux l'eseguibile nudo resta allegato, e non e'
-      # un'incoerenza: li' le librerie vengono dal sistema dell'utente, noi
-      # non ridistribuiamo niente.
-      # Il passo `upload-artifact` nel job Windows invece RESTA: serve a
-      # verificare che il link abbia prodotto un eseguibile
-      # (`if-no-files-found: error`) e a recuperarlo dalla run quando serve
-      # provarlo a mano. Un artefatto di CI non e' una distribuzione.
+      # FASE 64 cancello 6 (D244.7/D244.3): il launcher nudo (quello che il
+      # giocatore avvia) e il simulatore Windows nudo + fedelex.conf, questi
+      # ultimi due per ALLEGATI_LAUNCHER (banlist/scripts/build_update_manifest.py
+      # del vault) — il launcher scarica FILE SINGOLI per aggiornarsi, non
+      # zip (D244.2), e li cerca fra gli asset della release per nome esatto
+      # ("ygoprodll", "ygoprodll.exe", "fedelex.conf"). Prima di D244 il
+      # binario Windows nudo non era piu' un allegato (vedi la nota qui
+      # sotto sul pacchetto per le persone): resta cosi' per chi installa a
+      # mano, ma torna ad essere allegato NUDO per il launcher — ruoli
+      # diversi, stesso file.
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-launcher-binary
+          path: dist/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: fedelex-conf
+          path: dist/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: edopro-custom-windows-x86
+          path: dist/
+
+      # L'exe nudo NON e' piu' il pacchetto per le persone (dal 2026-09-29):
+      # su Windows le librerie di terze parti sono collegate STATICAMENTE
+      # dentro l'exe, quindi distribuirlo da solo senza le loro licenze e'
+      # un problema; il pacchetto (`-package.zip`) porta `notices/` e resta
+      # la via consigliata per un'installazione manuale. L'exe nudo scaricato
+      # sopra torna ad essere allegato (FASE 64) ma SOLO come input del
+      # launcher (ALLEGATI_LAUNCHER, role "simulator"): non e' nel LEGGIMI,
+      # non e' la via consigliata, e' un file che il launcher confronta per
+      # hash — non e' pensato per essere aperto a mano.
 
       # FASE 37: i due ZIP installabili dall'aggiornatore. Allegati IN PIU'
       # rispetto ai file di sempre, mai in sostituzione — chi installa a
@@ -327,6 +378,7 @@ jobs:
             dist/ygoprodll dist/edopro-custom-linux-x64.tar.gz \
             dist/edopro-custom-linux-x64.zip dist/edopro-custom-windows-x86.zip \
             dist/edopro-custom-windows-x86-package.zip \
+            dist/fedelex-launcher dist/ygoprodll.exe dist/fedelex.conf \
             --title "${{ github.ref_name }}" \
             --notes "$(cat <<EOF
           Build automatica dal commit \`${{ github.sha }}\` (AGPLv3, sorgente
@@ -353,5 +405,13 @@ jobs:
             del filtro punti restano "???") e \`notices/\` con le licenze
             delle librerie collegate staticamente. Istruzioni in
             \`LEGGIMI.txt\` dentro il pacchetto.
+          - \`fedelex-launcher\` — il launcher Linux nudo (quello che il
+            giocatore avvia, design/launcher.md). E' gia' dentro il tarball
+            sopra: questo allegato serve solo a chi vuole prenderlo da
+            solo.
+          - \`ygoprodll.exe\` / \`fedelex.conf\` — allegati nudi SOLO per il
+            launcher (si auto-aggiorna confrontando questi file per hash,
+            D244): non sono pensati per essere scaricati a mano, non hanno
+            licenze ne' istruzioni allegate.
           EOF
           )"

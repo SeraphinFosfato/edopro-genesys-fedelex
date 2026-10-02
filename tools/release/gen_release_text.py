@@ -42,6 +42,7 @@ END_MARKER = "<!-- artifacts:end -->"
 DESTINATARIO_LABEL = {
     "persona": "da scaricare a mano",
     "aggiornatore": "SOLO per l'aggiornatore integrato — non scaricarlo a mano",
+    "launcher": "SOLO per il launcher — non scaricarlo a mano",
 }
 
 SISTEMA_LABEL = {

@@ -50,6 +50,9 @@ echo "Genero i Makefile..."
 ./premake5 gmake2 --no-core=true --sound=sfml --no-joystick=true --irrlicht-root="$IRRLICHT_ROOT"
 
 echo "Compilo (config=${CONFIG}_x64)..."
-make -Cbuild -j"$(nproc)" config="${CONFIG}_x64" ygoprodll
+# fedelex-launcher insieme a ygoprodll (FASE 64 cancello 6, D244.7): e'
+# quello che il giocatore avvia, deve uscire dalla stessa build del
+# simulatore che impacchetta.
+make -Cbuild -j"$(nproc)" config="${CONFIG}_x64" ygoprodll fedelex-launcher
 
-echo "Fatto: bin/x64/${CONFIG}/ygoprodll"
+echo "Fatto: bin/x64/${CONFIG}/ygoprodll, bin/x64/${CONFIG}/fedelex-launcher"

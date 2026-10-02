@@ -181,12 +181,20 @@ Invoke-Passo 'Genero la soluzione Visual Studio' {
 $Sln = Join-Path $RepoRoot 'build\ygo.sln'
 if (-not (Test-Path $Sln)) { throw "premake non ha generato $Sln." }
 
-# "Release|Win32" e il progetto "ygoprodll" sono letti dalla soluzione
-# generata, non scelti: sono gli unici nomi che premake emette per questo
-# target con --no-core=true.
+# "Release|Win32" e i progetti "ygoprodll"/"fedelex-launcher" sono letti
+# dalla soluzione generata, non scelti: sono gli unici nomi che premake
+# emette per questi target con --no-core=true.
+#
+# FASE 64 cancello 6 (D244.7, mai compilato su Windows in questo ambiente —
+# nessun toolchain qui, vedi la NOTA in testa a questo file): fedelex-launcher
+# e' quello che il giocatore avvia, deve uscire dalla stessa build del
+# simulatore che impacchetta. Stesso ragionamento di tools/release/build_linux.sh.
 $MsConfig = if ($Config -eq 'release') { 'Release' } else { 'Debug' }
 Invoke-Passo "Compilo (Configuration=$MsConfig, Platform=Win32, target ygoprodll)" {
     & $MsBuild $Sln -m -t:ygoprodll -p:Configuration=$MsConfig -p:Platform=Win32 -verbosity:minimal -p:EchoOff=true
+}
+Invoke-Passo "Compilo (Configuration=$MsConfig, Platform=Win32, target fedelex-launcher)" {
+    & $MsBuild $Sln -m -t:fedelex-launcher -p:Configuration=$MsConfig -p:Platform=Win32 -verbosity:minimal -p:EchoOff=true
 }
 
 # ----------------------------------------------------------------- verifica --
@@ -204,4 +212,8 @@ Invoke-Passo 'Verifico che sia davvero un eseguibile Windows' {
     & $Python.Source (Join-Path $ScriptDir 'verify_windows_exe.py') $Exe
 }
 
-Write-Host "Fatto: bin\$Config\ygoprodll.exe (si rinomina ygopro.exe in fase di impacchettamento)"
+$LauncherExe = Join-Path $RepoRoot "bin\$Config\fedelex-launcher.exe"
+if (-not (Test-Path $LauncherExe)) { throw "fedelex-launcher.exe non trovato in $LauncherExe." }
+
+Write-Host "Fatto: bin\$Config\ygoprodll.exe (il simulatore; va sotto bin\\ nel pacchetto)"
+Write-Host "Fatto: bin\$Config\fedelex-launcher.exe (il launcher; si rinomina ygopro.exe in fase di impacchettamento, D244.7)"

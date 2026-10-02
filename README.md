@@ -29,6 +29,12 @@ Ogni release allega questi file (generato da
   Stesso eseguibile Linux di sopra, impacchettato nel solo formato che il ClientUpdater integrato sa installare da solo (ZIP). Non scaricarlo a mano: e' per il manifesto di aggiornamento firmato.
 - **`edopro-custom-windows-x86.zip`** (Windows, SOLO per l'aggiornatore integrato — non scaricarlo a mano)
   Stesso eseguibile Windows di sopra, impacchettato nel solo formato che il ClientUpdater integrato sa installare da solo (ZIP). Non scaricarlo a mano: e' per il manifesto di aggiornamento firmato.
+- **`fedelex-launcher`** (Linux, da scaricare a mano)
+  Launcher Linux nudo (FASE 64, design/launcher.md): quello che il giocatore avvia davvero, controlla gli aggiornamenti ed esegue il simulatore. Gia' dentro il tarball sopra: questo allegato serve solo a chi lo vuole prendere da solo.
+- **`ygoprodll.exe`** (Windows, SOLO per il launcher — non scaricarlo a mano)
+  Simulatore Windows nudo, SOLO per il launcher (D244, ALLEGATI_LAUNCHER): confrontato per hash e installato da fedelex-launcher sotto bin/. Non scaricarlo a mano: non ha licenze ne' istruzioni allegate.
+- **`fedelex.conf`** (Linux, SOLO per il launcher — non scaricarlo a mano)
+  Le stringhe di questo fork (etichette del filtro punti), SOLO per il launcher (D244, ALLEGATI_LAUNCHER, role 'strings'): installa sia su Linux che su Windows, il campo 'sistema' qui sopra e' nominale. Non scaricarlo a mano.
 <!-- artifacts:end -->
 
 Le istruzioni d'installazione per ciascun file sono nel `LEGGIMI.txt` dentro

@@ -30,6 +30,24 @@
       "sistema": "windows",
       "destinatario": "aggiornatore",
       "contenuto": "Stesso eseguibile Windows di sopra, impacchettato nel solo formato che il ClientUpdater integrato sa installare da solo (ZIP). Non scaricarlo a mano: e' per il manifesto di aggiornamento firmato."
+    },
+    {
+      "file": "fedelex-launcher",
+      "sistema": "linux",
+      "destinatario": "persona",
+      "contenuto": "Launcher Linux nudo (FASE 64, design/launcher.md): quello che il giocatore avvia davvero, controlla gli aggiornamenti ed esegue il simulatore. Gia' dentro il tarball sopra: questo allegato serve solo a chi lo vuole prendere da solo."
+    },
+    {
+      "file": "ygoprodll.exe",
+      "sistema": "windows",
+      "destinatario": "launcher",
+      "contenuto": "Simulatore Windows nudo, SOLO per il launcher (D244, ALLEGATI_LAUNCHER): confrontato per hash e installato da fedelex-launcher sotto bin/. Non scaricarlo a mano: non ha licenze ne' istruzioni allegate."
+    },
+    {
+      "file": "fedelex.conf",
+      "sistema": "linux",
+      "destinatario": "launcher",
+      "contenuto": "Le stringhe di questo fork (etichette del filtro punti), SOLO per il launcher (D244, ALLEGATI_LAUNCHER, role 'strings'): installa sia su Linux che su Windows, il campo 'sistema' qui sopra e' nominale. Non scaricarlo a mano."
     }
   ]
 }

@@ -64,9 +64,12 @@ Installazione
      su Windows.
   2. Apri la cartella dove sta il tuo eseguibile EDOPro esistente.
   3. Copia dentro, accanto a quell'eseguibile:
-       ygopro.exe
+       ygopro.exe    (il launcher: e' quello che avvii, FASE 64)
+       bin\          (la cartella intera: contiene il simulatore vero)
        strings/      (la cartella intera)
-  4. Avvia ygopro.exe da quella cartella.
+  4. Avvia ygopro.exe da quella cartella (non bin\ygoprodll.exe
+     direttamente: il launcher controlla gli aggiornamenti e poi avvia il
+     simulatore da solo).
 
 La cartella strings/ contiene le etichette che questo fork aggiunge
 ("Points:"/"Stats:" nel filtro per costo della point list). Senza di
@@ -92,7 +95,14 @@ quel repository).
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--exe", required=True, help="path a ygopro.exe compilato")
+    ap.add_argument("--exe", required=True, help="path al simulatore compilato (ygoprodll.exe)")
+    ap.add_argument(
+        "--launcher-exe",
+        default=None,
+        help="path al launcher compilato (fedelex-launcher.exe). Se omesso, "
+        "il pacchetto resta nel vecchio formato (solo simulatore alla "
+        "radice, FASE 64 non ancora disponibile su questa build).",
+    )
     ap.add_argument("--out", required=True, help="path dello zip da produrre")
     ap.add_argument(
         "--notices-dir",
@@ -102,12 +112,15 @@ def main() -> int:
     args = ap.parse_args()
 
     exe_path = Path(args.exe)
+    launcher_path = Path(args.launcher_exe) if args.launcher_exe else None
     out_path = Path(args.out)
     notices_dir = Path(args.notices_dir)
 
     errori = []
     if not exe_path.is_file():
         errori.append(f"eseguibile non trovato: {exe_path}")
+    if launcher_path is not None and not launcher_path.is_file():
+        errori.append(f"launcher non trovato: {launcher_path}")
     if not FEDELEX_CONF.is_file():
         errori.append(f"strings/fedelex.conf non trovato: {FEDELEX_CONF}")
     if not notices_dir.is_dir():
@@ -131,7 +144,13 @@ def main() -> int:
         out_path.unlink()
 
     with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as z:
-        z.write(exe_path, "ygopro.exe")
+        if launcher_path is not None:
+            # D244.7: il launcher e' ygopro.exe (quello che il giocatore gia'
+            # clicca), il simulatore va sotto bin/, nome da interno.
+            z.write(launcher_path, "ygopro.exe")
+            z.write(exe_path, "bin/ygoprodll.exe")
+        else:
+            z.write(exe_path, "ygopro.exe")
         z.write(FEDELEX_CONF, "strings/fedelex.conf")
         z.writestr("LEGGIMI.txt", LEGGIMI_TESTO)
         for f in sorted(notices_dir.glob("*.copyright.txt")):
