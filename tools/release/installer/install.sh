@@ -65,7 +65,12 @@ DATA_DIR_MARKER="$PROGRAM_DIR/.data-dir"
 DEFAULT_NEW_DATA_DIR="$XDG_DATA_HOME/${APP_ID}-data"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# FASE 64 cancello 6 (D244.7): il launcher e' quello che il giocatore
+# avvia, alla radice di PROGRAM_DIR. Il simulatore (BINARY_NAME, invariato)
+# vive sotto bin/, nome da interno, mai collegato dall'avviatore o dalla
+# voce di menu direttamente.
 BINARY_NAME="ygoprodll"
+LAUNCHER_BINARY_NAME="fedelex-launcher"
 
 # Elenco dei posti dove si cerca un'installazione EDOPro gia' presente da
 # USARE COME CARTELLA DATI (ci si scrive dentro repositories/deck/replay),
@@ -304,14 +309,21 @@ cleanup_data_dir_remnants() {
 		log "Cartella dati e cartella programma coincidono: salto la pulizia di ygoprodll/ygopro.exe."
 	else
 		# Punto 2: solo con impronta fedelex, altrimenti non si tocca.
+		# D244.8 (FASE 64 cancello 6): estende lo stesso controllo a bin/,
+		# perche' un bin/ygoprodll orfano nella cartella dati e' lo stesso
+		# residuo del vecchio aggiornatore rotto, solo nel nuovo layout dove
+		# il simulatore sta sotto bin/ invece che alla radice.
 		local nome
-		for nome in ygoprodll ygopro.exe; do
+		for nome in ygoprodll ygopro.exe bin/ygoprodll bin/ygopro.exe; do
 			local candidato="$data_dir/$nome"
 			if [[ -e "$candidato" ]]; then
 				if has_fedelex_fingerprint "$candidato"; then
 					rm -f "$candidato"
 					log "Rimosso residuo con impronta fedelex dalla cartella dati: $candidato"
 					rimosso_qualcosa=1
+					# bin/ vuota dopo la rimozione non e' nostra: non la si crea mai,
+					# ma se e' rimasta vuota a causa di questo rm la si toglie.
+					rmdir "$data_dir/bin" 2>/dev/null || true
 				else
 					log "$candidato presente ma senza impronta fedelex: lasciato intatto."
 				fi
@@ -452,8 +464,13 @@ check_libraries() {
 do_install() {
 	CONFIGS_JSON_MISSING=0
 
-	if [[ ! -f "$SCRIPT_DIR/$BINARY_NAME" ]]; then
-		err "$SCRIPT_DIR/$BINARY_NAME non trovato: questo script va eseguito dalla"
+	if [[ ! -f "$SCRIPT_DIR/$LAUNCHER_BINARY_NAME" ]]; then
+		err "$SCRIPT_DIR/$LAUNCHER_BINARY_NAME non trovato: questo script va eseguito"
+		err "dalla cartella estratta dal tarball, non spostato da solo."
+		exit 1
+	fi
+	if [[ ! -f "$SCRIPT_DIR/bin/$BINARY_NAME" ]]; then
+		err "$SCRIPT_DIR/bin/$BINARY_NAME non trovato: questo script va eseguito dalla"
 		err "cartella estratta dal tarball, non spostato da solo."
 		exit 1
 	fi
@@ -490,7 +507,8 @@ do_install() {
 		--exclude 'icon.png' \
 		--exclude 'LEGGIMI.txt' \
 		"$SCRIPT_DIR"/ "$PROGRAM_DIR"/
-	chmod +x "$PROGRAM_DIR/$BINARY_NAME"
+	chmod +x "$PROGRAM_DIR/$LAUNCHER_BINARY_NAME"
+	chmod +x "$PROGRAM_DIR/bin/$BINARY_NAME"
 
 	list_package_files >"$PROGRAM_DIR/$INSTALLED_FILES_MARKER"
 	log "Elenco file installati aggiornato: $PROGRAM_DIR/$INSTALLED_FILES_MARKER"
@@ -498,33 +516,20 @@ do_install() {
 	echo "$data_dir" >"$DATA_DIR_MARKER"
 
 	local librerie_ok=1
-	check_libraries "$PROGRAM_DIR/$BINARY_NAME" || librerie_ok=0
+	check_libraries "$PROGRAM_DIR/bin/$BINARY_NAME" || librerie_ok=0
 
-	log "Scrivo l'avviatore: $LAUNCHER"
+	# D244.7: l'avviatore punta al launcher, non piu' a un wrapper bash
+	# generato. E' un SYMLINK (non una copia) al binario appena installato
+	# in PROGRAM_DIR, non una copia: fedelex-launcher trova PROGRAM_DIR
+	# risolvendo la propria posizione (/proc/self/exe su Linux), che il
+	# kernel risolve gia' attraverso il symlink fino al file vero — una
+	# copia invece "vivrebbe" in XDG_BIN_HOME e cercherebbe bin/ygoprodll
+	# li' dentro, cosa che non esiste. Il launcher stesso legge DATA_DIR da
+	# PROGRAM_DIR/.data-dir (scritto sotto) e passa -C al simulatore: questo
+	# avviatore non ha piu' bisogno di saperlo.
+	log "Collego l'avviatore al launcher: $LAUNCHER -> $PROGRAM_DIR/$LAUNCHER_BINARY_NAME"
 	mkdir -p "$XDG_BIN_HOME"
-	cat >"$LAUNCHER" <<LAUNCHER_EOF
-#!/usr/bin/env bash
-# Generato da $APP_ID install.sh — non modificare a mano, verra' riscritto
-# alla prossima installazione.
-set -euo pipefail
-PROGRAM_DIR="$PROGRAM_DIR"
-DATA_DIR_MARKER="$DATA_DIR_MARKER"
-if [[ -f "\$DATA_DIR_MARKER" ]]; then
-	DATA_DIR="\$(<"\$DATA_DIR_MARKER")"
-else
-	DATA_DIR="$DEFAULT_NEW_DATA_DIR"
-fi
-cd "\$DATA_DIR" || {
-	echo "Cartella dati non trovata: \$DATA_DIR" >&2
-	exit 1
-}
-# Il cd sopra non basta: senza -C il programma rifa' chdir sulla cartella
-# dell'eseguibile (gframe/gframe.cpp, in assenza del flag WORK_DIR) e lo
-# annulla. -C e' l'unico meccanismo che porta davvero la cartella dati
-# scelta dall'utente al client (FASE 35-bis, PHASES.md).
-exec "\$PROGRAM_DIR/$BINARY_NAME" -C "\$DATA_DIR" "\$@"
-LAUNCHER_EOF
-	chmod +x "$LAUNCHER"
+	ln -sf "$PROGRAM_DIR/$LAUNCHER_BINARY_NAME" "$LAUNCHER"
 
 	log "Installo l'icona: $ICON_FILE"
 	mkdir -p "$ICON_DIR"
