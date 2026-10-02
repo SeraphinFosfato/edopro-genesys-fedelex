@@ -22,6 +22,14 @@ namespace ygo {
 //    correct gate on either platform: on Linux it lagged a live core swap,
 //    on Windows it said nothing about repo state at all.
 //
+//    This was true of every Windows build shipped up to v0.1.1-alpha. FASE
+//    60 (D239) changes the SOURCE to compile Windows as `ygoprodll` too —
+//    core loaded at runtime, same as Linux — but as of this writing that
+//    build has never been compiled or published (PHASES.md, FASE 60 third
+//    appendix): no shipped Windows client works this way yet. Once it
+//    does, the predicate and both `#ifdef` branches below already cover
+//    it unmodified; nothing here needs to change for that day to come.
+//
 // This is the single predicate both call sites now share: "is this
 // client's game data in its final state, right now". It takes its inputs
 // as plain parameters and reads no globals, so it can be exercised here

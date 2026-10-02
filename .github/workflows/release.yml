@@ -157,6 +157,17 @@ jobs:
         shell: pwsh
         run: tools/release/build_windows.ps1 release
 
+      # Cancello 2 di FASE 60 (D239): il core NON deve essere collegato
+      # dentro questo eseguibile. Solo qui, non nel job Linux — lo stesso
+      # script sul binario ygoprodll di Linux cerca "ocgcore.dll" (nome
+      # Windows) e fallirebbe sempre, su una build giusta (vedi il
+      # docstring dello script e la terza appendice di FASE 60 in
+      # PHASES.md). Provato al contrario il 2026-10-02 sull'eseguibile
+      # statico di v0.1.1-alpha: rifiuta, nominando le funzioni Lua trovate.
+      - name: Verifica che il core non sia collegato dentro
+        shell: pwsh
+        run: python tools/release/verify_core_not_linked.py bin/release/ygoprodll.exe
+
       # D178: il percorso e' quello che premake produce davvero (bin/release/),
       # non bin/x86/release/ — che era scritto qui e nello script e non
       # corrispondeva a niente, perche' non ci si era mai arrivati.
