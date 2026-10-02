@@ -256,6 +256,11 @@ jobs:
           Write-Host "-- contenuto dello ZIP --"
           Expand-Archive -Path $zipPath -DestinationPath tools/release/out/.zip-check -Force
           Get-ChildItem -Recurse tools/release/out/.zip-check | ForEach-Object { Write-Host $_.FullName }
+          # D244.7/8 controllato, non ricordato: ygopro.exe dello zip DEVE essere
+          # il launcher e il simulatore DEVE stare in bin/.
+          $chk = "tools/release/out/.zip-check"
+          if ((Get-FileHash "$chk/ygopro.exe").Hash -ne (Get-FileHash bin/release/fedelex-launcher.exe).Hash) { throw "ygopro.exe nello zip non e' il launcher" }
+          if ((Get-FileHash "$chk/bin/ygoprodll.exe").Hash -ne (Get-FileHash bin/release/ygoprodll.exe).Hash) { throw "bin/ygoprodll.exe mancante o diverso nello zip" }
           Remove-Item -Recurse -Force tools/release/out/.zip-check
 
       - name: Carica lo ZIP Windows
