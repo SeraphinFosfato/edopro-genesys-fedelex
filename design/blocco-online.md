@@ -187,12 +187,63 @@ una soglia più alta.
 
 ## 9. Prerequisito: la versione installata
 
-Il blocco non deve diventare una trappola. Oggi un aggiornamento che fallisce
-lascia scritta la versione nuova (`client-update.md` §6quinquies), e da quel
-momento l'aggiornamento non viene più proposto: con l'online chiuso, la
-persona resterebbe fuori senza nessun rimedio offerto. La correzione (D238:
-la versione installata è quella compilata nel binario) va fatta **prima** o
-**insieme** al blocco, mai dopo.
+Il blocco non deve diventare una trappola. Fino al 2026-10-02 un aggiornamento
+che falliva lasciava scritta la versione nuova (`client-update.md`
+§6quinquies), e da quel momento l'aggiornamento non veniva più proposto: con
+l'online chiuso, la persona sarebbe rimasta fuori senza nessun rimedio
+offerto. **Corretto (D238), FASE 59 punto 1**: la versione installata è
+`CLIENT_UPDATE_VERSION` compilato nel binario, non un file — vedi
+`client-update.md` §6quinquies per il dettaglio.
+<!-- verifica: grep -q "return ygo::update::CLIENT_UPDATE_VERSION;" EdoproForkGSY/edopro_custom/gframe/client_updater.cpp -->
+
+## 11. Stato dell'implementazione
+
+**Scritto il 2026-10-02, insieme al primo lavoro di FASE 59.**
+
+Fatto:
+
+- **D238** (§9): la versione installata è `CLIENT_UPDATE_VERSION`, non un
+  file. Commit `72142ca2d`.
+- **Il predicato del cancello (R1/R2), puro e testato**:
+  `gframe/online_gate.h` (`EvaluateOnlineGate`, `OnlineGateLatch` per la
+  monotonia di §4). Non ancora chiamato da nessun punto del client reale.
+<!-- verifica: grep -q "EvaluateOnlineGate" EdoproForkGSY/edopro_custom/gframe/online_gate.h -->
+- **Il filtro "chi si collega" (§5)**: `gframe/local_connection.h`
+  (`IsLocalCallerAddress`), puro e testato su 127.0.0.1/::1/::ffff:127.0.0.1
+  contro LAN e indirizzi pubblici. **Non collegato a `NetServer`**: oggi
+  `NetServer` accetta ancora qualunque chiamante, a cancello aperto o chiuso.
+<!-- verifica: grep -q "IsLocalCallerAddress" EdoproForkGSY/edopro_custom/gframe/local_connection.h -->
+- **La macchina a stati della grazia (§6)**: `gframe/grace_period.h`
+  (`EvaluateGrace`, `GraceWarningLatch`). **Non collegata a nessun timer né
+  a `duelclient.cpp`**: oggi non esiste ancora un orologio che la interroghi
+  durante una partita reale.
+<!-- verifica: grep -q "EvaluateGrace" EdoproForkGSY/edopro_custom/gframe/grace_period.h -->
+
+**Non fatto — resta da cablare**, nell'ordine del brief di fase (PHASES.md,
+FASE 59):
+
+- Il bottone "Online" (`menu_handler.cpp`, `BUTTON_ONLINE_MULTIPLAYER`) non
+  consulta ancora il cancello: apre sempre `wRoomListPlaceholder`.
+- `BUTTON_JOIN_HOST` (ingresso per IP) non consulta il cancello.
+- Nessun testo unico d'avviso: `ServerLobby::JoinServer` ha ancora il proprio
+  testo per `OnlineDisabled()` (FASE 36), scritto prima di D237/D240 e non
+  ancora unificato con R2 né con la proposta di aggiornamento a intervalli.
+- Nessun rilettura del manifesto ogni 15 minuti: il controllo resta quello
+  di un colpo solo all'avvio (`client-update.md` §8).
+- `R2` non è calcolato da nessuna parte: `Game::LoadCoreFromRepos` (game.cpp)
+  non distingue ancora i tre casi di §2 e non scrive niente in `error.log`
+  per nessuno di essi.
+- `NetServer::StartServer` non filtra i chiamanti con
+  `IsLocalCallerAddress`: ospitare in LAN a cancello chiuso accetta ancora
+  chiunque sulla rete locale, non solo sé stessi.
+- Il ramo `STOC_DUEL_END` (`duelclient.cpp`) non controlla il cancello: non
+  porta ancora al menu principale invece che alla lista delle stanze.
+- Nessuna rivincita viene ancora soppressa a cancello chiuso.
+
+In breve: **la forma e la logica pura ci sono e sono verificate (34
+controlli in `tests/online_gate_tests.cpp`), il cablaggio nel client vero
+non c'è**. Un giocatore che gioca oggi con questo codice non vede alcun
+comportamento diverso da prima di questo documento.
 
 ## 10. Cosa resta invariato
 

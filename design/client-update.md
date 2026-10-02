@@ -334,27 +334,30 @@ un campo nuovo nel manifesto (esplicito, ma cambia lo schema e va versionato)
 oppure un filtro sul nome del file (nessun cambio di schema, ma è una
 convenzione fragile). È una decisione, non un'implementazione.
 
-### 6quinquies. La versione installata si registra prima di installare — APERTO
+### 6quinquies. La versione installata si registra prima di installare — CORRETTO il 2026-10-02 (D238)
 
-**Trovato il 2026-10-02.** `DownloadUpdate` scrive `.edopro_update_version`
-appena i file scaricati superano la verifica, **prima** di `Unzip()` e
-`Reboot()`. Se l'applicazione fallisce dopo (§6bis, §6ter), il file dice già
-la versione nuova mentre gira ancora la vecchia: al controllo successivo
-`CompareVersion` risponde *già aggiornato* e l'aggiornamento **non viene più
-proposto, mai**. Il file sta per di più nella CWD, cioè nella cartella dei
-dati, non accanto all'eseguibile che dovrebbe descrivere.
-<!-- verifica: grep -q 'UPDATE_VERSION_FILE EPRO_TEXT("./.edopro_update_version")' EdoproForkGSY/edopro_custom/gframe/client_updater.cpp -->
+**Trovato il 2026-10-02.** `DownloadUpdate` scriveva `.edopro_update_version`
+appena i file scaricati superavano la verifica, **prima** di `Unzip()` e
+`Reboot()`. Se l'applicazione falliva dopo (§6bis, §6ter), il file diceva già
+la versione nuova mentre girava ancora la vecchia: al controllo successivo
+`CompareVersion` rispondeva *già aggiornato* e l'aggiornamento **non veniva
+più proposto, mai**. Il file stava per di più nella CWD, cioè nella cartella
+dei dati, non accanto all'eseguibile che avrebbe dovuto descrivere.
 
-Col blocco dell'online (D237) diventa una trappola: il client resta sotto
-soglia, l'online è chiuso, e l'unico rimedio che gli si indica, cioè
+Col blocco dell'online (D237) sarebbe diventata una trappola: il client resta
+sotto soglia, l'online è chiuso, e l'unico rimedio che gli si indica, cioè
 l'aggiornamento, non gli viene più offerto.
 
-**Forma della correzione, decisa (D238), da implementare:** la versione
-installata **è** il `CLIENT_UPDATE_VERSION` del binario in esecuzione, non un
-file. L'anti-rollback (§4) resta identico: un manifesto con versione
-inferiore al binario che sta girando è rifiutato. E sparisce anche il difetto
-dell'installazione fresca che si propone ciò che ha già (file assente = 0).
-Il file non si scrive più; uno già presente si ignora.
+**Corretto (D238, FASE 59 punto 1):** la versione installata **è**
+`CLIENT_UPDATE_VERSION` del binario in esecuzione, non un file.
+`GetInstalledVersion()` restituisce quella costante direttamente.
+`SetInstalledVersion()` e la macro `UPDATE_VERSION_FILE` sono stati rimossi;
+un `.edopro_update_version` lasciato da un binario precedente non viene letto
+né cancellato — ripulire la cartella dati non è compito di questa funzione.
+L'anti-rollback (§4) resta identico: un manifesto con versione inferiore al
+binario che sta girando è rifiutato da `CompareVersion`, che non è cambiato.
+<!-- verifica(NON): grep -q "UPDATE_VERSION_FILE" EdoproForkGSY/edopro_custom/gframe/client_updater.cpp -->
+<!-- verifica: grep -q "return ygo::update::CLIENT_UPDATE_VERSION;" EdoproForkGSY/edopro_custom/gframe/client_updater.cpp -->
 
 ## Cosa resta davvero aperto
 
