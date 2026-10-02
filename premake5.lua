@@ -456,7 +456,11 @@ project "fedelex-launcher"
 		-- (gframe/premake5.lua): without CURL_STATICLIB every curl call is an
 		-- unresolved __imp_ symbol.
 		defines "CURL_STATICLIB"
-		links { "curl", "zlib", "bcrypt", "ws2_32", "wldap32", "crypt32", "advapi32", "Secur32", "Normaliz", "user32" }
+		-- curl and zlib themselves are NOT named here: the vcpkg MSBuild
+		-- integration links every installed library by its own file name
+		-- (libcurl.lib), exactly as it does for ygoprodll. Naming "curl"
+		-- made MSVC look for a curl.lib that does not exist (LNK1181).
+		links { "bcrypt", "ws2_32", "wldap32", "crypt32", "advapi32", "Secur32", "Normaliz", "user32" }
 	filter "system:not windows"
 		kind "ConsoleApp"
 		links { "curl" }
