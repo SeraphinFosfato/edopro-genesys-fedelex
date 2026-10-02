@@ -61,9 +61,9 @@ Le due ragioni che chiudono, e solo queste:
      **non è riuscito**: script nuovi del repository su core vecchio della
      cartella dei dati. È il caso degli errori Lua. Oggi `LoadCoreFromRepos`
      fa `continue` e non lo dice a nessuno;
-  2. quel repository **non si è sincronizzato**: il client ne scarta sia gli
-     script sia il core e gioca con quelli dell'installazione, vecchi ma
-     coerenti fra loro;
+  2. quel repository **ha finito** e non si è sincronizzato (errore, rete
+     assente): il client ne scarta sia gli script sia il core e gioca con
+     quelli dell'installazione, vecchi ma coerenti fra loro;
   3. **nessun** repository dichiara un core. Con la configurazione che
      installiamo non succede.
 
@@ -77,9 +77,30 @@ due. Il costo, accettato: chi avvia il client mentre GitHub non risponde resta
 fuori dall'online per quella sessione, e aggiornare non lo aiuta.
 <!-- verifica: grep -q "if(repo->has_core)" EdoproForkGSY/edopro_custom/gframe/game.cpp -->
 
-R2 è sempre noto **prima** che si possa entrare online: il cancello dei dati
-pronti (FASE 38) non lascia ospitare né entrare finché le sincronizzazioni e
-lo scambio del core non sono finiti.
+**R2 non esiste finché le sincronizzazioni non sono finite, e questo è un
+vincolo, non un dettaglio** (corretto il 2026-10-02, vedi sotto). Un
+repository che *sta ancora* sincronizzando non è un repository che ha
+fallito: è un repository di cui non si sa ancora niente. R2 si valuta solo
+quando la passata di clone-o-aggiornamento è **conclusa per tutti**, riuscita
+o fallita — la stessa nozione che `game_data_ready.h` già usa, e che conta
+come conclusa anche una sincronizzazione finita male. Prima di quel momento
+non c'è nessuna opinione da registrare, esattamente come per un manifesto
+irraggiungibile.
+
+> **L'errore da cui nasce questa regola, perché non si ripeta.** La prima
+> stesura di questo documento diceva solo "repository non sincronizzato
+> chiude" (§2) e "chiuso resta chiuso" (§4). Messe insieme, le due frasi
+> **chiudono l'online a ogni avvio e per sempre**: al primo fotogramma
+> nessuna sincronizzazione è finita, il cancello si chiude, lo scambio del
+> core riesce mezzo secondo dopo e il blocco monotono non si riapre più.
+> Nessuno avrebbe più giocato online, su nessun client. L'implementazione
+> aveva seguito la forma alla lettera: il difetto era nella forma. Due regole
+> ciascuna sensata da sola possono essere incompatibili insieme, e il posto
+> dove si vede è la **sequenza di avvio**, non la singola regola.
+
+R2 è comunque sempre noto **prima** che si possa entrare online: il cancello
+dei dati pronti (FASE 38) non lascia ospitare né entrare finché le
+sincronizzazioni e lo scambio del core non sono finiti.
 
 ## 3. Cosa protegge davvero, detto onestamente
 
@@ -109,6 +130,12 @@ conto suo.
 **Monotono nella sessione:** una volta chiuso resta chiuso fino al riavvio.
 Un manifesto successivo che abbassasse la soglia non lo riapre a sessione in
 corso: un cancello che si apre e si chiude da solo insegna a non fidarsene.
+
+**La monotonia rende obbligatorio non chiudere per ignoranza.** Un cancello
+che non si riapre può chiudersi solo su un fatto **accertato**: una soglia
+letta da un manifesto verificato, una passata di sincronizzazione conclusa.
+Non su un'assenza di informazione — "non lo so ancora" non è una ragione, e
+con la monotonia diventa una condanna definitiva (§2).
 
 ## 5. Chi NON è in partita
 
@@ -223,6 +250,21 @@ client reale, non solo nella forma pura:
   (`Game::RefreshOnlineGate()`, chiamata ogni frame da `MainLoop()`).
 <!-- verifica: grep -q "EvaluateOnlineGate" EdoproForkGSY/edopro_custom/gframe/online_gate.h -->
 <!-- verifica: grep -q "online_gate_latch.Update" EdoproForkGSY/edopro_custom/gframe/game.cpp -->
+- **Corretto il difetto di sequenza d'avvio descritto in §2** (lo stesso
+  giorno): `EvaluateOnlineGate` prende ora un quarto ingresso,
+  `syncs_finished`, e non puo' rispondere R2 quando e' falso.
+  `Game::RefreshOnlineGate()` lo passa come
+  `gRepoManager->GetUpdatingReposNumber() == 0`. Il test che prova la
+  sequenza reale (`test_startup_sequence_ends_open`,
+  `tests/online_gate_tests.cpp`) e' stato scritto **prima** della
+  correzione e osservato fallire (4 check rossi: t0, t1, t2, stato finale
+  del latch) prima di essere corretto — non e' stato scritto dopo su
+  codice gia' giusto. Resta un test (`test_finished_but_not_synced_still_closes`)
+  che prova che il caso D240 vero (sincronizzazione finita e core non da
+  repository) chiude ancora: la correzione ha toccato **quando** si valuta,
+  non **se** un cancello chiuso riapre.
+<!-- verifica: grep -q "bool syncs_finished" EdoproForkGSY/edopro_custom/gframe/online_gate.h -->
+<!-- verifica: grep -q "test_startup_sequence_ends_open" EdoproForkGSY/edopro_custom/tests/online_gate_tests.cpp -->
 - **R2, i tre casi di §2**: `Game::LoadCoreFromRepos()` logga in `error.log`
   quando nessuno dei core candidati del repository si carica (caso 1,
   scambio fallito) con il core rimasto in uso; `Game::RefreshOnlineGate()`

@@ -32,21 +32,21 @@ void check(bool condition, const char* what) {
 // Cancello 2 — the predicate, every combination.
 
 void test_no_reason_is_open() {
-	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/true) == OnlineGateReason::Open,
+	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/true, /*syncs_finished=*/true) == OnlineGateReason::Open,
 		 "supported client, separate-core build, core IS from the repository: must be Open");
-	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/false, /*core_from_repository=*/false) == OnlineGateReason::Open,
+	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/false, /*core_from_repository=*/false, /*syncs_finished=*/true) == OnlineGateReason::Open,
 		 "supported client, STATIC build: must be Open regardless of core_from_repository");
 }
 
 void test_r1_closes() {
-	check(EvaluateOnlineGate(/*client_supported=*/false, /*core_separate_build=*/true, /*core_from_repository=*/true) == OnlineGateReason::R1BuildBelowThreshold,
+	check(EvaluateOnlineGate(/*client_supported=*/false, /*core_separate_build=*/true, /*core_from_repository=*/true, /*syncs_finished=*/true) == OnlineGateReason::R1BuildBelowThreshold,
 		 "unsupported client must close with R1, even if the core would otherwise be fine");
-	check(EvaluateOnlineGate(/*client_supported=*/false, /*core_separate_build=*/false, /*core_from_repository=*/false) == OnlineGateReason::R1BuildBelowThreshold,
+	check(EvaluateOnlineGate(/*client_supported=*/false, /*core_separate_build=*/false, /*core_from_repository=*/false, /*syncs_finished=*/true) == OnlineGateReason::R1BuildBelowThreshold,
 		 "unsupported client on a STATIC build: R1 is the only possible signal there, and it must still close");
 }
 
 void test_r2_closes_on_separate_core_build_only() {
-	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/false) == OnlineGateReason::R2CoreNotFromRepository,
+	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/false, /*syncs_finished=*/true) == OnlineGateReason::R2CoreNotFromRepository,
 		 "supported client, separate-core build, core NOT from the repository (any of the three D240 cases): must close with R2");
 }
 
@@ -56,10 +56,53 @@ void test_r2_never_closes_on_static_build() {
 	// ignore core_from_repository entirely when core_separate_build is
 	// false — this is the single property that lets Windows adopt a
 	// separate core later (FASE 60) with this call site unchanged.
-	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/false, /*core_from_repository=*/true) == OnlineGateReason::Open,
+	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/false, /*core_from_repository=*/true, /*syncs_finished=*/true) == OnlineGateReason::Open,
 		 "static build, core_from_repository=true: Open (the expected value)");
-	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/false, /*core_from_repository=*/false) == OnlineGateReason::Open,
+	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/false, /*core_from_repository=*/false, /*syncs_finished=*/true) == OnlineGateReason::Open,
 		 "static build, core_from_repository=false: must STILL be Open — R2 cannot exist on a static build, so this input must be ignored, not read as a mismatch");
+}
+
+// FASE 59 — appendice del 2026-10-02, cancello 1. Walks the REAL startup
+// order on a separate-core build (game.cpp: LoadCoreFromRepos() runs to
+// completion, synchronously, every frame it is called at all — it returns
+// immediately while GetUpdatingReposNumber()>0 and otherwise attempts the
+// swap and sets core_loaded_from_repo before RefreshOnlineGate() ever reads
+// it; there is no observable frame where syncs_finished is true and the
+// swap is merely "not yet" attempted). So the real sequence collapses to
+// two frames: at least one repository still syncing, then — once every
+// repository's pass is done — the SAME call already attempted the swap and
+// it succeeded. This must end Open throughout.
+//
+// Before the fix the predicate had no "syncs_finished" input at all and
+// treated the first frame (core_from_repository=false, nothing has synced
+// yet) exactly like a settled "not from the repository" — closing the
+// gate on every single session, forever, because the latch never reopens
+// (§4). Written BEFORE the fix and run against it: it showed FAIL on all
+// four checks below, confirming the bug, before the predicate was
+// corrected — per the brief's own rule that a test written after the fix
+// proves nothing.
+void test_startup_sequence_ends_open() {
+	OnlineGateLatch latch;
+	// t0: at least one repository is still syncing. core_from_repository is
+	// necessarily false here (nothing has swapped in yet) — the predicate
+	// must still answer Open, because syncs_finished is false.
+	check(latch.Update(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/false, /*syncs_finished=*/false)) == OnlineGateReason::Open,
+		 "startup sequence, t0 (syncing in progress): must be Open, not R2 — nothing has been decided yet");
+	// t1: every repository's pass is now done and (same call) the swap
+	// succeeded. The gate must end Open, and the latch (having never
+	// closed at t0) must allow it.
+	check(latch.Update(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/true, /*syncs_finished=*/true)) == OnlineGateReason::Open,
+		 "startup sequence, t1 (syncs finished, swap succeeded): must be Open");
+	check(latch.Current() == OnlineGateReason::Open, "end of startup sequence: the session latch must read Open, not latched closed from an earlier frame");
+}
+
+// FASE 59 — appendice, cancello 3. D240 still closes the gate: a repository
+// that DID finish syncing and did NOT end up providing the core in use
+// (sync failed, or swap failed, or nobody declares a core) must still
+// close with R2. This is the case the fix must NOT remove.
+void test_finished_but_not_synced_still_closes() {
+	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/false, /*syncs_finished=*/true) == OnlineGateReason::R2CoreNotFromRepository,
+		 "D240: syncs finished and the core in use is still not the repository's — must close with R2, same as before the fix");
 }
 
 void test_unverified_manifest_never_closes_r1() {
@@ -73,7 +116,7 @@ void test_unverified_manifest_never_closes_r1() {
 	// to get R1BuildBelowThreshold is to explicitly claim client_supported
 	// is false — there is no "absent" state that the function invents on
 	// its own that could look like closing.
-	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/true) != OnlineGateReason::R1BuildBelowThreshold,
+	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/true, /*syncs_finished=*/true) != OnlineGateReason::R1BuildBelowThreshold,
 		 "client_supported=true (the only representation of 'no verified opinion says otherwise') must never produce R1");
 }
 
@@ -198,6 +241,8 @@ int RunOnlineGateTests() {
 	test_r1_closes();
 	test_r2_closes_on_separate_core_build_only();
 	test_r2_never_closes_on_static_build();
+	test_startup_sequence_ends_open();
+	test_finished_but_not_synced_still_closes();
 	test_unverified_manifest_never_closes_r1();
 	test_latch_is_monotonic();
 	test_latch_starts_open();
