@@ -19,8 +19,17 @@
 #include "utils_gui.h"
 #include "fmt.h"
 #include "curl.h"
+#include "launcher_logic.h"
 #if EDOPRO_MACOS
 #include "osx_menu.h"
+#endif
+#if EDOPRO_WINDOWS
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+#elif EDOPRO_LINUX
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #endif
 
 bool is_from_discord = false;
@@ -43,6 +52,69 @@ void CheckArguments(const args_t& args) {
 		ygo::GUIUtils::SetCheckbox(ygo::mainGame->device, ygo::mainGame->tabSettings.chkEnableSound, false);
 		ygo::GUIUtils::SetCheckbox(ygo::mainGame->device, ygo::mainGame->tabSettings.chkEnableMusic, false);
 	}
+}
+
+// FASE 64 cancello 5 / design/launcher.md §4, D244: if this binary was NOT
+// started by the launcher (no -from-launcher mark — a shortcut built before
+// the launcher existed, a double-click on bin/ygoprodll, a dev run), relaunch
+// the launcher instead of running unprotected. ygo::launcher::
+// SimulatorShouldRelaunchLauncher() is the pure policy (already covered by
+// tests/launcher_logic_tests.cpp); everything here is just the I/O around it.
+//
+// If no launcher binary is found next to the program directory (this is not
+// a real install — a bare build, a CI artifact run directly, a developer's
+// build/bin), this logs and returns false: running unprotected is strictly
+// better than refusing to start at all (design/launcher.md §4, "deve
+// comunque funzionare").
+inline bool RelaunchLauncherIfNeeded(const args_t& args) {
+	if(!ygo::launcher::SimulatorShouldRelaunchLauncher(args[LAUNCH_PARAM::FROM_LAUNCHER].enabled))
+		return false;
+#if EDOPRO_WINDOWS || EDOPRO_LINUX
+	// The simulator lives at PROGRAM_DIR/bin/<exe> (design/launcher.md §4) —
+	// its own exe folder's PARENT is PROGRAM_DIR, where the launcher sits.
+	// GetExeFolder() is PROGRAM_DIR/bin (design/launcher.md §4); GetFilePath()
+	// strips one more path component, same helper GetExeFolder() itself is
+	// built from (GetFilePath(GetExePath())) — see utils.cpp.
+	const auto& exe_folder = ygo::Utils::GetExeFolder();
+	auto program_dir = ygo::Utils::GetFilePath(exe_folder);
+#if EDOPRO_WINDOWS
+	auto launcher_path = epro::format(EPRO_TEXT("{}/ygopro.exe"), program_dir);
+#else
+	auto launcher_path = epro::format(EPRO_TEXT("{}/fedelex-launcher"), program_dir);
+#endif
+	if(!ygo::Utils::FileExists(launcher_path)) {
+		ygo::ErrorLog("Avviato senza launcher e nessun launcher trovato in {}: proseguo senza (nessuna installazione reale).",
+					 ygo::Utils::ToUTF8IfNeeded(launcher_path));
+		return false;
+	}
+#if EDOPRO_WINDOWS
+	STARTUPINFO si{ sizeof(si) };
+	PROCESS_INFORMATION pi{};
+	epro::path_string command = epro::format(EPRO_TEXT("\"{}\""), launcher_path);
+	if(!CreateProcess(launcher_path.data(), &command[0], nullptr, nullptr, false, 0, nullptr, nullptr, &si, &pi)) {
+		ygo::ErrorLog("Impossibile rilanciare il launcher ({}).", ygo::Utils::ToUTF8IfNeeded(launcher_path));
+		return false;
+	}
+	CloseHandle(pi.hProcess);
+	CloseHandle(pi.hThread);
+#else
+	const auto* launcher_cstr = launcher_path.data();
+	auto pid = vfork();
+	if(pid == 0) {
+		execl(launcher_cstr, launcher_cstr, nullptr);
+		_exit(EXIT_FAILURE); // execl only returns on failure
+	}
+	if(pid < 0) {
+		ygo::ErrorLog("Impossibile rilanciare il launcher ({}).", ygo::Utils::ToUTF8IfNeeded(launcher_path));
+		return false;
+	}
+#endif
+	return true;
+#else
+	// No launcher on this platform yet (iOS/Android/macOS) — nothing to
+	// relaunch into.
+	return false;
+#endif
 }
 
 inline void ThreadsStartup() {
@@ -99,6 +171,13 @@ using Game = ygo::Game;
 
 int edopro_main(const args_t& args) {
 	std::puts(EDOPRO_VERSION_STRING_DEBUG);
+	// FASE 64 cancello 5: before anything else — this is the one-time
+	// hand-off, never a loop (RelaunchLauncherIfNeeded only fires when
+	// -from-launcher is ABSENT, and the launcher it spawns always passes
+	// that mark to whatever it in turn execs — design/launcher.md §4,
+	// ygo::launcher::SimulatorShouldRelaunchLauncher).
+	if(RelaunchLauncherIfNeeded(args))
+		return EXIT_SUCCESS;
 	if(ygo::Utils::IsRunningAsAdmin() && !args[LAUNCH_PARAM::WANTS_TO_RUN_AS_ADMIN].enabled) {
 		constexpr auto err = "Attempted to run the game as " ADMIN_STR ".\n"
 			"You should NEVER have to run the game with elevated priviledges.\n"

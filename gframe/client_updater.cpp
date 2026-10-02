@@ -153,10 +153,19 @@ void ClientUpdater::CheckOnlineGateThreshold() {
 }
 
 bool ClientUpdater::StartUpdate(update_callback callback, void* payload) {
-	if(!Lock.acquired() || !has_update || downloading)
-		return false;
-	epro::thread(&ClientUpdater::DownloadUpdate, this, payload, callback).detach();
-	return true;
+	// D244 point 6 / design/launcher.md: the simulator no longer installs
+	// anything on its own — that is the launcher's job now (launcher/main.cpp,
+	// FASE 64). This updater keeps detecting an available update
+	// (CheckUpdates()/has_update, still used for the "aggiornamento
+	// disponibile" notice) and keeps the online gate check
+	// (CheckOnlineGateThreshold(), D237) — those read-only paths are
+	// unaffected. Only the write path (download+unzip+reboot into a new
+	// binary) is retired: a client running without a launcher in front of
+	// it (a dev build, a manual run) must never silently rewrite its own
+	// executable out from under itself, the exact class of bug this whole
+	// component exists to retire (design/launcher.md §1).
+	(void)callback; (void)payload;
+	return false;
 }
 void ClientUpdater::Unzip(void* payload, unzip_callback callback) {
 	Utils::SetThreadName("Unzip");

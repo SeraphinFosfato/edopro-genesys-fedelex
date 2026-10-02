@@ -14,6 +14,13 @@ enum LAUNCH_PARAM {
 	REPOS_READ_ONLY,
 	ONLY_CLONE_REPOS,
 	USER_STORAGE_DIRECTORY,
+	// FASE 64 / design/launcher.md §4, D244: the provenance mark the
+	// launcher always passes to the simulator it spawns. Used ONLY by
+	// ygo::launcher::SimulatorShouldRelaunchLauncher() in gframe.cpp's
+	// edopro_main() to tell "started by the launcher" from "started
+	// directly" (a shortcut, a double-click on bin/ygoprodll, a dev run) —
+	// never read anywhere else.
+	FROM_LAUNCHER,
 	COUNT,
 };
 

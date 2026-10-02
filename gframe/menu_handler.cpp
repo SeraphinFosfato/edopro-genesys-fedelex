@@ -653,9 +653,18 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 					break;
 				}
 				case ACTION_UPDATE_PROMPT: {
-					gClientUpdater->StartUpdate(Game::UpdateDownloadBar, mainGame);
-					mainGame->HideElement(mainGame->wMainMenu);
-					mainGame->PopupElement(mainGame->updateWindow);
+					// D244 point 6: StartUpdate() always returns false now
+					// (gframe/client_updater.cpp) — the simulator no longer
+					// installs anything itself. Showing the download-progress
+					// popup on a call that will never progress would be a
+					// stuck window, the exact "uscire in silenzio" this
+					// component exists to avoid (design/launcher.md §7).
+					// The launcher (launcher/main.cpp) is what actually
+					// applies an update, before this binary ever runs.
+					if(gClientUpdater->StartUpdate(Game::UpdateDownloadBar, mainGame)) {
+						mainGame->HideElement(mainGame->wMainMenu);
+						mainGame->PopupElement(mainGame->updateWindow);
+					}
 					break;
 				}
 				case ACTION_SHOW_CHANGELOG: {
