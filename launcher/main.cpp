@@ -416,7 +416,7 @@ pid_t InstallSimulatorFile(const ygo::update::LauncherFile& file, const Destinat
 	// one). Passing -from-launcher so a probe that DOES come up fully is
 	// indistinguishable from a normal launch and does not need a second
 	// exec.
-	pid_t pid = SpawnDetached(tmp, { tmp, "-from-launcher" });
+	pid_t pid = SpawnDetached(tmp, { tmp, "-from-launcher", "-C", data_dir });
 	bool launches = pid > 0 && StillRunningAfter(pid, kLaunchProbeMillis);
 	auto outcome = ygo::launcher::DecideSwap(hash_ok, exec_bit, launches);
 	if(outcome == ygo::launcher::SwapOutcome::InstallNew) {
@@ -561,7 +561,14 @@ int main(int argc, char** argv) {
 	// Step 5: normal launch (no update applicable, or the swap above never
 	// got to InstallNew — either way `simulator_path` is a file this
 	// launcher already confirmed is present and executable).
-	std::vector<std::string> args = { simulator_path, "-from-launcher" };
+	// -C data_dir: without it the simulator chdirs to its own folder
+	// (gframe/gframe.cpp, WORK_DIR default is GetExeFolder()) instead of
+	// DATA_DIR — wrong whenever the two differ, which is the common case
+	// (resolve_data_dir() in install.sh defaults to a sibling directory,
+	// not PROGRAM_DIR/bin). Found while testing cancello 6 end to end in
+	// a fake HOME: the old bash wrapper this launcher replaces always
+	// passed -C itself.
+	std::vector<std::string> args = { simulator_path, "-from-launcher", "-C", data_dir };
 	std::vector<char*> argv_exec;
 	for(auto& a : args)
 		argv_exec.push_back(const_cast<char*>(a.c_str()));
@@ -579,7 +586,8 @@ int main(int argc, char** argv) {
 	std::wstring wsim(simulator_path.begin(), simulator_path.end());
 	STARTUPINFOW si{}; si.cb = sizeof(si);
 	PROCESS_INFORMATION pi{};
-	std::wstring cmdline = L"\"" + wsim + L"\" -from-launcher";
+	std::wstring wdata(data_dir.begin(), data_dir.end());
+	std::wstring cmdline = L"\"" + wsim + L"\" -from-launcher -C \"" + wdata + L"\"";
 	std::vector<wchar_t> cmdline_buf(cmdline.begin(), cmdline.end());
 	cmdline_buf.push_back(0);
 	if(CreateProcessW(wsim.c_str(), cmdline_buf.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
