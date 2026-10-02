@@ -19,6 +19,10 @@ scelte che restavano aperte le ha fatte l'utente il 2026-10-02: §8.
 
 Va capito prima di tutto il resto, perché decide cosa si può misurare.
 
+**La tabella descrive cio' che e' SPEDITO** (fino a `v0.1.1-alpha`), non cio'
+che il sorgente compila da adesso: §1.9 non permette di confonderli, e dal
+2026-10-02 su Windows differiscono (vedi in fondo alla sezione).
+
 | | Windows (`ygopro.exe`) | Linux (`ygoprodll`) |
 |---|---|---|
 | Dove sta il core | **compilato dentro** l'eseguibile, dal sottomodulo `ocgcore/` | file separato, caricato a runtime |
@@ -26,7 +30,6 @@ Va capito prima di tutto il resto, perché decide cosa si può misurare.
 | Quando invecchia | quando Project Ignis aggiorna script e core e noi non abbiamo ancora ricompilato | quando la sostituzione col core del repository **non riesce** |
 | Chi lo aggiorna | noi, con una release | il meccanismo dei repository, da solo |
 
-<!-- verifica: grep -q "core e il runtime collegati staticamente" EdoproForkGSY/edopro_custom/.github/workflows/release.yml -->
 <!-- verifica: grep -q -- "--no-core=true" EdoproForkGSY/edopro_custom/.github/workflows/release.yml -->
 
 Il caso di Windows è quello che si è già visto: le build `v0.0.1-alpha` e
@@ -35,9 +38,17 @@ repository chiamavano `Duel.GetReasonEffect`, e il sottomodulo è stato portato
 avanti il 2026-09-25 (commit `b2a22a1c0`). Da `v0.0.3-alpha` in poi tutte le
 release portano lo stesso core (`efc21aa`).
 
-**Deciso il 2026-10-02 (D239): anche Windows passera' al core caricato dal
-repository**, come Linux. **Non e' ancora fatto** (FASE 60): fino ad allora
-vale la tabella qui sopra, e su Windows l'unico segnale resta R1.
+**Deciso il 2026-10-02 (D239): anche Windows carichera' il core dal
+repository**, come Linux. Il sorgente lo fa gia': il job Windows compila il
+progetto `ygoprodll`, e il file distribuito resta `ygopro.exe` perche' la
+rinomina e' un passo di impacchettamento.
+<!-- verifica: grep -q "FASE 60 (D239)" EdoproForkGSY/edopro_custom/.github/workflows/release.yml -->
+
+**Ma quella build non e' mai stata compilata ne' pubblicata** (serve MSVC su
+un runner Windows, cioe' un tag), e FASE 60 non e' chiusa: stato misurato
+nella sua terza appendice in `PHASES.md`. Quindi, per ogni client che esiste
+oggi, vale la tabella qui sopra e su Windows l'unico segnale resta R1. Dalla
+build 8 in poi vale anche R2, e le due colonne diventano una sola.
 
 ## 2. Come si riconosce "troppo vecchio" — e come NO
 
