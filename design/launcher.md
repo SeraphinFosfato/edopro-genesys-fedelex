@@ -1,5 +1,38 @@
 # Il launcher — forma (D236)
 
+## Stato dell'implementazione (FASE 64)
+
+**Aggiornato il 2026-10-02.** Non e' un'intenzione: dice cosa esiste DAVVERO
+nel sorgente a questo commit (§1.9 del CLAUDE.md del vault — qui la fonte e'
+ancora il sorgente, nessuna release lo porta).
+
+- **Fatto, con test verdi** (`./premake5 --file=tests/premake5.lua gmake2 &&
+  make -C tests/build config=release && ./bin/banlist_tests`):
+  - Cancello 1: `gframe/update_verify.h/.cpp` legge `launcher_files[]`
+    (name/url/sha256/os/role) e filtra per piattaforma + role riconosciuto
+    con `SelectLauncherFilesForPlatform()`. Unicita' per (nome, os), non per
+    nome solo — `fedelex.conf` e' un upload che installa su entrambe le
+    piattaforme (D244 punto 7/8).
+  - Cancello 2: nuovo `gframe/launcher_logic.h/.cpp`, funzioni pure senza
+    I/O: guardia del ciclo simulatore->launcher, anti-rollback sul proprio
+    stato, sostituisci/tieni per hash, decisione della sequenza di verifica
+    (hash -> bit eseguibile -> avvio -> installa/torna a `.old`).
+  - Cancello 7: `banlist/scripts/build_update_manifest.py` emette
+    `launcher_files` da una tabella esplicita allegato -> (os, role); un
+    allegato assente dalla release non e' un errore (release precedenti a
+    questo cablaggio), un role fuori enumerazione lo e'.
+- **NON fatto**: nessun eseguibile del launcher esiste ancora (cancelli 3-5:
+  progetto premake `fedelex-launcher`, download/scarica/sostituisci reale
+  con curl, guardia `--from-launcher` nel punto di avvio del simulatore),
+  nessuna modifica a `.github/workflows/release.yml`, `build_windows.ps1`,
+  `tools/release/artifacts.json` o `tools/release/installer/install.sh`
+  (cancello 6), nessuna build Linux del launcher provata (cancello 3),
+  nessun test in HOME finto con server locale (cancello 4). Build Windows:
+  fuori portata per definizione fino al primo tag (vedi PHASES.md).
+- Non e' un punto di risalita (§6.6): nessuna scelta di forma e' rimasta
+  aperta, solo lavoro non ancora scritto — vedi PHASES.md, coda del brief
+  FASE 64, per cosa riprendere e da dove.
+
 **Scritto il 2026-10-02.** Decide la forma del componente deciso in D-56 del
 registro dei sospesi (vault privato), dopo che ogni correzione
 dell'aggiornatore ha richiesto una reinstallazione a mano.
