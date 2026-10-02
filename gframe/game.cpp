@@ -1210,6 +1210,13 @@ bool Game::LoadCore() {
 void Game::LoadCoreFromRepos() {
 	if(cores_to_load.empty() || gRepoManager->GetUpdatingReposNumber() > 0)
 		return;
+	// FASE 59 — design/blocco-online.md §2, R2 case 1 ("un repository che
+	// dichiara un core si e' sincronizzato, ma lo scambio... non e'
+	// riuscito"). Before this, a failed ChangeOCGcore() was a silent
+	// `continue`: the loop moved to the next candidate path with nothing
+	// written anywhere, and the OLD core stayed in use with no record that
+	// a swap had even been attempted.
+	bool swapped = false;
 	for(auto& path : cores_to_load) {
 		void* ncore = ChangeOCGcore(Utils::GetWorkingDirectory() + path, ocgcore);
 		if(!ncore)
@@ -1218,7 +1225,13 @@ void Game::LoadCoreFromRepos() {
 		coreJustLoaded = true;
 		ocgcore = ncore;
 		coreloaded = true;
+		core_loaded_from_repo = true;
+		swapped = true;
 		break;
+	}
+	if(!swapped) {
+		ErrorLog("Online gate R2 (scambio del core fallito): nessuno dei {} core candidati del repository si e' caricato, resto su '{}'.",
+				cores_to_load.size(), Utils::ToUTF8IfNeeded(corename));
 	}
 	cores_to_load.clear();
 	// FASE 38: cores_to_load just went from non-empty to empty (whether or
@@ -1272,6 +1285,102 @@ void Game::UpdateGameDataReadyGate() {
 	apply(btnHandTest);
 	apply(btnHandTestSettings);
 	apply(stHandTestSettings);
+}
+
+// FASE 59 — design/blocco-online.md. Recomputes both gate facts (R1 from
+// ClientUpdater, R2 from this object's own core state) and folds the result
+// into the session latch. Called every frame from MainLoop() (see the call
+// site next to ParseGithubRepositories()/LoadCoreFromRepos() below) so a
+// core swap AND a manifest re-check (§7, every 15 minutes) are both picked
+// up without a dedicated call site at each one.
+void Game::RefreshOnlineGate() {
+#ifdef YGOPRO_BUILD_DLL
+	constexpr bool core_separate_build = true;
+#else
+	constexpr bool core_separate_build = false;
+#endif
+	const bool client_supported = gClientUpdater
+		? ygo::update::IsClientSupported(gClientUpdater->GetLastMinSupported(), ygo::update::CLIENT_UPDATE_VERSION)
+		: true;
+	const auto before = online_gate_latch.Current();
+	const auto reason = online_gate_latch.Update(ygo::EvaluateOnlineGate(client_supported, core_separate_build, core_loaded_from_repo));
+	if(before == ygo::OnlineGateReason::Open && reason == ygo::OnlineGateReason::R2CoreNotFromRepository) {
+		// design/blocco-online.md §2, D240: SwapFailed is already logged by
+		// LoadCoreFromRepos() the moment it happens, with the OLD corename
+		// that is still in use — the other two cases have no such single
+		// moment of their own, so they are logged here, exactly once, the
+		// first time the latch actually closes for this reason.
+#ifdef YGOPRO_BUILD_DLL
+		bool any_repo_has_core = false;
+		for(const auto& repo : gRepoManager->GetAllRepos()) {
+			if(repo->has_core) {
+				any_repo_has_core = true;
+				break;
+			}
+		}
+		if(!any_repo_has_core) {
+			ErrorLog("Online gate R2 (nessun repository dichiara un core): resto su '{}'.", Utils::ToUTF8IfNeeded(corename));
+		} else if(!core_loaded_from_repo) {
+			ErrorLog("Online gate R2 (repository con core non sincronizzato, scartato): resto su '{}'.", Utils::ToUTF8IfNeeded(corename));
+		}
+#endif
+	}
+	// design/blocco-online.md §6: the grace clock starts the moment THIS
+	// client discovers the closure, once, and never resets for as long as
+	// the closure lasts (monotonic clock, per the member's own comment in
+	// game.h) — a later RefreshOnlineGate() call during the SAME closure
+	// must never push this forward.
+	if(reason != ygo::OnlineGateReason::Open && !gate_closed_since)
+		gate_closed_since = std::chrono::steady_clock::now();
+}
+
+std::wstring Game::GetOnlineGateMessage() const {
+	std::wstring reason_text;
+	switch(online_gate_latch.Current()) {
+		case ygo::OnlineGateReason::R1BuildBelowThreshold: {
+			const int min_supported = gClientUpdater ? gClientUpdater->GetLastMinSupported() : 0;
+			reason_text = epro::format(L"Questo client (build {}) e' sotto la versione minima richiesta per giocare online ({}): aggiorna per ospitare o entrare in stanze online.",
+									   ygo::update::CLIENT_UPDATE_VERSION, min_supported);
+			break;
+		}
+		case ygo::OnlineGateReason::R2CoreNotFromRepository: {
+			reason_text = L"Il motore di gioco in uso non e' quello distribuito dal repository (sincronizzazione non riuscita o core non scambiato): per sicurezza tua e dell'avversario, ospitare e entrare in stanze online restano disabilitati finche' la sincronizzazione non si completa.";
+			break;
+		}
+		case ygo::OnlineGateReason::Open:
+			return {};
+	}
+	std::wstring message = reason_text
+		+ L"\n\nPuoi ancora giocare in locale, contro l'IA e rivedere i replay.";
+	if(gClientUpdater && gClientUpdater->HasUpdate()) {
+		// design/blocco-online.md §5: "se un aggiornamento e' disponibile lo
+		// propone li'" — propone, non lo installa: la finestra di conferma
+		// gia' esistente (ACTION_UPDATE_PROMPT, piu' sotto in questo stesso
+		// file) resta l'unico posto che lo avvia, su un si'/no del giocatore.
+		message += L"\nUn aggiornamento e' disponibile: accettalo dalla finestra che il client propone.";
+	} else {
+		message += L"\nAccetta l'aggiornamento che il client propone all'avvio, oppure scarica l'ultima versione dalla pagina delle release.";
+	}
+	return message;
+}
+
+void Game::ShowOnlineGateWarning() {
+	const auto message = GetOnlineGateMessage();
+	if(message.empty())
+		return;
+	PopupMessage(message, L"Online non disponibile");
+	// La pagina si apre UNA volta per sessione (non a ogni clic sul
+	// bottone, su JoinServer, sull'ingresso per IP e sull'uscita a fine
+	// partita — tutti chiamano questa stessa funzione): side effect isolato
+	// qui, non dentro GetOnlineGateMessage(), che resta pura e il suo testo
+	// non dipende da quante volte e' gia' stata chiamata.
+	if(gClientUpdater && !gClientUpdater->HasUpdate()) {
+		static bool pagina_aperta = false;
+		if(!pagina_aperta) {
+			pagina_aperta = true;
+			Utils::SystemOpen(EPRO_TEXT("https://github.com/SeraphinFosfato/edopro-genesys-fedelex/releases"), Utils::OPEN_URL);
+		}
+	}
 }
 
 static constexpr std::pair<epro::wstringview, irr::video::E_DRIVER_TYPE> supported_graphic_drivers[]{
@@ -2195,6 +2304,20 @@ bool Game::MainLoop() {
 			LoadCoreFromRepos();
 		}
 #endif //YGOPRO_BUILD_DLL
+		// FASE 59 — design/blocco-online.md. Cheap and pure (online_gate.h),
+		// so every frame is fine: picks up a core swap (R2) immediately,
+		// same cadence as UpdateGameDataReadyGate() elsewhere in this loop.
+		RefreshOnlineGate();
+		// §7: the 15-minute re-check of min_supported (R1) — this does NOT
+		// run every frame itself, only decides whether it's time to fire
+		// one, on the monotonic clock (never wall time, which can jump).
+		{
+			const auto now = std::chrono::steady_clock::now();
+			if(gClientUpdater && now - last_online_gate_check >= std::chrono::minutes(15)) {
+				last_online_gate_check = now;
+				gClientUpdater->CheckOnlineGateThreshold();
+			}
+		}
 		for(auto& repo : gRepoManager->GetRepoStatus()) {
 			repoInfoGui[repo.first].progress1->setProgress(repo.second);
 			repoInfoGui[repo.first].progress2->setProgress(repo.second);

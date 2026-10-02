@@ -5,6 +5,8 @@
 #include <vector>
 #include <list>
 #include <atomic>
+#include <chrono>
+#include <optional>
 #include "materials.h"
 #include "settings_window.h"
 #include "config.h"
@@ -25,6 +27,13 @@
 // FinishTitleCredentialCheck. L'header non tira dentro irrlicht ne' altro:
 // solo std e gli wrapper epro_*.
 #include "title_checkin.h"
+// FASE 59 — design/blocco-online.md. Same reasoning as title_checkin.h just
+// above: these three are pure, gframe-independent predicates (see each
+// header's own comment), so including them costs nothing here and lets
+// Game own the stateful pieces (the latch, the grace clock) that need a
+// long-lived object to live in.
+#include "online_gate.h"
+#include "grace_period.h"
 
 struct unzip_payload;
 class CGUISkinSystem;
@@ -571,6 +580,28 @@ public:
 	// already showing — not just the very first load — is reflected without
 	// needing a dedicated call site at every place repo state can change.
 	void UpdateGameDataReadyGate();
+	// FASE 59 — design/blocco-online.md. Recomputes online_gate.h's
+	// EvaluateOnlineGate() from current state (ClientUpdater's R1 fact,
+	// this object's own R2 fact below) and folds it into the session latch
+	// — called once a frame from MainLoop(), same cadence as
+	// UpdateGameDataReadyGate() above, so the monotonic "chiuso resta
+	// chiuso" rule (§4) sees every state change, not just the ones that
+	// happen to coincide with a manifest re-check.
+	void RefreshOnlineGate();
+	bool OnlineGateClosed() const {
+		return online_gate_latch.Current() != ygo::OnlineGateReason::Open;
+	}
+	ygo::OnlineGateReason GetOnlineGateReason() const {
+		return online_gate_latch.Current();
+	}
+	// The ONE player-facing text for every call site that must honor the
+	// gate (design/blocco-online.md §5, FASE 59 point 6): bottone Online,
+	// ingresso per IP, ServerLobby::JoinServer, l'uscita a fine partita.
+	// Must only be called when OnlineGateClosed() is true.
+	std::wstring GetOnlineGateMessage() const;
+	// Pops GetOnlineGateMessage() and opens the releases page once per
+	// session (design/blocco-online.md §5: "un bottone... mostra l'avviso").
+	void ShowOnlineGateWarning();
 	bool MainLoop();
 	bool ApplySkin(const epro::path_string& skin, bool reload = false, bool firstrun = false);
 	void RefreshDeck(irr::gui::IGUIComboBox* cbDeck);
@@ -721,6 +752,33 @@ public:
 #endif
 	bool coreloaded;
 	std::wstring corename;
+	// FASE 59 — design/blocco-online.md §2, R2. True once
+	// LoadCoreFromRepos() has actually swapped in a core that a repository
+	// declared (has_core) and successfully synced — i.e. the core in use
+	// IS the repository's, the opposite of every one of D240's three
+	// mismatch cases. Always false on a static-core build (never set there:
+	// LoadCoreFromRepos() doesn't exist in that #ifdef branch), which is
+	// exactly the input online_gate.h's EvaluateOnlineGate() needs to treat
+	// R2 as always-false on Windows until FASE 60.
+	bool core_loaded_from_repo = false;
+	ygo::OnlineGateLatch online_gate_latch;
+	// FASE 59 — design/blocco-online.md §7: last time
+	// ClientUpdater::CheckOnlineGateThreshold() was fired, on a monotonic
+	// clock (never wall-clock time, which can be moved backwards/forwards —
+	// same reasoning as the grace clock below). steady_clock::time_point{}
+	// (epoch) as "never yet" means the very first MainLoop() iteration
+	// always fires the first check immediately, which is correct: a manifest
+	// re-check costs nothing extra at that point (CheckUpdates() already
+	// fires a full check at startup) and there is no reason to wait 15
+	// minutes before the FIRST periodic one.
+	std::chrono::steady_clock::time_point last_online_gate_check{};
+	// FASE 59 — design/blocco-online.md §6. Set the moment RefreshOnlineGate()
+	// observes the gate transition from open to closed; std::nullopt means
+	// "not currently in a graced closure" (gate open, or closed from before
+	// any room was ever joined this session — grace only ever starts
+	// relative to a room, see RefreshOnlineGate()'s use of it).
+	std::optional<std::chrono::steady_clock::time_point> gate_closed_since;
+	ygo::GraceWarningLatch grace_warning_latch;
 	bool restart = false;
 	std::list<FadingUnit> fadingList;
 	std::vector<int> logParam;

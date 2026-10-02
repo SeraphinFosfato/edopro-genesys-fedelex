@@ -8,6 +8,14 @@
 #include <string>
 #endif
 #include "utils.h"
+// ygo::update::Manifest/IsClientSupported()/CLIENT_UPDATE_VERSION: this
+// module (update_verify.cpp) compiles unconditionally regardless of
+// UPDATE_URL (see premake5.lua — it is not guarded there, unlike this
+// class' own implementation below), so callers that need the gate's R1 fact
+// even on a build without UPDATE_URL (game.cpp's RefreshOnlineGate(),
+// design/blocco-online.md) can always reach it through this header.
+#include "update_verify.h"
+#include "client_update_version.h"
 
 struct UnzipperPayload {
 	int cur;
@@ -27,6 +35,17 @@ public:
 	bool StartUpdate(update_callback callback, void* payload);
 	void StartUnzipper(unzip_callback callback, void* payload);
 	void CheckUpdates();
+	// FASE 59 (design/blocco-online.md §7): re-reads the manifest on its
+	// own thread, with the SAME verification as CheckUpdate() (firma prima
+	// di interpretare, anti-rollback) — the only thing this does NOT do is
+	// touch update_urls/has_update/downloaded, because this is not the
+	// once-per-launch update PROPOSAL (client-update.md §8, unchanged: a
+	// new binary only becomes active at the next restart, so polling for
+	// it more often buys nothing). This exists purely to let
+	// min_supported — and therefore R1 — close the gate mid-session, with
+	// the caller (Game::MainLoop) deciding the 15-minute cadence and
+	// calling this no more often than that.
+	void CheckOnlineGateThreshold();
 	bool HasUpdate() {
 		return has_update;
 	}
@@ -44,19 +63,22 @@ public:
 	const std::string& GetStatusMessage() const {
 		return status_message;
 	}
-	// design/client-update.md §9 (FASE 36): true once a verified manifest has
-	// declared a min_supported this build's CLIENT_UPDATE_VERSION does not
-	// meet. The single call site that must honor this is
-	// ServerLobby::JoinServer (server_lobby.cpp) — it covers both "ospita
-	// online" and "entra in una stanza online"; local play, vs AI and replay
-	// never go through it and stay available regardless of this flag.
-	bool OnlineDisabled() const {
-		return online_disabled;
-	}
-	// Populated together with online_disabled, above: the player-facing
-	// reason, always naming the versions involved (never a bare "disabled").
-	const std::string& GetOnlineDisabledReason() const {
-		return online_disabled_reason;
+	// design/client-update.md §9 (FASE 36) / design/blocco-online.md (D237,
+	// FASE 59): the raw R1 fact, nothing else. 0 means "no verified manifest
+	// has ever declared a floor" — the same "absent never closes" sentinel
+	// Manifest::min_supported already uses (update_verify.h), so a launch
+	// that never reaches a verified manifest (no UPDATE_URL reply, bad
+	// signature, unreachable endpoint) answers as "supported" forever,
+	// exactly like before this field existed. Deliberately NOT a bool plus a
+	// precomputed message anymore (that was FASE 36's OnlineDisabled() /
+	// GetOnlineDisabledReason()): FASE 59 needs this combined with R2, which
+	// ClientUpdater has no way to know about (that is Game's core state) —
+	// composing the single player-facing text is now Game's job
+	// (Game::GetOnlineGateMessage(), game.cpp), using
+	// ygo::update::IsClientSupported(GetLastMinSupported(),
+	// ygo::update::CLIENT_UPDATE_VERSION) for the R1 half.
+	int GetLastMinSupported() const {
+		return last_min_supported;
 	}
 private:
 	class FileLock {
@@ -79,6 +101,18 @@ private:
 #endif
 	};
 	void CheckUpdate();
+	void CheckOnlineGateThresholdTask();
+	// Shared by CheckUpdate() (the once-per-launch full flow) and
+	// CheckOnlineGateThreshold() (the 15-minute re-check, FASE 59): fetches
+	// the manifest and its detached signature, verifies BEFORE parsing
+	// (same ordering as CheckUpdate() always had), and on success updates
+	// `last_min_supported`. Returns false on any failure (network, bad
+	// signature, rollback, schema) — callers that need the full manifest
+	// for more than the threshold (CheckUpdate(), which also installs
+	// files) get it back through `out_manifest`; the periodic check passes
+	// a throwaway one and only cares about the bool and the log lines this
+	// already writes.
+	bool FetchVerifiedManifest(ygo::update::Manifest& out_manifest);
 	void DownloadUpdate(void* payload, update_callback callback);
 	void Unzip(void* payload, unzip_callback callback);
 	struct DownloadInfo {
@@ -112,14 +146,13 @@ private:
 	std::atomic<bool> downloading{ false };
 	std::string update_url{ UPDATE_URL };
 	std::string status_message;
-	// See OnlineDisabled()/GetOnlineDisabledReason() above. Defaults to
-	// "not disabled": a launch that never reaches a verified manifest (no
-	// UPDATE_URL reply, bad signature, unreachable endpoint) leaves online
-	// play exactly as available as it always was — the gate only closes on
-	// an explicit, verified min_supported that this build does not meet,
-	// never on the absence of information.
-	std::atomic<bool> online_disabled{ false };
-	std::string online_disabled_reason;
+	// See GetLastMinSupported() above. 0 ("absent", Manifest::min_supported's
+	// own convention) until a manifest verifies at least once — a launch
+	// that never reaches a verified manifest (no UPDATE_URL reply, bad
+	// signature, unreachable endpoint) leaves online play exactly as
+	// available as it always was, forever, never on the absence of
+	// information.
+	std::atomic<int> last_min_supported{ 0 };
 };
 #else
 class ClientUpdater {
@@ -129,15 +162,16 @@ public:
 	static constexpr bool StartUpdate(update_callback, void*) { return false; }
 	static constexpr void StartUnzipper(unzip_callback, void*) {}
 	static constexpr void CheckUpdates() {}
+	static constexpr void CheckOnlineGateThreshold() {}
 	static constexpr bool HasUpdate() { return false; }
 	static constexpr bool UpdateDownloaded() { return false; }
 	static constexpr bool UpdateFailed() { return true; }
 	static epro::stringview GetStatusMessage() { return {}; }
 	// A build without UPDATE_URL never fetches a manifest, so it never
 	// learns of a min_supported floor: online play stays exactly as
-	// available as it always was in this build.
-	static constexpr bool OnlineDisabled() { return false; }
-	static epro::stringview GetOnlineDisabledReason() { return {}; }
+	// available as it always was in this build (0 == "absent", same
+	// sentinel as Manifest::min_supported).
+	static constexpr int GetLastMinSupported() { return 0; }
 };
 #endif
 

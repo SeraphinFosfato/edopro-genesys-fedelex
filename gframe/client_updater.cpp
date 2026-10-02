@@ -126,6 +126,15 @@ void ClientUpdater::CheckUpdates() {
 		epro::thread(&ClientUpdater::CheckUpdate, this).detach();
 }
 
+// FASE 59: Game::MainLoop() calls the PUBLIC CheckOnlineGateThreshold() at
+// most once every 15 minutes — this spawns the actual network work onto its
+// own thread (same shape as CheckUpdates() above) so the 15-minute poll
+// never blocks the render/input thread it's called from.
+void ClientUpdater::CheckOnlineGateThreshold() {
+	if(Lock.acquired())
+		epro::thread(&ClientUpdater::CheckOnlineGateThresholdTask, this).detach();
+}
+
 bool ClientUpdater::StartUpdate(update_callback callback, void* payload) {
 	if(!Lock.acquired() || !has_update || downloading)
 		return false;
@@ -320,9 +329,7 @@ int ClientUpdater::GetInstalledVersion() {
 	return ygo::update::CLIENT_UPDATE_VERSION;
 }
 
-void ClientUpdater::CheckUpdate() {
-	Utils::SetThreadName("CheckUpdate");
-
+bool ClientUpdater::FetchVerifiedManifest(ygo::update::Manifest& out_manifest) {
 	// Fail-closed (design/client-update.md, "Fail-closed" / cancello 6): no
 	// compiled public key means this updater cannot trust anything it could
 	// fetch, so it does not even try, and says so once per check instead of
@@ -331,7 +338,7 @@ void ClientUpdater::CheckUpdate() {
 	if(!ygo::update::AnyTrustedKeyConfigured()) {
 		status_message = "Aggiornamento: nessuna chiave pubblica di aggiornamento compilata, aggiornamento disabilitato.";
 		ygo::ErrorLog(status_message);
-		return;
+		return false;
 	}
 
 	WritePayload payload{};
@@ -342,7 +349,7 @@ void ClientUpdater::CheckUpdate() {
 		// volta, senza bloccare (design/client-update.md §5).
 		status_message = "Aggiornamento: endpoint non raggiungibile, continuo con il client attuale.";
 		ygo::ErrorLog(status_message);
-		return;
+		return false;
 	}
 	const std::string document(retrieved_data.begin(), retrieved_data.end());
 
@@ -353,16 +360,15 @@ void ClientUpdater::CheckUpdate() {
 	if(curlPerform(signature_url.data(), &sig_payload) != CURLE_OK) {
 		status_message = "Aggiornamento: endpoint non raggiungibile, continuo con il client attuale.";
 		ygo::ErrorLog(status_message);
-		return;
+		return false;
 	}
 	const std::string signature(retrieved_signature.begin(), retrieved_signature.end());
 
-	ygo::update::Manifest manifest;
 	std::string error;
 	// Verifies BEFORE parsing (design/client-update.md, point 1 / cancello
 	// 3): VerifyAndParse never lets nlohmann/json see a byte this client has
 	// not authenticated first.
-	const auto status = ygo::update::VerifyAndParse(document, signature, manifest, error);
+	const auto status = ygo::update::VerifyAndParse(document, signature, out_manifest, error);
 	if(status != ygo::update::VerifyStatus::Ok) {
 		// Firma non valida/assente, JSON malformato o schema violato sono
 		// tutti "rifiuta, tieni il client attuale, lo dice" allo stesso
@@ -371,23 +377,40 @@ void ClientUpdater::CheckUpdate() {
 		// rispetta lo schema: in entrambi i casi non è un manifesto valido.
 		status_message = "Aggiornamento: manifesto rifiutato (" + error + "), mantengo il client attuale.";
 		ygo::ErrorLog(status_message);
-		return;
+		return false;
 	}
 
-	// design/client-update.md §9 (FASE 36): evaluated independently of the
-	// version decision below — a manifest that has nothing new to install
-	// for THIS instance's local files can still declare that this build's
-	// own engine (CLIENT_UPDATE_VERSION) is too old to duel online. Never
-	// touched when the manifest failed to verify above: absence of a signed
-	// opinion never closes the door, only an explicit one does.
-	const bool client_supported = ygo::update::IsClientSupported(manifest.min_supported, ygo::update::CLIENT_UPDATE_VERSION);
-	online_disabled = !client_supported;
-	if(!client_supported) {
-		online_disabled_reason = epro::format(
-			"Questo client (build {}) e' sotto la versione minima richiesta per giocare online ({}): aggiorna per ospitare o entrare in stanze online.",
-			ygo::update::CLIENT_UPDATE_VERSION, manifest.min_supported);
-		ygo::ErrorLog(online_disabled_reason);
+	// design/client-update.md §9 (FASE 36), design/blocco-online.md (D237):
+	// evaluated independently of the version decision the caller makes
+	// below — a manifest with nothing new to install for THIS instance's
+	// local files can still declare that this build's own engine
+	// (CLIENT_UPDATE_VERSION) is too old to play online. Never reached when
+	// the manifest failed to verify above: absence of a signed opinion
+	// never closes the door, only an explicit one does (last_min_supported
+	// keeps whatever it last held, i.e. 0 — "absent" — the very first time).
+	last_min_supported = out_manifest.min_supported;
+	if(!ygo::update::IsClientSupported(out_manifest.min_supported, ygo::update::CLIENT_UPDATE_VERSION)) {
+		ygo::ErrorLog("Online gate: questo client (build {}) e' sotto min_supported ({}) dichiarato dal manifesto.",
+					 ygo::update::CLIENT_UPDATE_VERSION, out_manifest.min_supported);
 	}
+	return true;
+}
+
+// FASE 59 (design/blocco-online.md §7): the 15-minute re-check. Same
+// verification, none of the download/install machinery — see the header
+// comment for why those are deliberately not here.
+void ClientUpdater::CheckOnlineGateThresholdTask() {
+	Utils::SetThreadName("OnlineGate");
+	ygo::update::Manifest manifest;
+	FetchVerifiedManifest(manifest); // return value unused here: on failure last_min_supported is simply left as it was (design/blocco-online.md §2, "un controllo fallito non apre e non chiude niente")
+}
+
+void ClientUpdater::CheckUpdate() {
+	Utils::SetThreadName("CheckUpdate");
+
+	ygo::update::Manifest manifest;
+	if(!FetchVerifiedManifest(manifest))
+		return;
 
 	const int installed_version = GetInstalledVersion();
 	const auto decision = ygo::update::CompareVersion(manifest.version, installed_version);

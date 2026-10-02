@@ -199,6 +199,12 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 				break;
 			}
 			case BUTTON_ONLINE_MULTIPLAYER: {
+				// FASE 59 — design/blocco-online.md §5: "il bottone resta
+				// visibile e premibile... premendolo si legge il perche'".
+				if(mainGame->OnlineGateClosed()) {
+					mainGame->ShowOnlineGateWarning();
+					break;
+				}
 				mainGame->isHostingOnline = true;
 				mainGame->HideElement(mainGame->wMainMenu);
 				mainGame->ShowElement(mainGame->wRoomListPlaceholder);
@@ -243,6 +249,18 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 				break;
 			}
 			case BUTTON_JOIN_HOST: {
+				// FASE 59 — design/blocco-online.md §5: "entrare per IP
+				// nella stanza di qualcun altro (finestra LAN) mostra lo
+				// stesso avviso e non si connette". A differenza
+				// dell'host locale (BUTTON_HOST_CONFIRM, isHostingOnline
+				// == false), qui non c'e' modo di sapere se l'indirizzo
+				// digitato e' il proprio PC o quello di un'altra persona
+				// prima di provare a connettersi: si blocca comunque, come
+				// il brief richiede.
+				if(mainGame->OnlineGateClosed()) {
+					mainGame->ShowOnlineGateWarning();
+					break;
+				}
 				try {
 					const auto parsed = epro::Host::resolve(mainGame->ebJoinHost->getText(), mainGame->ebJoinPort->getText());
 					gGameConfig->lasthost = mainGame->ebJoinHost->getText();
