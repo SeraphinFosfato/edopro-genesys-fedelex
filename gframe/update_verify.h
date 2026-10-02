@@ -57,6 +57,39 @@ struct ManifestFile {
 	std::string os;
 };
 
+// D244 point 3 (design/decisioni.md): the role a launcher_files[] entry
+// plays, a CLOSED enumeration same as macro in the banlist side. "simulator"
+// installs into bin/ of the program directory, "strings" installs into
+// strings/fedelex.conf of the data directory — the launcher never invents a
+// destination from the name. Unknown is not a third legitimate value: it is
+// what RoleFromString() returns for anything not in the wire enumeration, so
+// the caller discards the entry instead of guessing where to write it
+// (same "regola stretta" as update_verify.h's os field, D243/D244).
+enum class LauncherFileRole {
+	Unknown,
+	Simulator,
+	Strings,
+};
+
+// Parses the wire string into the enum. Byte-for-byte match only — no case
+// folding, no aliases: "Simulator" or "simulator " are Unknown, same
+// strictness as PlatformLinux/PlatformWindows below.
+LauncherFileRole LauncherFileRoleFromString(const std::string& role);
+
+struct LauncherFile {
+	std::string name;
+	std::string url;
+	std::string sha256; // 64 lowercase hex chars, same contract as ManifestFile::sha256
+	std::string os;      // "linux" / "windows", same contract as ManifestFile::os
+	// Kept as both the raw wire string (for logging an unrecognized value
+	// verbatim) and the parsed enum (what every caller actually branches
+	// on) — same reasoning SelectFilesForPlatform's os handling uses: the
+	// parser never collapses an unrecognized value into something that
+	// could be mistaken for a legitimate one.
+	std::string role_raw;
+	LauncherFileRole role = LauncherFileRole::Unknown;
+};
+
 struct Manifest {
 	int version = 0;
 	// 0 means the key was absent from the wire manifest — "nessuna soglia
@@ -67,6 +100,13 @@ struct Manifest {
 	// real thresholds are >= 1, so 0 is never ambiguous with a real value.
 	int min_supported = 0;
 	std::vector<ManifestFile> files;
+	// D244: a SEPARATE array, same document, same signature — no new trust
+	// domain. Absent from the wire manifest == empty vector, which is valid
+	// (a manifest from before the launcher existed, or one that genuinely
+	// has nothing new for the launcher to fetch). "files" stays exactly what
+	// it was: the old in-client updater's own key, never touched by this
+	// one (D244 point 3, "un solo scrittore per file").
+	std::vector<LauncherFile> launcher_files;
 };
 
 enum class VerifyStatus {
@@ -134,6 +174,20 @@ inline constexpr const char* PlatformWindows = "windows";
 std::vector<ManifestFile> SelectFilesForPlatform(const std::vector<ManifestFile>& files,
 												 const std::string& platform,
 												 size_t* discarded_count = nullptr);
+
+// Same filter as SelectFilesForPlatform, for launcher_files[]. An entry is
+// kept only if BOTH its os matches `platform` byte-for-byte AND its role is
+// a recognized one (LauncherFileRole::Simulator or ::Strings) — an entry
+// with the right os but an unknown role is still discarded, same "regola
+// stretta" reasoning as D244 point 3: a role nobody defined is not a role
+// the launcher can act on, so it is never installed "to be safe".
+// `discarded_count` counts BOTH reasons together (os mismatch and unknown
+// role); callers that need to tell them apart read role_raw off the
+// original `files` vector themselves — this function stays a pure filter,
+// same shape as SelectFilesForPlatform.
+std::vector<LauncherFile> SelectLauncherFilesForPlatform(const std::vector<LauncherFile>& files,
+														  const std::string& platform,
+														  size_t* discarded_count = nullptr);
 
 enum class VersionDecision {
 	Accept,        // strictly newer — install it

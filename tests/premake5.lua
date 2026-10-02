@@ -36,11 +36,13 @@ project "banlist_tests"
 		"game_data_ready_tests.cpp",
 		"online_gate_tests.cpp",
 		"updater_managed_files_tests.cpp",
+		"launcher_logic_tests.cpp",
 		"../gframe/banlist_verify.cpp",
 		"../gframe/banlist_diff.cpp",
 		"../gframe/title_verify.cpp",
 		"../gframe/title_state.cpp",
 		"../gframe/update_verify.cpp",
+		"../gframe/launcher_logic.cpp",
 		"../gframe/sha256.cpp",
 		"../gframe/tweetnacl/*.c",
 	}

@@ -603,6 +603,133 @@ void test_update_domain_signature_does_not_verify_under_title_domain() {
 		 "UPDATE_DOMAIN and TITLE_DOMAIN must never produce the same signed bytes for the same document");
 }
 
+// --- D244: launcher_files parsing and selection -----------------------
+
+std::string ManifestWithLauncherFiles(const std::string& launcher_files_json) {
+	return "{"
+		"\"version\":1,"
+		"\"files\":["
+		"{\"name\":\"ocgcore.so\",\"url\":\"https://example.invalid/ocgcore.so\","
+		"\"sha256\":\"" + std::string(64, 'a') + "\"}"
+		"],"
+		"\"launcher_files\":[" + launcher_files_json + "]"
+		"}";
+}
+
+void test_manifest_without_launcher_files_is_valid_and_empty() {
+	const auto document = MinimalManifest(1);
+	Manifest out;
+	std::string error;
+	const auto status = Parse(document, out, error);
+	check(status == VerifyStatus::Ok, "a manifest without launcher_files must still parse as Ok (older manifests, or nothing new for the launcher)");
+	check(out.launcher_files.empty(), "launcher_files must default to empty when the manifest omits it");
+}
+
+void test_launcher_files_round_trip_simulator_role() {
+	const auto document = ManifestWithLauncherFiles(
+		"{\"name\":\"ygoprodll\",\"url\":\"https://example.invalid/ygoprodll\","
+		"\"sha256\":\"" + std::string(64, 'b') + "\",\"os\":\"linux\",\"role\":\"simulator\"}");
+	Manifest out;
+	std::string error;
+	const auto status = Parse(document, out, error);
+	check(status == VerifyStatus::Ok, "a well-formed launcher_files entry must parse as Ok");
+	check(out.launcher_files.size() == 1, "exactly one launcher_files entry must round-trip");
+	if(out.launcher_files.size() == 1) {
+		check(out.launcher_files[0].name == "ygoprodll", "launcher_files[].name must round-trip verbatim");
+		check(out.launcher_files[0].os == "linux", "launcher_files[].os must round-trip verbatim");
+		check(out.launcher_files[0].role == LauncherFileRole::Simulator, "role \"simulator\" must parse to LauncherFileRole::Simulator");
+	}
+}
+
+void test_launcher_files_strings_role_round_trips() {
+	check(LauncherFileRoleFromString("strings") == LauncherFileRole::Strings,
+		 "role \"strings\" must parse to LauncherFileRole::Strings");
+}
+
+void test_launcher_files_unknown_role_is_not_schema_violation() {
+	// D244 point 3: "un valore sconosciuto si scarta e si dice" — scarta,
+	// not "rifiuta il manifesto". An unrecognized role must still parse
+	// (the entry just carries LauncherFileRole::Unknown), so one bad entry
+	// from a future role never breaks every client on an old build.
+	const auto document = ManifestWithLauncherFiles(
+		"{\"name\":\"mystery\",\"url\":\"https://example.invalid/mystery\","
+		"\"sha256\":\"" + std::string(64, 'c') + "\",\"os\":\"linux\",\"role\":\"something-new\"}");
+	Manifest out;
+	std::string error;
+	const auto status = Parse(document, out, error);
+	check(status == VerifyStatus::Ok, "an unrecognized role must not be a schema violation");
+	check(out.launcher_files.size() == 1 && out.launcher_files[0].role == LauncherFileRole::Unknown,
+		 "an unrecognized role must parse with LauncherFileRole::Unknown, raw string preserved");
+	check(out.launcher_files.size() == 1 && out.launcher_files[0].role_raw == "something-new",
+		 "role_raw must preserve the unrecognized wire value verbatim, for logging");
+}
+
+void test_launcher_files_missing_os_is_schema_violation() {
+	// Unlike files[], launcher_files[] requires os from birth (D244, no
+	// legacy manifest predates it) — see the .cpp comment.
+	const auto document = ManifestWithLauncherFiles(
+		"{\"name\":\"ygoprodll\",\"url\":\"https://example.invalid/ygoprodll\","
+		"\"sha256\":\"" + std::string(64, 'd') + "\",\"role\":\"simulator\"}");
+	Manifest out;
+	std::string error;
+	const auto status = Parse(document, out, error);
+	check(status == VerifyStatus::SchemaViolation, "launcher_files[] missing os must be a schema violation");
+}
+
+void test_launcher_files_missing_role_is_schema_violation() {
+	const auto document = ManifestWithLauncherFiles(
+		"{\"name\":\"ygoprodll\",\"url\":\"https://example.invalid/ygoprodll\","
+		"\"sha256\":\"" + std::string(64, 'e') + "\",\"os\":\"linux\"}");
+	Manifest out;
+	std::string error;
+	const auto status = Parse(document, out, error);
+	check(status == VerifyStatus::SchemaViolation, "launcher_files[] missing role must be a schema violation");
+}
+
+void test_launcher_files_duplicate_name_is_schema_violation() {
+	const auto document = ManifestWithLauncherFiles(
+		"{\"name\":\"dup\",\"url\":\"https://example.invalid/a\",\"sha256\":\"" + std::string(64, 'f') + "\",\"os\":\"linux\",\"role\":\"simulator\"},"
+		"{\"name\":\"dup\",\"url\":\"https://example.invalid/b\",\"sha256\":\"" + std::string(64, 'f') + "\",\"os\":\"windows\",\"role\":\"simulator\"}");
+	Manifest out;
+	std::string error;
+	const auto status = Parse(document, out, error);
+	check(status == VerifyStatus::SchemaViolation, "a duplicate launcher_files[].name must be a schema violation");
+}
+
+void test_launcher_files_not_array_is_schema_violation() {
+	const std::string document = "{\"version\":1,\"files\":[{\"name\":\"a\",\"url\":\"https://example.invalid/a\",\"sha256\":\"" + std::string(64, 'a') + "\"}],\"launcher_files\":\"nope\"}";
+	Manifest out;
+	std::string error;
+	const auto status = Parse(document, out, error);
+	check(status == VerifyStatus::SchemaViolation, "launcher_files not being an array must be a schema violation");
+}
+
+void test_select_launcher_files_keeps_matching_os_and_known_role() {
+	std::vector<LauncherFile> files;
+	LauncherFile linux_sim; linux_sim.name = "ygoprodll"; linux_sim.os = "linux"; linux_sim.role = LauncherFileRole::Simulator; linux_sim.role_raw = "simulator";
+	LauncherFile windows_sim; windows_sim.name = "ygoprodll.exe"; windows_sim.os = "windows"; windows_sim.role = LauncherFileRole::Simulator; windows_sim.role_raw = "simulator";
+	LauncherFile linux_strings; linux_strings.name = "fedelex.conf"; linux_strings.os = "linux"; linux_strings.role = LauncherFileRole::Strings; linux_strings.role_raw = "strings";
+	files = { linux_sim, windows_sim, linux_strings };
+	size_t discarded = 0;
+	const auto selected = SelectLauncherFilesForPlatform(files, "linux", &discarded);
+	check(selected.size() == 2, "exactly the two linux entries must be kept");
+	check(discarded == 1, "the windows entry must be counted as discarded");
+}
+
+void test_select_launcher_files_discards_unknown_role_even_with_matching_os() {
+	LauncherFile mystery; mystery.name = "mystery"; mystery.os = "linux"; mystery.role = LauncherFileRole::Unknown; mystery.role_raw = "something-new";
+	size_t discarded = 0;
+	const auto selected = SelectLauncherFilesForPlatform({ mystery }, "linux", &discarded);
+	check(selected.empty(), "an entry with the right os but an unrecognized role must never be installed");
+	check(discarded == 1, "an unrecognized-role entry must be counted as discarded");
+}
+
+void test_select_launcher_files_empty_result_when_nothing_matches() {
+	LauncherFile windows_sim; windows_sim.name = "ygoprodll.exe"; windows_sim.os = "windows"; windows_sim.role = LauncherFileRole::Simulator; windows_sim.role_raw = "simulator";
+	const auto selected = SelectLauncherFilesForPlatform({ windows_sim }, "linux");
+	check(selected.empty(), "no entry for the requesting platform must yield an empty vector, not an error");
+}
+
 }
 
 int RunUpdateTests() {
@@ -645,6 +772,17 @@ int RunUpdateTests() {
 	test_banlist_style_signature_does_not_verify_as_update();
 	test_title_domain_signature_does_not_verify_as_update();
 	test_update_domain_signature_does_not_verify_under_title_domain();
+	test_manifest_without_launcher_files_is_valid_and_empty();
+	test_launcher_files_round_trip_simulator_role();
+	test_launcher_files_strings_role_round_trips();
+	test_launcher_files_unknown_role_is_not_schema_violation();
+	test_launcher_files_missing_os_is_schema_violation();
+	test_launcher_files_missing_role_is_schema_violation();
+	test_launcher_files_duplicate_name_is_schema_violation();
+	test_launcher_files_not_array_is_schema_violation();
+	test_select_launcher_files_keeps_matching_os_and_known_role();
+	test_select_launcher_files_discards_unknown_role_even_with_matching_os();
+	test_select_launcher_files_empty_result_when_nothing_matches();
 
 	std::printf("update_tests: %d checks, %d failures\n", checks, failures);
 	return failures == 0 ? 0 : 1;

@@ -47,6 +47,14 @@ bool IsLowercaseHex64(const std::string& s) {
 
 }
 
+LauncherFileRole LauncherFileRoleFromString(const std::string& role) {
+	if(role == "simulator")
+		return LauncherFileRole::Simulator;
+	if(role == "strings")
+		return LauncherFileRole::Strings;
+	return LauncherFileRole::Unknown;
+}
+
 bool AnyTrustedKeyConfigured() {
 	for(const uint8_t* key : TRUSTED_KEYS) {
 		if(!IsAllZero(key, ED25519_PUBLIC_KEY_SIZE))
@@ -214,6 +222,83 @@ VerifyStatus Parse(const std::string& document, Manifest& out, std::string& erro
 			manifest.files.push_back(std::move(file));
 		}
 
+		// D244: launcher_files is OPTIONAL — absent means "nothing new for
+		// the launcher", not a schema violation (older manifests, or a
+		// release that touches only the old updater's files). Present, it
+		// must be an array of objects with the same required fields as
+		// files[] (name/url/sha256) plus os and role — role is read as the
+		// raw string (schema-level: any string is accepted here) and
+		// resolved into the enum; an unrecognized role is NOT a schema
+		// violation (D244 point 3: "un valore sconosciuto si scarta e si
+		// dice") — it is discarded downstream by
+		// SelectLauncherFilesForPlatform, exactly like an unrecognized os
+		// already is for files[].
+		auto launcher_files_it = j.find("launcher_files");
+		if(launcher_files_it != j.end()) {
+			if(!launcher_files_it->is_array()) {
+				error = "launcher_files is present but not an array";
+				return VerifyStatus::SchemaViolation;
+			}
+			std::unordered_set<std::string> seen_launcher_names;
+			manifest.launcher_files.reserve(launcher_files_it->size());
+			for(const auto& raw_file : *launcher_files_it) {
+				if(!raw_file.is_object()) {
+					error = "a launcher_files entry is not an object";
+					return VerifyStatus::SchemaViolation;
+				}
+				LauncherFile file;
+
+				if(!ReadRequiredString(raw_file, "name", file.name)) {
+					error = "launcher_files[].name is missing or not a string";
+					return VerifyStatus::SchemaViolation;
+				}
+				if(file.name.empty()) {
+					error = "launcher_files[].name is empty";
+					return VerifyStatus::SchemaViolation;
+				}
+				if(!seen_launcher_names.insert(file.name).second) {
+					error = "duplicate launcher_files[].name " + file.name;
+					return VerifyStatus::SchemaViolation;
+				}
+
+				if(!ReadRequiredString(raw_file, "url", file.url)) {
+					error = "launcher_files[].url is missing or not a string";
+					return VerifyStatus::SchemaViolation;
+				}
+				if(file.url.empty()) {
+					error = "launcher_files[].url is empty";
+					return VerifyStatus::SchemaViolation;
+				}
+
+				if(!ReadRequiredString(raw_file, "sha256", file.sha256)) {
+					error = "launcher_files[].sha256 is missing or not a string";
+					return VerifyStatus::SchemaViolation;
+				}
+				if(!IsLowercaseHex64(file.sha256)) {
+					error = "launcher_files[].sha256 for " + file.name + " is not 64 lowercase hex characters";
+					return VerifyStatus::SchemaViolation;
+				}
+
+				// os is REQUIRED here, unlike files[] — D244 defines
+				// launcher_files as a D243-era construct from birth (no
+				// legacy manifest ever carried it without os), so there is
+				// no backward-compatibility reason to accept an entry
+				// without one.
+				if(!ReadRequiredString(raw_file, "os", file.os)) {
+					error = "launcher_files[].os is missing or not a string";
+					return VerifyStatus::SchemaViolation;
+				}
+
+				if(!ReadRequiredString(raw_file, "role", file.role_raw)) {
+					error = "launcher_files[].role is missing or not a string";
+					return VerifyStatus::SchemaViolation;
+				}
+				file.role = LauncherFileRoleFromString(file.role_raw);
+
+				manifest.launcher_files.push_back(std::move(file));
+			}
+		}
+
 		out = std::move(manifest);
 		return VerifyStatus::Ok;
 	} catch(...) {
@@ -253,6 +338,23 @@ std::vector<ManifestFile> SelectFilesForPlatform(const std::vector<ManifestFile>
 	size_t discarded = 0;
 	for(const auto& file : files) {
 		if(!file.os.empty() && file.os == platform)
+			selected.push_back(file);
+		else
+			++discarded;
+	}
+	if(discarded_count)
+		*discarded_count = discarded;
+	return selected;
+}
+
+std::vector<LauncherFile> SelectLauncherFilesForPlatform(const std::vector<LauncherFile>& files,
+														  const std::string& platform,
+														  size_t* discarded_count) {
+	std::vector<LauncherFile> selected;
+	selected.reserve(files.size());
+	size_t discarded = 0;
+	for(const auto& file : files) {
+		if(!file.os.empty() && file.os == platform && file.role != LauncherFileRole::Unknown)
 			selected.push_back(file);
 		else
 			++discarded;
