@@ -17,14 +17,23 @@
 
     Cosa NON cambia rispetto al percorso cross, e va notato perche' e' il
     motivo per cui questo passaggio non tocca cio' che si distribuisce:
-    l'eseguibile si chiama sempre ygopro.exe, esce sempre in bin/<config>/, e'
-    sempre x86, ha sempre il core collegato staticamente dentro (nessuna
-    ocgcore.dll a fianco) e ha anche il runtime collegato staticamente
-    (premake5.lua: staticruntime "on"), quindi non chiede nessun redistribuibile
-    sulla macchina di chi lo scarica. Cambia il compilatore, non il file.
+    l'eseguibile esce sempre in bin/<config>/, e' sempre x86, ha sempre il
+    runtime collegato staticamente (premake5.lua: staticruntime "on"), quindi
+    non chiede nessun redistribuibile sulla macchina di chi lo scarica.
+    Cambia il compilatore, non il file.
+
+    FASE 60 (D239): da qui in poi il core NON e' piu' collegato dentro
+    l'eseguibile. Questo script compila il progetto "ygoprodll" (lo stesso
+    nome usato su Linux, core caricato a runtime da LoadLibrary/dlopen), non
+    piu' "ygopro": produce bin\<config>\ygoprodll.exe. Il nome distribuito
+    resta ygopro.exe, ma la rinomina e' un passo di IMPACCHETTAMENTO
+    (tools/release/package_windows_release.py e lo step di release.yml che
+    prepara lo zip dell'aggiornatore), non di questo script — cosi' chi
+    compila in locale vede lo stesso nome di progetto che genera premake, e
+    non un file gia' rietichettato a meta' percorso.
 
     Tutti i valori qui sotto sono stati RICAVATI dai file che premake genera,
-    non assunti: configurazione "Release|Win32", progetto "ygopro", OutDir
+    non assunti: configurazione "Release|Win32", progetto "ygoprodll", OutDir
     "..\bin\release\". Era la divergenza fra un percorso scritto a mano e
     quello vero a tenere questa build rotta per mesi.
 
@@ -159,20 +168,25 @@ foreach ($dir in 'build', 'obj', 'bin') {
 # --sound=sfml e non "miniaudio,sfml": e' lo stesso backend che usa
 # build_linux.sh, e i due client restano la stessa cosa compilata due volte.
 # --no-direct3d perche' il DirectX SDK non c'e' sui runner (e la build Irrlicht
-# si ferma con "DXSDK_DIR envvar not set"). Niente --no-core: il core va
-# collegato dentro l'eseguibile, ed e' per questo che servono i submodule.
+# si ferma con "DXSDK_DIR envvar not set"). --no-core=true (D239, FASE 60):
+# come su Linux, premake non include piu' il sottoprogetto "ocgcore" ne'
+# genera il progetto "ygopro" che lo collega staticamente — genera solo
+# "ygoprodll", che carica il core a runtime (YGOPRO_BUILD_DLL,
+# gframe/premake5.lua). I submodule (checkout "recursive" in release.yml)
+# restano nel workflow ma non servono piu' a QUESTO script.
 Invoke-Passo 'Genero la soluzione Visual Studio' {
-    & (Join-Path $RepoRoot 'premake5.exe') vs2022 --no-direct3d --sound=sfml --no-joystick=true
+    & (Join-Path $RepoRoot 'premake5.exe') vs2022 --no-direct3d --no-core=true --sound=sfml --no-joystick=true
 }
 
 $Sln = Join-Path $RepoRoot 'build\ygo.sln'
 if (-not (Test-Path $Sln)) { throw "premake non ha generato $Sln." }
 
-# "Release|Win32" e il progetto "ygopro" sono letti dalla soluzione generata,
-# non scelti: sono gli unici nomi che premake emette per questo target.
+# "Release|Win32" e il progetto "ygoprodll" sono letti dalla soluzione
+# generata, non scelti: sono gli unici nomi che premake emette per questo
+# target con --no-core=true.
 $MsConfig = if ($Config -eq 'release') { 'Release' } else { 'Debug' }
-Invoke-Passo "Compilo (Configuration=$MsConfig, Platform=Win32, target ygopro)" {
-    & $MsBuild $Sln -m -t:ygopro -p:Configuration=$MsConfig -p:Platform=Win32 -verbosity:minimal -p:EchoOff=true
+Invoke-Passo "Compilo (Configuration=$MsConfig, Platform=Win32, target ygoprodll)" {
+    & $MsBuild $Sln -m -t:ygoprodll -p:Configuration=$MsConfig -p:Platform=Win32 -verbosity:minimal -p:EchoOff=true
 }
 
 # ----------------------------------------------------------------- verifica --
@@ -181,7 +195,7 @@ Invoke-Passo "Compilo (Configuration=$MsConfig, Platform=Win32, target ygopro)" 
 # binario esista. Il controllo e' in uno script a parte apposta per poterlo far
 # fallire a comando — su Windows non c'e' `file`, quindi l'intestazione PE si
 # legge direttamente.
-$Exe = Join-Path $RepoRoot "bin\$Config\ygopro.exe"
+$Exe = Join-Path $RepoRoot "bin\$Config\ygoprodll.exe"
 $Python = Get-Command python -ErrorAction SilentlyContinue
 if (-not $Python) { $Python = Get-Command python3 -ErrorAction SilentlyContinue }
 if (-not $Python) { throw 'Manca python, che serve a verificare il binario prodotto.' }
@@ -190,4 +204,4 @@ Invoke-Passo 'Verifico che sia davvero un eseguibile Windows' {
     & $Python.Source (Join-Path $ScriptDir 'verify_windows_exe.py') $Exe
 }
 
-Write-Host "Fatto: bin\$Config\ygopro.exe"
+Write-Host "Fatto: bin\$Config\ygoprodll.exe (si rinomina ygopro.exe in fase di impacchettamento)"

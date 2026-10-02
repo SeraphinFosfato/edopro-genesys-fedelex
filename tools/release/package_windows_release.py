@@ -16,8 +16,17 @@ pwsh) prima che giri per la prima volta su un runner windows-latest, che
 ha comunque Python 3 preinstallato (come CI, azioni/setup non necessaria).
 release.yml lo richiama da uno step `shell: pwsh` con `python`.
 
+FASE 60 (D239): build_windows.ps1 compila il progetto "ygoprodll" (core
+caricato a runtime dal repository di Project Ignis, come su Linux), non
+piu' "ygopro" (core collegato dentro). --exe punta quindi a
+bin/release/ygoprodll.exe: **la rinomina a ygopro.exe avviene qui**,
+scrivendo l'entry dello zip col nome vecchio (z.write(exe_path,
+"ygopro.exe")) — e' il vincolo di D239 ("l'aggiornatore pretende lo stesso
+nome dell'eseguibile in esecuzione"). Il nome del file sorgente non conta:
+solo il nome dentro l'archivio.
+
 Contenuto del pacchetto, alla radice dello zip:
-  ygopro.exe
+  ygopro.exe                      (rinominato da ygoprodll.exe, vedi sopra)
   strings/fedelex.conf
   LEGGIMI.txt
   notices/<porta>.copyright.txt   (le 19 licenze di D219, copiate da
@@ -25,7 +34,7 @@ Contenuto del pacchetto, alla radice dello zip:
 
 Uso:
   tools/release/package_windows_release.py \
-      --exe bin/release/ygopro.exe \
+      --exe bin/release/ygoprodll.exe \
       --out tools/release/out/edopro-custom-windows-x86-package.zip
 """
 from __future__ import annotations
@@ -65,9 +74,12 @@ essa il client parte comunque, ma quelle due etichette restano "???" in
 ogni lingua.
 
 Questa build e' compilata su Windows con MSVC, un file solo, nessun
-redistribuibile da installare (runtime e core collegati staticamente
-dentro ygopro.exe). E' una versione di prova: segnala qualunque
-problema, allegando il file error.log se c'e'.
+redistribuibile da installare (il runtime e' collegato staticamente
+dentro ygopro.exe). Il motore di gioco (il core) NON e' dentro
+l'eseguibile: come su Linux, viene scaricato dal repository di Project
+Ignis la prima volta che il client parte, quindi **al primo avvio serve
+una connessione a Internet**. E' una versione di prova: segnala
+qualunque problema, allegando il file error.log se c'e'.
 
 Licenza: AGPLv3, vedi LICENSE nel repository sorgente. Il sorgente
 completo di questa build sta su

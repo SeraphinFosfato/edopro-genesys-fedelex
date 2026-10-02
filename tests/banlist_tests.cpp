@@ -50,6 +50,7 @@ int RunUpdateTests();
 // "game data ready" gate (PHASES.md).
 int RunGameDataReadyTests();
 int RunOnlineGateTests();
+int RunUpdaterManagedFilesTests();
 
 using namespace ygo;
 
@@ -733,5 +734,6 @@ int main() {
 	const int update_failures = RunUpdateTests();
 	const int game_data_ready_failures = RunGameDataReadyTests();
 	const int online_gate_failures = RunOnlineGateTests();
-	return (failures == 0 && diff_failures == 0 && title_failures == 0 && update_failures == 0 && game_data_ready_failures == 0 && online_gate_failures == 0) ? 0 : 1;
+	const int updater_managed_files_failures = RunUpdaterManagedFilesTests();
+	return (failures == 0 && diff_failures == 0 && title_failures == 0 && update_failures == 0 && game_data_ready_failures == 0 && online_gate_failures == 0 && updater_managed_files_failures == 0) ? 0 : 1;
 }

@@ -24,6 +24,7 @@
 #include "sha256.h"
 #include "update_verify.h"
 #include "client_update_version.h"
+#include "updater_managed_files.h"
 
 #define LOCKFILE EPRO_TEXT("./.edopro_lock")
 #define UPDATES_FOLDER EPRO_TEXT("./updates/{}")
@@ -145,11 +146,12 @@ void ClientUpdater::Unzip(void* payload, unzip_callback callback) {
 	Utils::SetThreadName("Unzip");
 #if EDOPRO_WINDOWS || EDOPRO_LINUX
 	const auto& path = ygo::Utils::GetExePath();
-	ygo::Utils::FileMove(path, epro::format(EPRO_TEXT("{}.old"), path));
-#endif
-#if EDOPRO_WINDOWS
-	const auto& corepath = ygo::Utils::GetCorePath();
-	ygo::Utils::FileMove(corepath, epro::format(EPRO_TEXT("{}.old"), corepath));
+	// FASE 60 (D239): the executable is the only file this step ever
+	// stashes aside — on every platform, Windows included since D239. It
+	// used to also stash ocgcore.dll on Windows; see
+	// updater_managed_files.h for why that is gone.
+	for(const auto& managed : ygo::UpdaterManagedPaths(path))
+		ygo::Utils::FileMove(managed, epro::format(EPRO_TEXT("{}.old"), managed));
 #endif
 	// Extract next to the running executable (Utils::GetExeFolder()), never
 	// into UnzipArchive's default "./": that default is the CURRENT WORKING
@@ -179,11 +181,6 @@ void ClientUpdater::Unzip(void* payload, unzip_callback callback) {
 			ygo::ErrorLog("Aggiornamento: impossibile scompattare {}, l'aggiornamento verra' annullato.", file.name);
 		}
 	}
-#if EDOPRO_WINDOWS
-	if(!Utils::FileExists(corepath)) {
-		Utils::FileMove(epro::format(EPRO_TEXT("{}.old"), corepath), corepath);
-	}
-#endif
 #if EDOPRO_WINDOWS || EDOPRO_LINUX
 	// "Il client attuale resta disponibile" (design/client-update.md §5,
 	// stessa riga dell'endpoint irraggiungibile): uno scompattamento fallito
@@ -436,10 +433,11 @@ void ClientUpdater::CheckUpdate() {
 
 static inline void DeleteOld() {
 #if EDOPRO_WINDOWS || EDOPRO_LINUX
-	ygo::Utils::FileDelete(epro::format(EPRO_TEXT("{}.old"), ygo::Utils::GetExePath()));
-#endif
-#if EDOPRO_WINDOWS
-	ygo::Utils::FileDelete(epro::format(EPRO_TEXT("{}.old"), ygo::Utils::GetCorePath()));
+	// FASE 60 (D239): same invariant as Unzip() above — the executable is
+	// the only managed file, on every platform. It used to also delete
+	// ocgcore.dll.old on Windows; see updater_managed_files.h.
+	for(const auto& managed : ygo::UpdaterManagedPaths(ygo::Utils::GetExePath()))
+		ygo::Utils::FileDelete(epro::format(EPRO_TEXT("{}.old"), managed));
 #endif
 	(void)0;
 }

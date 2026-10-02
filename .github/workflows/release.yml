@@ -125,21 +125,25 @@ jobs:
     # cross resta in tools/release/build_windows.sh finche' questo non e'
     # verde: e' l'unica strada che aveva funzionato fin dove aveva funzionato.
     #
-    # Cio' che si distribuisce non cambia: sempre bin/release/ygopro.exe, x86,
-    # col core e il runtime collegati staticamente dentro (premake5.lua:
-    # staticruntime "on"), nessun file a fianco e nessun redistribuibile da
-    # installare. Cambia il compilatore, non il file.
+    # FASE 60 (D239): il core NON e' piu' collegato dentro l'eseguibile.
+    # build_windows.ps1 compila il progetto "ygoprodll" (--no-core=true,
+    # YGOPRO_BUILD_DLL) e produce bin/release/ygoprodll.exe: il core viene
+    # caricato a runtime dal repository di Project Ignis, come su Linux. Il
+    # file distribuito resta ygopro.exe — la rinomina e' un passo di
+    # impacchettamento (vedi gli step piu' sotto), non del compilatore. Il
+    # runtime resta collegato staticamente (premake5.lua: staticruntime
+    # "on"), quindi non c'e' comunque nessun redistribuibile da installare.
+    # Cambia il compilatore, non il contratto di distribuzione.
     name: Build Windows (MSVC, x86)
     runs-on: windows-latest
     steps:
-      # submodules: recursive, non true. Il job Linux passa --no-core=true e
-      # quindi non se ne accorge, ma qui il core e' linkato staticamente:
-      # senza i submodule `ocgcore/` resta vuoto e premake si ferma su
-      # "cannot open ocgcore". Ricorsivo perche' ocgcore ha a sua volta
-      # lua/src, e senza quello manca lauxlib.h.
+      # Niente submodule: con --no-core=true (passato da build_windows.ps1)
+      # premake non include piu' il sottoprogetto "ocgcore", quindi non
+      # serve il sorgente del core per generare la soluzione. Prima di FASE
+      # 60 il core era linkato staticamente e questo checkout doveva essere
+      # "submodules: recursive" (il job Linux non ne aveva bisogno perche'
+      # gia' passava --no-core=true).
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       # Niente installazione di toolchain: il runner Windows monta gia' Visual
       # Studio 2022 e vcpkg. Lo script trova MSBuild con vswhere, cosi' non
@@ -156,22 +160,32 @@ jobs:
       # D178: il percorso e' quello che premake produce davvero (bin/release/),
       # non bin/x86/release/ — che era scritto qui e nello script e non
       # corrispondeva a niente, perche' non ci si era mai arrivati.
+      # FASE 60 (D239): il progetto compilato si chiama "ygoprodll", quindi
+      # premake emette bin/release/ygoprodll.exe, non piu' ygopro.exe. Questo
+      # artefatto di CI resta col nome vero del file prodotto — la rinomina a
+      # ygopro.exe avviene solo nei due step di impacchettamento sotto, che
+      # sono cio' che finisce davvero nella release.
       - name: Carica il binario Windows
         uses: actions/upload-artifact@v4
         with:
           name: edopro-custom-windows-x86
-          path: bin/release/ygopro.exe
+          path: bin/release/ygoprodll.exe
           if-no-files-found: error
 
       # FASE 37 (design/client-update.md §7bis): stesso ragionamento del job
-      # Linux. Qui il core E' collegato staticamente dentro ygopro.exe (vedi
-      # il commento in cima a questo job e build_windows.ps1: "nessuna
-      # ocgcore.dll a fianco"), quindi anche su Windows lo ZIP contiene un
-      # solo file alla radice — non c'e' un core separato che
-      # ClientUpdater::Unzip debba spostare per questa build. Se in futuro il
-      # core tornasse un .dll a fianco, questo passo va rifatto per includerlo
-      # (e quel cambio tocca ClientUpdater::Unzip, non solo lo ZIP: vedi i
-      # punti di risalita di FASE 37 in PHASES.md).
+      # Linux — lo ZIP contiene un solo eseguibile alla radice (piu' le
+      # stringhe), perche' ClientUpdater::Unzip lo estrae accanto
+      # all'eseguibile in esecuzione e non gestisce un secondo file.
+      # FASE 60 (D239): fino a qui il core era collegato staticamente dentro
+      # ygopro.exe, quindi non c'era un core separato da includere o
+      # escludere. Da qui in poi il core NON e' piu' dentro l'eseguibile (lo
+      # consegna il repository di Project Ignis, D239 — "un solo scrittore
+      # per file", MAI ocgcore.dll in questo zip) — e **il file compilato
+      # cambia nome**: premake produce ygoprodll.exe (progetto "ygoprodll",
+      # non piu' "ygopro"). L'aggiornatore pretende pero' lo stesso nome
+      # dell'eseguibile in esecuzione (correzione 024c67cc8, D239), quindi la
+      # rinomina a ygopro.exe avviene QUI, copiando il file nello stage con
+      # un nome diverso da quello sorgente.
       # FASE 40 (ultimo miglio, D202): strings/fedelex.conf viaggia insieme
       # a ygopro.exe. Compress-Archive non sa mettere un file in una
       # sottocartella dell'archivio mantenendo un altro file alla radice in
@@ -187,7 +201,7 @@ jobs:
           $stageDir = "tools/release/.stage-windows-zip"
           if (Test-Path $stageDir) { Remove-Item -Recurse -Force $stageDir }
           New-Item -ItemType Directory -Force -Path "$stageDir/strings" | Out-Null
-          Copy-Item bin/release/ygopro.exe -Destination $stageDir
+          Copy-Item bin/release/ygoprodll.exe -Destination "$stageDir/ygopro.exe"
           Copy-Item strings/fedelex.conf -Destination "$stageDir/strings/fedelex.conf"
 
           New-Item -ItemType Directory -Force -Path tools/release/out | Out-Null
@@ -220,11 +234,14 @@ jobs:
       # Scritto in Python (non PowerShell puro) perche' windows-latest ha
       # Python 3 preinstallato e lo stesso script e' quello testato in
       # sviluppo su Linux prima che questo job girasse la prima volta.
+      # FASE 60 (D239): --exe punta a ygoprodll.exe (il nome che premake
+      # produce ora); package_windows_release.py rinomina a ygopro.exe
+      # DENTRO lo zip, non prima — vedi il docstring di quello script.
       - name: Crea il pacchetto Windows per le persone
         shell: pwsh
         run: |
           python tools/release/package_windows_release.py `
-            --exe bin/release/ygopro.exe `
+            --exe bin/release/ygoprodll.exe `
             --out tools/release/out/edopro-custom-windows-x86-package.zip
 
       - name: Carica il pacchetto Windows per le persone

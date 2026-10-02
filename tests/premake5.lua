@@ -35,6 +35,7 @@ project "banlist_tests"
 		"update_tests.cpp",
 		"game_data_ready_tests.cpp",
 		"online_gate_tests.cpp",
+		"updater_managed_files_tests.cpp",
 		"../gframe/banlist_verify.cpp",
 		"../gframe/banlist_diff.cpp",
 		"../gframe/title_verify.cpp",
