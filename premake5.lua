@@ -364,6 +364,18 @@ workspace "ygo"
 	-- cartella del binario ($ORIGIN, come gia' faceva per l'irrlicht custom),
 	-- poi in lib/ accanto al binario.
 	--
+	-- FASE 64 cancello 6 (D244.7): con il launcher, il simulatore vive in
+	-- PROGRAM_DIR/bin/ e il launcher alla radice di PROGRAM_DIR. lib/ resta
+	-- dove bundle_linux.sh lo mette oggi — accanto al simulatore dentro
+	-- bin/, non a fianco del launcher — quindi $ORIGIN/lib (sopra) continua
+	-- a bastare per il simulatore cosi' com'e'. $ORIGIN/../lib e' aggiunto
+	-- in piu', non in sostituzione, per non dover scegliere adesso se lib/
+	-- restera' sotto bin/ o salira' alla radice di PROGRAM_DIR: un rpath
+	-- che punta a una cartella assente non e' un errore a runtime (il
+	-- loader la salta), quindi tenerne due non costa niente e lascia aperta
+	-- la scelta. Misurato con readelf -d sul binario ricompilato, non
+	-- dedotto dal sorgente (§1.9 CLAUDE.md del vault).
+	--
 	-- $ORIGIN/lib esiste per il tarball di tools/release/bundle_linux.sh. Il
 	-- binario nudo compilato su ubuntu-latest linka le librerie DI QUEL
 	-- sistema: sceso su Arch/CachyOS il 2026-09-25 non partiva affatto
@@ -383,7 +395,8 @@ workspace "ygo"
 	-- tarball se trova RUNPATH.
 	filter { "system:linux", "configurations:Release" }
 		linkoptions { "-static-libgcc", "-static-libstdc++",
-			"-Wl,--disable-new-dtags", "-Wl,-rpath,'$$ORIGIN'", "-Wl,-rpath,'$$ORIGIN/lib'" }
+			"-Wl,--disable-new-dtags", "-Wl,-rpath,'$$ORIGIN'", "-Wl,-rpath,'$$ORIGIN/lib'",
+			"-Wl,-rpath,'$$ORIGIN/../lib'" }
 
 	subproject = true
 	if not _OPTIONS["prebuilt-core"] and not _OPTIONS["no-core"] then
