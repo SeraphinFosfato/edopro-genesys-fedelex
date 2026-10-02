@@ -4,6 +4,20 @@ Compagno di `banlist-distribution.md`, e ne segue deliberatamente la forma.
 Questa è **l'unica copia** del contratto: se una modifica sembra richiedere di
 aggiornare anche un'altra copia, è un errore, non un passo da fare.
 
+**Dal 2026-10-02 (D236/D244, FASE 64) questo meccanismo non installa più
+niente da solo**: `ClientUpdater::StartUpdate()` ritorna sempre `false`
+(commit `53c101e93`). Chi scarica e sostituisce il simulatore ora è il
+**launcher**, un eseguibile separato — forma in `design/launcher.md`, scelte
+di dettaglio in D244 di `design/decisioni.md`. Quanto segue in questo
+documento resta vero come descrizione di `CheckUpdates()`/della soglia
+online (D237, non toccata da D244) e come archivio del perché l'aggiornatore
+interno esiste così com'è; non descrive più chi installa gli eseguibili.
+Al 2026-10-02 il launcher esiste nel sorgente (FASE 64 cancello 6, pipeline
+di release che lo compila e lo impacchetta) ma **nessuna release pubblicata
+lo contiene ancora** — vale la stessa distinzione sorgente/artefatto spedito
+di `launcher.md`.
+<!-- verifica: grep -q "return false;" EdoproForkGSY/edopro_custom/gframe/client_updater.cpp -->
+
 ## Perché esiste
 
 Il 2026-09-25 un tester ha preso in duello:

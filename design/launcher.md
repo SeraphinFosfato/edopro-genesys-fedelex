@@ -65,22 +65,75 @@ ancora il sorgente, nessuna release lo porta).
     modifiche del cancello 5 anche (sopra). Manca ancora la build Windows
     (fuori portata per definizione) e tutto cio' che cancello 6 avrebbe
     dovuto esercitare.
-- **NON fatto**: cancello 6 per intero — nessuna modifica a
-  `.github/workflows/release.yml`, `build_windows.ps1`, agli impacchettatori
-  Linux/Windows, a `tools/release/artifacts.json` + README, ne' a
-  `tools/release/installer/install.sh` (la disposizione D244.7/8: il
-  launcher come `{EXEC}` del `.desktop`, l'installatore che smette di
-  scrivere il wrapper bash e scrive il binario del launcher, la pulizia di
-  un vecchio `bin/ygoprodll` orfano). Senza questo, **oggi una release
-  reale non contiene ancora il launcher**: il codice sopra esiste e
-  funziona in un HOME finto, ma nessuna pipeline lo impacchetta, nessun
-  installatore lo dispone, nessun giocatore puo' ancora riceverlo. Build
-  Windows: fuori portata per definizione fino al primo tag (vedi
-  PHASES.md).
-- **Non si pubblica una release da questo sorgente prima del cancello 6.**
-  Da `53c101e93` l'aggiornatore interno non installa piu' niente
-  (D244.6): una release senza launcher nei pacchetti lascerebbe i
-  giocatori senza nessun aggiornamento automatico.
+- **Cancello 6 — fatto su Linux, aperto su Windows per costruzione**
+  (2026-10-02, terza sessione, fork `87d2ff10c`..`fc3d12560`, vault
+  commit `python3 -m unittest` verde su `build_update_manifest.py`):
+  - `premake5.lua`: rpath `$ORIGIN/../lib` aggiunto (in piu', non in
+    sostituzione) per il simulatore sotto `bin/`. Misurato con `readelf -d`
+    sul binario ricompilato: `RPATH = $ORIGIN:$ORIGIN/lib:$ORIGIN/../lib`.
+  - `tools/release/bundle_linux.sh`: nuovo layout del tarball —
+    `fedelex-launcher` alla radice, `bin/ygoprodll`, `lib/` accanto al
+    launcher. Provato: lo script gira pulito, il tarball estratto ha la
+    disposizione attesa.
+  - `launcher/main.cpp`: le tre chiamate che eseguono il simulatore ora
+    passano `-C <data_dir>` (bug trovato testando l'installazione end to
+    end: senza, il simulatore chdir sulla propria cartella invece che
+    sulla cartella dati, sbagliato ogni volta che le due differiscono —
+    il caso comune).
+  - `tools/release/installer/install.sh`: dispone il launcher alla radice
+    di `PROGRAM_DIR` e il simulatore sotto `bin/` (D244.7); l'avviatore in
+    `XDG_BIN_HOME` e' ora un **symlink** al binario del launcher (non un
+    wrapper bash generato, non una copia — una copia cercherebbe
+    `bin/ygoprodll` nella cartella sbagliata); `cleanup_data_dir_remnants`
+    estesa a `bin/ygoprodll`/`bin/ygopro.exe` orfani con impronta fedelex
+    nella cartella dati (D244.8). **Provato in HOME finti** (vincolo di
+    sessione, mai sul sistema vero): installazione pulita (layout atteso,
+    il launcher installato esegue davvero `bin/ygoprodll`, verificato in
+    `launcher.log`); conversione di un'installazione FASE 62 preesistente
+    (wrapper bash + `ygoprodll` alla radice) — il binario orfano viene
+    rimosso, il mazzo dell'utente nella cartella dati resta intatto,
+    l'avviatore punta al nuovo launcher; `--uninstall` lascia la cartella
+    dati intatta.
+  - `.github/workflows/release.yml`, `tools/release/build_linux.sh`: il
+    job Linux compila e allega `fedelex-launcher` nudo e `fedelex.conf`
+    nudo; il job publish torna ad allegare `ygoprodll.exe` nudo (tolto il
+    2026-09-29, riallegato con un ruolo diverso). Questi tre file sono
+    per `ALLEGATI_LAUNCHER` nel vault (D244.3): il launcher scarica file
+    singoli, non zip, cercati fra gli asset della release per nome
+    esatto. `tools/release/artifacts.json` + README aggiornati,
+    `check_artifacts_manifest.py` verde.
+  - `tools/release/build_windows.ps1`, `package_windows_release.py`:
+    aggiornati per compilare e disporre il launcher secondo D244.7
+    (`ygopro.exe` = launcher alla radice, `bin/ygoprodll.exe` = simulatore)
+    — **mai compilati ne' eseguiti su un runner Windows vero**, nessun
+    toolchain in questo ambiente. La logica di staging di
+    `package_windows_release.py` e' provata con due binari ELF al posto
+    di due PE (stesso codice, stesso `zipfile`): `unzip -l` conferma
+    `ygopro.exe` e `bin/ygoprodll.exe` nella disposizione attesa, ma
+    questa non e' una prova che compili o che un `.exe` reale si comporti
+    cosi'. Fuori portata per definizione fino al primo tag (PHASES.md).
+  - `banlist/scripts/build_update_manifest.py` (vault, cancello 7, gia'
+    fatto prima di questa sessione): `ALLEGATI_LAUNCHER` usa esattamente
+    i tre nomi allegati sopra (`ygoprodll`, `ygoprodll.exe`,
+    `fedelex.conf`) — verificato con
+    `python3 -m unittest banlist.scripts.tests.test_build_update_manifest`.
+  - **Non ancora in una release pubblicata**: tutto questo esiste nel
+    sorgente a questo commit, non in un tag (§1.9 CLAUDE.md del vault).
+    Il divieto "non pubblicare da questo sorgente" sotto resta, finche'
+    non si fa almeno un dispatch/tag di prova che eserciti davvero
+    `release.yml` su un runner reale — mai fatto in questa sessione
+    (vincolo: niente push/tag/release/dispatch).
+- **Il cancello 6 e' passato secondo i suoi stessi criteri** (PHASES.md:
+  `check_artifacts_manifest.py` verde, l'installatore in HOME finto produce
+  la disposizione D244.7, la pulizia D244.8 verificata con un residuo
+  fedelex finto in `bin/`). **Resta da provare prima di un tag reale:**
+  la build Windows non e' mai stata compilata (nessun toolchain in questo
+  ambiente — fuori portata per costruzione, non un difetto di questo
+  cancello) e la pipeline intera non e' mai girata su un runner vero (niente
+  dispatch in questa sessione, per vincolo). Il primo tag o
+  `workflow_dispatch` su questo sorgente e' la prima prova reale sia della
+  build Windows sia della pipeline end-to-end: se qualcosa non regge li', e'
+  li' che si scopre, non prima.
 - Non e' un punto di risalita (§6.6): nessuna scelta di forma e' rimasta
   aperta, solo lavoro non ancora scritto — vedi PHASES.md, coda del brief
   FASE 64, per cosa riprendere e da dove.
