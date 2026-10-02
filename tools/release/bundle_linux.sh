@@ -2,14 +2,22 @@
 # Impacchetta il client Linux con la propria chiusura di dipendenze accanto,
 # in modo che parta su una distribuzione diversa da quella del runner.
 #
-# Uso: tools/release/bundle_linux.sh [binario] [cartella-di-uscita]
-#   [binario]             default bin/x64/release/ygoprodll
+# Uso: tools/release/bundle_linux.sh [simulatore] [launcher] [cartella-di-uscita]
+#   [simulatore]          default bin/x64/release/ygoprodll
+#   [launcher]            default bin/x64/release/fedelex-launcher
 #   [cartella-di-uscita]  default tools/release/out
 #
 # Produce <out>/edopro-custom-linux-x64.tar.gz, che estratto da:
 #   edopro-custom-linux-x64/
-#     ygoprodll        <- byte per byte lo stesso binario nudo della release
-#     lib/*.so.*       <- la chiusura filtrata, con il SONAME come nome file
+#     fedelex-launcher <- quello che il giocatore avvia (D244.7/design/launcher.md).
+#                         Byte per byte lo stesso binario della release.
+#     bin/ygoprodll     <- il simulatore, nome da interno (D244.7): MAI
+#                         collegato dall'icona/.desktop, solo dal launcher.
+#     lib/*.so.*       <- la chiusura filtrata, con il SONAME come nome file.
+#                         Sta alla RADICE (non sotto bin/) perche' il
+#                         simulatore in bin/ la trova via l'rpath
+#                         $ORIGIN/../lib aggiunto in premake5.lua per questo
+#                         cancello (misurato con readelf -d, non dedotto).
 #     install.sh       <- installatore Linux (FASE 35, PHASES.md): copia
 #                         programma+librerie sotto ~/.local, senza mai sudo
 #                         ne' scritture fuori $HOME. Vedi tools/release/installer/.
@@ -56,7 +64,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 BIN="${1:-$REPO_ROOT/bin/x64/release/ygoprodll}"
-OUT_DIR="${2:-$REPO_ROOT/tools/release/out}"
+LAUNCHER_BIN="${2:-$REPO_ROOT/bin/x64/release/fedelex-launcher}"
+OUT_DIR="${3:-$REPO_ROOT/tools/release/out}"
 
 PKG_NAME="edopro-custom-linux-x64"
 STAGE_ROOT="$REPO_ROOT/tools/release/.stage-bundle"
@@ -204,10 +213,16 @@ combacia() {
 	echo "        compila prima con tools/release/build_linux.sh release" >&2
 	exit 1
 }
+[[ -f "$LAUNCHER_BIN" ]] || {
+	echo "ERRORE: launcher non trovato: $LAUNCHER_BIN" >&2
+	echo "        compila prima con: make -C build config=release_x64 fedelex-launcher" >&2
+	exit 1
+}
 
 echo "== bundle_linux.sh =="
-echo "binario:  $BIN"
-echo "uscita:   $OUT_DIR"
+echo "simulatore: $BIN"
+echo "launcher:   $LAUNCHER_BIN"
+echo "uscita:     $OUT_DIR"
 echo
 
 # Il pacchetto funziona solo se il binario cerca davvero in lib/ accanto a se'
@@ -265,13 +280,19 @@ echo
 
 # ── 2. stage ──────────────────────────────────────────────────────────────
 rm -rf "$STAGE_ROOT"
-mkdir -p "$STAGE/lib"
+mkdir -p "$STAGE/bin" "$STAGE/lib"
 
-# Copia, non strip: il binario dentro il tarball deve restare byte per byte
-# lo stesso che la release pubblica nudo, altrimenti "sono lo stesso file"
+# Copia, non strip: i binari dentro il tarball devono restare byte per byte
+# gli stessi della release pubblica nuda, altrimenti "sono lo stesso file"
 # smette di essere vero e un bug si riproduce solo in uno dei due.
-cp "$BIN" "$STAGE/$(basename "$BIN")"
-chmod +x "$STAGE/$(basename "$BIN")"
+#
+# D244.7: il launcher e' quello che il giocatore avvia, alla RADICE di
+# PROGRAM_DIR (accanto all'icona). Il simulatore sta in bin/, nome da
+# interno, mai collegato dall'icona o dalla voce di menu.
+cp "$LAUNCHER_BIN" "$STAGE/$(basename "$LAUNCHER_BIN")"
+chmod +x "$STAGE/$(basename "$LAUNCHER_BIN")"
+cp "$BIN" "$STAGE/bin/$(basename "$BIN")"
+chmod +x "$STAGE/bin/$(basename "$BIN")"
 
 # FASE 40 (ultimo miglio, D202): strings/fedelex.conf accanto al binario,
 # stessa cartella che install.sh poi rsynca in $PROGRAM_DIR senza bisogno di
@@ -369,11 +390,16 @@ done
 # Il binario, dentro lo stage, deve risolvere in lib/ tutto cio' che abbiamo
 # impacchettato — altrimenti abbiamo copiato file che nessuno usera'.
 NON_DAL_BUNDLE=0
-VERIFICA="$(ldd "$STAGE/$(basename "$BIN")" | normalizza_ldd)"
+VERIFICA="$(ldd "$STAGE/bin/$(basename "$BIN")" | normalizza_ldd)"
 for voce in "${INCLUSE[@]}"; do
 	soname="${voce%%|*}"
 	risolto="$(awk -F'\t' -v s="$soname" '$1==s{print $2}' <<<"$VERIFICA")"
-	if [[ "$risolto" != "$STAGE/lib/$soname" ]]; then
+	# Il simulatore sta in bin/ e arriva a lib/ via l'rpath $ORIGIN/../lib:
+	# il percorso che ldd riporta e' letteralmente ".../bin/../lib/<nome>",
+	# non canonicalizzato. Si confronta per destinazione reale (realpath),
+	# non per stringa, altrimenti un bundle che funziona si segnalerebbe
+	# come rotto.
+	if [[ -z "$risolto" ]] || [[ "$(realpath -m "$risolto")" != "$(realpath -m "$STAGE/lib/$soname")" ]]; then
 		echo "ATTENZIONE: $soname risolve a '$risolto', non alla copia in lib/" >&2
 		NON_DAL_BUNDLE=$((NON_DAL_BUNDLE + 1))
 	fi
@@ -425,15 +451,23 @@ Installazione manuale (alternativa)
   1. Apri la cartella dove sta il tuo eseguibile EDOPro (es.
      ~/.local/opt/edopro/app, o /opt/edopro se l'hai installato dal
      gestore pacchetti della tua distribuzione).
-  2. Copia dentro, accanto a quell'eseguibile:
-       ygoprodll
-       lib/          (la cartella intera)
-       strings/      (la cartella intera)
-  3. Avvia ./ygoprodll da quella cartella.
+  2. Copia dentro:
+       fedelex-launcher  (alla radice, accanto all'eseguibile EDOPro)
+       bin/              (la cartella intera: contiene ygoprodll)
+       lib/              (la cartella intera)
+       strings/          (la cartella intera)
+  3. Avvia ./fedelex-launcher da quella cartella (non ./bin/ygoprodll
+     direttamente: il launcher controlla gli aggiornamenti e poi avvia il
+     simulatore da solo).
 
-La cartella lib/ deve restare accanto a ygoprodll: il binario ci cerca
-dentro le librerie che si porta appresso. Se la sposti o la rinomini, il
-client non parte piu'.
+Da questo pacchetto in poi (FASE 64) non si avvia piu' il simulatore
+direttamente: si avvia il **launcher**, che verifica gli aggiornamenti e poi
+esegue ygoprodll da bin/. Se lanci ygoprodll a mano, funziona comunque (si
+riaggancia al launcher una volta sola), ma non e' il percorso consigliato.
+
+La cartella lib/ deve restare accanto a fedelex-launcher (il binario in
+bin/ la trova via \$ORIGIN/../lib). Se la sposti o la rinomini, il client
+non parte piu'.
 
 La cartella strings/ contiene le etichette che questo fork aggiunge
 ("Points:"/"Stats:" nel filtro per costo della point list). Senza di
@@ -441,7 +475,7 @@ essa il client parte comunque, ma quelle due etichette restano "???" in
 ogni lingua.
 
 Se all'avvio compare "error while loading shared libraries", esegui
-  ldd ./ygoprodll
+  ldd ./bin/ygoprodll
 e segnala quali righe dicono "not found": vuol dire che manca una libreria
 di sistema che questo pacchetto da' per scontata (driver grafici, audio,
 glibc) e va installata dal gestore pacchetti della tua distribuzione.
