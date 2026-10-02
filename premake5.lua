@@ -401,6 +401,48 @@ workspace "ygo"
 		include "discord-launcher"
 	end
 
+-- fedelex-launcher (FASE 64, design/launcher.md, D244 point 1): a small,
+-- separate project — no irrlicht, no core, no gframe files beyond the
+-- three modules it reuses because they already have zero gframe
+-- dependency (update_verify, launcher_logic, sha256) plus the vendored
+-- Ed25519 verify. Lives in the same workspace as ygoprodll so one premake
+-- invocation produces both, and so it inherits the same
+-- targetdir/configurations filters above — it is NOT meant to be built
+-- standalone the way tests/premake5.lua is (that one is deliberately
+-- separate so it never conflicts with upstream; this one is ours).
+project "fedelex-launcher"
+	language "C++"
+	cppdialect "C++17"
+	warnings "Extra"
+	filter { "action:not vs*" }
+		enablewarnings "pedantic"
+	filter {}
+	includedirs { "gframe" }
+	files {
+		"launcher/main.cpp",
+		"gframe/update_verify.cpp",
+		"gframe/launcher_logic.cpp",
+		"gframe/sha256.cpp",
+		"gframe/tweetnacl/*.c",
+	}
+	-- Same default/override mechanism as UPDATE_URL in gframe/premake5.lua
+	-- (D244 point 3: "nessun dominio nuovo" — same manifest, same URL, the
+	-- launcher just reads an extra array out of it).
+	defines { "FEDELEX_UPDATE_URL=" .. _OPTIONS["update-url"] }
+	filter "system:windows"
+		-- D244 point 7: this IS "ygopro.exe", the icon the player clicks —
+		-- windowed subsystem (MessageBoxW only, no console), never built or
+		-- run in this environment (no Windows toolchain here; see the
+		-- file-level comment in launcher/main.cpp).
+		kind "WindowedApp"
+		targetname "ygopro"
+		links { "bcrypt" } -- tweetnacl/randombytes.c, same as gframe/premake5.lua
+	filter "system:not windows"
+		kind "ConsoleApp"
+		targetname "fedelex-launcher"
+		links { "curl" }
+	filter {}
+
 local function vcpkgStaticTriplet(prj)
 	premake.w('<VcpkgTriplet Condition="\'$(Platform)\'==\'Win32\'">x86-windows-static</VcpkgTriplet>')
 	premake.w('<VcpkgTriplet Condition="\'$(Platform)\'==\'x64\'">x64-windows-static</VcpkgTriplet>')
