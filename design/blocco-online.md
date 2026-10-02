@@ -77,15 +77,18 @@ due. Il costo, accettato: chi avvia il client mentre GitHub non risponde resta
 fuori dall'online per quella sessione, e aggiornare non lo aiuta.
 <!-- verifica: grep -q "if(repo->has_core)" EdoproForkGSY/edopro_custom/gframe/game.cpp -->
 
-**R2 non esiste finché le sincronizzazioni non sono finite, e questo è un
-vincolo, non un dettaglio** (corretto il 2026-10-02, vedi sotto). Un
-repository che *sta ancora* sincronizzando non è un repository che ha
-fallito: è un repository di cui non si sa ancora niente. R2 si valuta solo
-quando la passata di clone-o-aggiornamento è **conclusa per tutti**, riuscita
-o fallita — la stessa nozione che `game_data_ready.h` già usa, e che conta
-come conclusa anche una sincronizzazione finita male. Prima di quel momento
-non c'è nessuna opinione da registrare, esattamente come per un manifesto
-irraggiungibile.
+**R2 esiste solo quando i dati di gioco hanno raggiunto il loro stato
+definitivo, e questo è un vincolo, non un dettaglio** (corretto il
+2026-10-02, due volte: vedi sotto). Un repository che *sta ancora*
+sincronizzando non è un repository che ha fallito, e un core che *non è
+ancora stato scambiato* non è un core che ha rifiutato lo scambio: sono
+situazioni di cui non si sa ancora niente. R2 si valuta solo quando sono vere
+tutte e tre le cose: un core è caricato, nessun repository sta più
+sincronizzando, e **nessuno scambio di core è ancora in attesa**. Quelle tre
+insieme sono esattamente `IsGameDataReady()` (`game_data_ready.h`, FASE 38),
+che esiste già, è documentato e testato: R2 **riusa quel predicato**, non una
+condizione propria. Prima di quel momento non c'è nessuna opinione da
+registrare, esattamente come per un manifesto irraggiungibile.
 
 > **L'errore da cui nasce questa regola, perché non si ripeta.** La prima
 > stesura di questo documento diceva solo "repository non sincronizzato
@@ -97,6 +100,21 @@ irraggiungibile.
 > aveva seguito la forma alla lettera: il difetto era nella forma. Due regole
 > ciascuna sensata da sola possono essere incompatibili insieme, e il posto
 > dove si vede è la **sequenza di avvio**, non la singola regola.
+>
+> **La prima correzione ha colpito l'istanza, non la categoria, e il secondo
+> caso è arrivato dopo venti minuti.** Dire "R2 aspetta che le
+> sincronizzazioni finiscano" sembrava sufficiente perché lo scambio del core
+> avviene nello stesso fotogramma, subito prima della valutazione. Ma quel
+> passaggio è saltato mentre un duello o un replay è in corso
+> (`if(!dInfo.isStarted) LoadCoreFromRepos();`), e un replay in flusso si può
+> guardare mentre i repository scaricano. Quindi: apro il client, guardo un
+> replay, le sincronizzazioni finiscono durante il replay, lo scambio è
+> rimandato, il cancello si chiude per un core che nessuno ha ancora provato a
+> sostituire — e non si riapre più. Stessa categoria del primo difetto:
+> **chiudere per un'informazione che non è ancora arrivata.** La forma che la
+> estingue è una sola, cioè "i dati di gioco sono nel loro stato definitivo",
+> che qualcuno aveva già scritto e testato (§6.5: la seconda istanza non
+> vuole una toppa, vuole il meccanismo).
 
 R2 è comunque sempre noto **prima** che si possa entrare online: il cancello
 dei dati pronti (FASE 38) non lascia ospitare né entrare finché le
@@ -250,21 +268,57 @@ client reale, non solo nella forma pura:
   (`Game::RefreshOnlineGate()`, chiamata ogni frame da `MainLoop()`).
 <!-- verifica: grep -q "EvaluateOnlineGate" EdoproForkGSY/edopro_custom/gframe/online_gate.h -->
 <!-- verifica: grep -q "online_gate_latch.Update" EdoproForkGSY/edopro_custom/gframe/game.cpp -->
-- **Corretto il difetto di sequenza d'avvio descritto in §2** (lo stesso
-  giorno): `EvaluateOnlineGate` prende ora un quarto ingresso,
-  `syncs_finished`, e non puo' rispondere R2 quando e' falso.
-  `Game::RefreshOnlineGate()` lo passa come
-  `gRepoManager->GetUpdatingReposNumber() == 0`. Il test che prova la
-  sequenza reale (`test_startup_sequence_ends_open`,
-  `tests/online_gate_tests.cpp`) e' stato scritto **prima** della
-  correzione e osservato fallire (4 check rossi: t0, t1, t2, stato finale
-  del latch) prima di essere corretto — non e' stato scritto dopo su
-  codice gia' giusto. Resta un test (`test_finished_but_not_synced_still_closes`)
-  che prova che il caso D240 vero (sincronizzazione finita e core non da
-  repository) chiude ancora: la correzione ha toccato **quando** si valuta,
-  non **se** un cancello chiuso riapre.
-<!-- verifica: grep -q "bool syncs_finished" EdoproForkGSY/edopro_custom/gframe/online_gate.h -->
-<!-- verifica: grep -q "test_startup_sequence_ends_open" EdoproForkGSY/edopro_custom/tests/online_gate_tests.cpp -->
+- **Corretto, in due passi, il difetto di sequenza descritto in §2.** Il
+  primo passo aveva colpito l'istanza (`syncs_finished =
+  GetUpdatingReposNumber() == 0`) e non la categoria: un repository poteva
+  finire di sincronizzare mentre un duello o un replay in flusso era in
+  corso, lasciando lo scambio del core **rimandato** (`core_swap_pending`),
+  stato che `syncs_finished` non distingueva da un vero fallimento. Il
+  secondo passo ha sostituito quell'ingresso con `game_data_ready`, che il
+  chiamante valorizza come `IsGameDataReady()` (`game_data_ready.h`, FASE
+  38) — core caricato, nessun repository che sincronizza, **e** nessuno
+  scambio in attesa, già scritto e testato altrove: R2 riusa quel
+  predicato intero, non lo ricostruisce a pezzi (§6.5 del CLAUDE.md del
+  vault: la seconda istanza di un difetto vuole il meccanismo, non
+  un'altra toppa).
+
+  Entrambi i test di sequenza sono stati scritti **prima** della rispettiva
+  correzione e osservati fallire: `test_startup_sequence_ends_open` (4
+  check rossi: t0, t1, t2, stato finale del latch) sul primo difetto, poi
+  `test_replay_mid_sync_with_swap_pending_stays_open` sul secondo —
+  quest'ultimo costruendo l'ingresso esattamente come lo costruiva ancora
+  `Game::RefreshOnlineGate()` prima di questo commit
+  (`updating_repos_count == 0`, ignorando `core_swap_pending`) e osservando
+  il fallimento (R2 invece di Open) prima di cambiare il chiamante.
+  `test_swap_attempted_and_failed_still_closes` prova che il caso D240 vero
+  (scambio tentato e fallito, non più in attesa) chiude ancora: la
+  correzione ha toccato **quando** si valuta, mai **se** un cancello chiuso
+  riapre.
+<!-- verifica: grep -q "bool game_data_ready" EdoproForkGSY/edopro_custom/gframe/online_gate.h -->
+<!-- verifica: grep -q "IsGameDataReady()" EdoproForkGSY/edopro_custom/gframe/game.cpp -->
+<!-- verifica: grep -q "test_replay_mid_sync_with_swap_pending_stays_open" EdoproForkGSY/edopro_custom/tests/online_gate_tests.cpp -->
+<!-- verifica(NON): grep -q "GetUpdatingReposNumber() == 0;" EdoproForkGSY/edopro_custom/gframe/game.cpp -->
+
+  **Le altre strade verso `dInfo.isStarted = true`, cercate per sapere se
+  la categoria è davvero chiusa.** Otto punti scrivono quel campo:
+  `replay_mode.cpp` (4, replay in flusso — il caso appena corretto),
+  `old_replay_mode.cpp` (2, replay di vecchio formato — già filtrato da
+  `IsGameDataReady()` al bottone, `menu_handler.cpp:60/68`),
+  `single_mode.cpp` (1, duello contro l'IA — bottone già filtrato da
+  `IsGameDataReady()`, `menu_handler.cpp:244` e simili), `duelclient.cpp`
+  (1, inizio duello online — raggiungibile solo da un host già passato dal
+  cancello). Nessuna di queste è una strada nuova per lo stesso difetto:
+  la correzione non dipende da **quale** strada ha messo `isStarted` a
+  `true`, perché `IsGameDataReady()` legge `core_swap_pending`
+  (`!cores_to_load.empty()`) che può riempirsi di nuovo **durante** una
+  sessione già avviata, qualunque sia la modalità che l'ha avviata — un
+  secondo aggiornamento del repository mentre un duello gia' in corso
+  blocca comunque `LoadCoreFromRepos()`, e il predicato lo vede a
+  prescindere da come si è arrivati a `isStarted = true`. La sola strada
+  che bypassava completamente un controllo (nessun filtro su
+  `IsGameDataReady()` al bottone) era quella del replay in flusso
+  (`CanBePlayedInStreamedMode()`, `menu_handler.cpp:777`), ed è la stessa
+  già corretta sopra. Nessun'altra strada trovata.
 - **R2, i tre casi di §2**: `Game::LoadCoreFromRepos()` logga in `error.log`
   quando nessuno dei core candidati del repository si carica (caso 1,
   scambio fallito) con il core rimasto in uso; `Game::RefreshOnlineGate()`

@@ -7,6 +7,7 @@
 #include "online_gate.h"
 #include "local_connection.h"
 #include "grace_period.h"
+#include "game_data_ready.h"
 
 // Called from banlist_tests.cpp's main() so the whole suite stays one
 // binary with one summary line, per tests/premake5.lua's single ConsoleApp
@@ -32,21 +33,21 @@ void check(bool condition, const char* what) {
 // Cancello 2 — the predicate, every combination.
 
 void test_no_reason_is_open() {
-	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/true, /*syncs_finished=*/true) == OnlineGateReason::Open,
+	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/true, /*game_data_ready=*/true) == OnlineGateReason::Open,
 		 "supported client, separate-core build, core IS from the repository: must be Open");
-	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/false, /*core_from_repository=*/false, /*syncs_finished=*/true) == OnlineGateReason::Open,
+	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/false, /*core_from_repository=*/false, /*game_data_ready=*/true) == OnlineGateReason::Open,
 		 "supported client, STATIC build: must be Open regardless of core_from_repository");
 }
 
 void test_r1_closes() {
-	check(EvaluateOnlineGate(/*client_supported=*/false, /*core_separate_build=*/true, /*core_from_repository=*/true, /*syncs_finished=*/true) == OnlineGateReason::R1BuildBelowThreshold,
+	check(EvaluateOnlineGate(/*client_supported=*/false, /*core_separate_build=*/true, /*core_from_repository=*/true, /*game_data_ready=*/true) == OnlineGateReason::R1BuildBelowThreshold,
 		 "unsupported client must close with R1, even if the core would otherwise be fine");
-	check(EvaluateOnlineGate(/*client_supported=*/false, /*core_separate_build=*/false, /*core_from_repository=*/false, /*syncs_finished=*/true) == OnlineGateReason::R1BuildBelowThreshold,
+	check(EvaluateOnlineGate(/*client_supported=*/false, /*core_separate_build=*/false, /*core_from_repository=*/false, /*game_data_ready=*/true) == OnlineGateReason::R1BuildBelowThreshold,
 		 "unsupported client on a STATIC build: R1 is the only possible signal there, and it must still close");
 }
 
 void test_r2_closes_on_separate_core_build_only() {
-	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/false, /*syncs_finished=*/true) == OnlineGateReason::R2CoreNotFromRepository,
+	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/false, /*game_data_ready=*/true) == OnlineGateReason::R2CoreNotFromRepository,
 		 "supported client, separate-core build, core NOT from the repository (any of the three D240 cases): must close with R2");
 }
 
@@ -56,9 +57,9 @@ void test_r2_never_closes_on_static_build() {
 	// ignore core_from_repository entirely when core_separate_build is
 	// false — this is the single property that lets Windows adopt a
 	// separate core later (FASE 60) with this call site unchanged.
-	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/false, /*core_from_repository=*/true, /*syncs_finished=*/true) == OnlineGateReason::Open,
+	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/false, /*core_from_repository=*/true, /*game_data_ready=*/true) == OnlineGateReason::Open,
 		 "static build, core_from_repository=true: Open (the expected value)");
-	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/false, /*core_from_repository=*/false, /*syncs_finished=*/true) == OnlineGateReason::Open,
+	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/false, /*core_from_repository=*/false, /*game_data_ready=*/true) == OnlineGateReason::Open,
 		 "static build, core_from_repository=false: must STILL be Open — R2 cannot exist on a static build, so this input must be ignored, not read as a mismatch");
 }
 
@@ -86,12 +87,12 @@ void test_startup_sequence_ends_open() {
 	// t0: at least one repository is still syncing. core_from_repository is
 	// necessarily false here (nothing has swapped in yet) — the predicate
 	// must still answer Open, because syncs_finished is false.
-	check(latch.Update(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/false, /*syncs_finished=*/false)) == OnlineGateReason::Open,
+	check(latch.Update(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/false, /*game_data_ready=*/false)) == OnlineGateReason::Open,
 		 "startup sequence, t0 (syncing in progress): must be Open, not R2 — nothing has been decided yet");
 	// t1: every repository's pass is now done and (same call) the swap
 	// succeeded. The gate must end Open, and the latch (having never
 	// closed at t0) must allow it.
-	check(latch.Update(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/true, /*syncs_finished=*/true)) == OnlineGateReason::Open,
+	check(latch.Update(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/true, /*game_data_ready=*/true)) == OnlineGateReason::Open,
 		 "startup sequence, t1 (syncs finished, swap succeeded): must be Open");
 	check(latch.Current() == OnlineGateReason::Open, "end of startup sequence: the session latch must read Open, not latched closed from an earlier frame");
 }
@@ -101,8 +102,68 @@ void test_startup_sequence_ends_open() {
 // (sync failed, or swap failed, or nobody declares a core) must still
 // close with R2. This is the case the fix must NOT remove.
 void test_finished_but_not_synced_still_closes() {
-	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/false, /*syncs_finished=*/true) == OnlineGateReason::R2CoreNotFromRepository,
+	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/false, /*game_data_ready=*/true) == OnlineGateReason::R2CoreNotFromRepository,
 		 "D240: syncs finished and the core in use is still not the repository's — must close with R2, same as before the fix");
+}
+
+// FASE 59 — seconda appendice del 2026-10-02, cancello 1. The replay
+// scenario: a repository sync finishes WHILE a streamed replay is in
+// progress. Game::LoadCoreFromRepos() only runs `if(!dInfo.isStarted)`, so
+// the swap is deliberately deferred — core_loaded_from_repo stays false,
+// exactly like a genuine mismatch, but nothing has failed. The input this
+// predicate needs is whole-state "is game data definitive" (core loaded,
+// no repo syncing, NO swap still queued), i.e. ygo::IsGameDataReady() —
+// not "no repo is mid-sync" alone (updating_repos_count==0), which the
+// FIRST appendice's fix used and which is exactly what goes wrong here:
+// updating_repos_count can already be 0 while a swap is still queued.
+//
+// Written and run BEFORE touching game.cpp's caller: the `naive` value
+// below reproduces today's actual call site
+// (Game::RefreshOnlineGate() still passes
+// `gRepoManager->GetUpdatingReposNumber() == 0`), and asserting Open
+// against it FAILED (R2CoreNotFromRepository instead) — confirming the
+// bug the coordinator found by inspection, not just by the report. The
+// `correct` value is what the caller is being changed to pass.
+void test_replay_mid_sync_with_swap_pending_stays_open() {
+	// State: core already loaded (there IS a core to show the replay with),
+	// no repository still mid-sync, but a core swap is still queued because
+	// LoadCoreFromRepos() was skipped this frame (a replay is playing).
+	constexpr bool core_loaded = true;
+	constexpr std::size_t updating_repos_count = 0;
+	constexpr bool core_swap_pending = true; // dInfo.isStarted was true
+
+	const bool naive_game_data_ready = (updating_repos_count == 0); // today's bug: ignores core_swap_pending
+	const bool correct_game_data_ready = ygo::IsGameDataReady(core_loaded, updating_repos_count, core_swap_pending);
+
+	check(!correct_game_data_ready,
+		 "sanity check: IsGameDataReady() itself must say NOT ready while a swap is still queued (this is what game_data_ready.h already guarantees)");
+
+	// Confirmed by actually running it (before this fix landed): building
+	// `naive_game_data_ready` the way Game::RefreshOnlineGate() used to
+	// (repo-sync count only, ignoring core_swap_pending) and feeding it to
+	// EvaluateOnlineGate() here produced R2CoreNotFromRepository instead of
+	// Open — a real FAIL, observed, not assumed. `naive_game_data_ready` is
+	// kept (marked [[maybe_unused]] below) as the documented reason the
+	// caller must pass IsGameDataReady() whole rather than reconstruct it.
+	(void)naive_game_data_ready;
+
+	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/false, correct_game_data_ready) == OnlineGateReason::Open,
+		 "replay mid-sync, swap still queued: must be Open — game data isn't definitive yet, so R2 has no opinion, same as an unreachable manifest");
+}
+
+// FASE 59 — seconda appendice, cancello 3. The case that must still close:
+// a swap was actually ATTEMPTED (no longer pending) and failed, or no repo
+// ever declares a core, or a repo failed to sync — i.e. IsGameDataReady()
+// is true (nothing queued, nothing syncing) and the core still isn't the
+// repository's. D240 must still close that.
+void test_swap_attempted_and_failed_still_closes() {
+	constexpr bool core_loaded = true;
+	constexpr std::size_t updating_repos_count = 0;
+	constexpr bool core_swap_pending = false; // LoadCoreFromRepos ran and cleared cores_to_load
+	const bool game_data_ready_value = ygo::IsGameDataReady(core_loaded, updating_repos_count, core_swap_pending);
+	check(game_data_ready_value, "sanity check: nothing queued, nothing syncing — IsGameDataReady() must say ready");
+	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/false, game_data_ready_value) == OnlineGateReason::R2CoreNotFromRepository,
+		 "D240: swap was attempted (not pending anymore) and the core in use is still not the repository's — must close with R2");
 }
 
 void test_unverified_manifest_never_closes_r1() {
@@ -116,7 +177,7 @@ void test_unverified_manifest_never_closes_r1() {
 	// to get R1BuildBelowThreshold is to explicitly claim client_supported
 	// is false — there is no "absent" state that the function invents on
 	// its own that could look like closing.
-	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/true, /*syncs_finished=*/true) != OnlineGateReason::R1BuildBelowThreshold,
+	check(EvaluateOnlineGate(/*client_supported=*/true, /*core_separate_build=*/true, /*core_from_repository=*/true, /*game_data_ready=*/true) != OnlineGateReason::R1BuildBelowThreshold,
 		 "client_supported=true (the only representation of 'no verified opinion says otherwise') must never produce R1");
 }
 
@@ -243,6 +304,8 @@ int RunOnlineGateTests() {
 	test_r2_never_closes_on_static_build();
 	test_startup_sequence_ends_open();
 	test_finished_but_not_synced_still_closes();
+	test_replay_mid_sync_with_swap_pending_stays_open();
+	test_swap_attempted_and_failed_still_closes();
 	test_unverified_manifest_never_closes_r1();
 	test_latch_is_monotonic();
 	test_latch_starts_open();

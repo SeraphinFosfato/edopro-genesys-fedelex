@@ -1302,21 +1302,22 @@ void Game::RefreshOnlineGate() {
 	const bool client_supported = gClientUpdater
 		? ygo::update::IsClientSupported(gClientUpdater->GetLastMinSupported(), ygo::update::CLIENT_UPDATE_VERSION)
 		: true;
-	// FASE 59 — appendice del 2026-10-02 (PHASES.md): R2 must not be judged
-	// until every repository's sync pass is DONE, success or failure —
-	// otherwise the very first frame of every session (nothing has synced
-	// yet, core_loaded_from_repo is still false) evaluates as R2 and the
-	// latch's own monotonicity (§4) makes that permanent, before the swap a
-	// moment later could ever undo it. GetUpdatingReposNumber()==0 is the
-	// same "settled" notion game_data_ready.h already uses.
-	const bool syncs_finished =
-#ifdef YGOPRO_BUILD_DLL
-		gRepoManager->GetUpdatingReposNumber() == 0;
-#else
-		true;
-#endif
+	// FASE 59 — seconda appendice del 2026-10-02 (PHASES.md): R2 must not be
+	// judged until game data is in its FINAL state, and that is exactly
+	// IsGameDataReady() (game_data_ready.h, FASE 38) — core loaded, no
+	// repository syncing, AND no core swap still queued. The first
+	// appendice's fix used only "no repository syncing"
+	// (GetUpdatingReposNumber()==0), which still breaks: a repo sync can
+	// finish while a duel or a streamed replay is in progress, because
+	// LoadCoreFromRepos() below only runs `if(!dInfo.isStarted)` and
+	// skips the swap on purpose in that case — looking identical to a
+	// genuine "not from the repository" if read only from the repo count.
+	// Reusing IsGameDataReady() whole (not reconstructing it from its
+	// parts here) is the point: it is already the single place that knows
+	// what "settled" means, tested in game_data_ready_tests.cpp.
+	const bool game_data_ready = IsGameDataReady();
 	const auto before = online_gate_latch.Current();
-	const auto reason = online_gate_latch.Update(ygo::EvaluateOnlineGate(client_supported, core_separate_build, core_loaded_from_repo, syncs_finished));
+	const auto reason = online_gate_latch.Update(ygo::EvaluateOnlineGate(client_supported, core_separate_build, core_loaded_from_repo, game_data_ready));
 	if(before == ygo::OnlineGateReason::Open && reason == ygo::OnlineGateReason::R2CoreNotFromRepository) {
 		// design/blocco-online.md §2, D240: SwapFailed is already logged by
 		// LoadCoreFromRepos() the moment it happens, with the OLD corename
