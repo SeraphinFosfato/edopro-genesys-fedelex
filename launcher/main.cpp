@@ -127,16 +127,25 @@ void NotifyUser(const std::string& title, const std::string& message) {
 		out += "'";
 		return out;
 	};
-	if(std::system("command -v zenity >/dev/null 2>&1") == 0) {
-		try_run("zenity --info --title=" + quote(title) + " --text=" + quote(message) + " 2>/dev/null");
+	// "timeout 5" in front of every notifier call, not just the
+	// command -v probe: found empirically (FASE 64 cancello 4, a session
+	// with DISPLAY set but no reachable X/DBus session — exactly a
+	// screen-less server or a sandboxed test run) that zenity blocks
+	// indefinitely trying to reach a display instead of failing fast. A
+	// notifier is a comodo (design/launcher.md §7 only requires the log,
+	// which the caller always writes); it must never be able to make the
+	// launcher itself hang — that would turn "non bloccare mai" into its
+	// opposite.
+	if(std::system("timeout 2 command -v zenity >/dev/null 2>&1") == 0) {
+		try_run("timeout 5 zenity --info --title=" + quote(title) + " --text=" + quote(message) + " 2>/dev/null");
 		return;
 	}
-	if(std::system("command -v kdialog >/dev/null 2>&1") == 0) {
-		try_run("kdialog --title=" + quote(title) + " --msgbox=" + quote(message) + " 2>/dev/null");
+	if(std::system("timeout 2 command -v kdialog >/dev/null 2>&1") == 0) {
+		try_run("timeout 5 kdialog --title=" + quote(title) + " --msgbox=" + quote(message) + " 2>/dev/null");
 		return;
 	}
-	if(std::system("command -v notify-send >/dev/null 2>&1") == 0) {
-		try_run("notify-send " + quote(title) + " " + quote(message) + " 2>/dev/null");
+	if(std::system("timeout 2 command -v notify-send >/dev/null 2>&1") == 0) {
+		try_run("timeout 5 notify-send " + quote(title) + " " + quote(message) + " 2>/dev/null");
 	}
 	// None present: the log file (always written by the caller) is the
 	// only record. Never fatal — design/launcher.md §7, "uscire in silenzio" is
