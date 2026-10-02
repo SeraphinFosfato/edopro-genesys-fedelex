@@ -241,6 +241,50 @@ void test_higher_version_is_accept() {
 		 "a higher version than installed must compare as Accept");
 }
 
+// --- D238 (design/client-update.md §6quinquies): the installed version IS
+// CLIENT_UPDATE_VERSION, never a file. ClientUpdater::GetInstalledVersion()
+// now just returns that constant (client_updater.cpp), so the whole
+// behaviour table this cancello asks for ("un manifesto con version uguale
+// a CLIENT_UPDATE_VERSION risponde gia' aggiornato, uno con versione
+// maggiore aggiorna, uno minore e' rifiutato, senza nessun file su disco")
+// reduces to exercising CompareVersion() against that constant directly —
+// client_updater.cpp itself cannot link into this standalone binary (it
+// pulls in curl, MD5, irrlicht's file utilities under #if
+// defined(UPDATE_URL)), but the decision it now delegates to is exactly
+// this pure function, and no FileStream is ever opened to answer it.
+
+void test_manifest_equal_to_client_update_version_is_already_current() {
+	check(CompareVersion(CLIENT_UPDATE_VERSION, CLIENT_UPDATE_VERSION) == VersionDecision::AlreadyCurrent,
+		 "a manifest version equal to CLIENT_UPDATE_VERSION (the installed version, post-D238) must be AlreadyCurrent");
+}
+
+void test_manifest_above_client_update_version_is_accept() {
+	check(CompareVersion(CLIENT_UPDATE_VERSION + 1, CLIENT_UPDATE_VERSION) == VersionDecision::Accept,
+		 "a manifest version above CLIENT_UPDATE_VERSION must be Accept");
+}
+
+void test_manifest_below_client_update_version_is_rollback() {
+	check(CompareVersion(CLIENT_UPDATE_VERSION - 1, CLIENT_UPDATE_VERSION) == VersionDecision::Rollback,
+		 "a manifest version below CLIENT_UPDATE_VERSION must be Rollback");
+}
+
+// Structural half of the same cancello: the file-based record (and the
+// function that used to write it) must actually be gone from the source,
+// not just unused from this test's point of view — same style as
+// game_data_ready_tests.cpp's ReadSourceFile scans.
+void test_no_installed_version_file_remains_in_source() {
+	std::ifstream f("gframe/client_updater.cpp", std::ios::binary);
+	if(!f) {
+		check(false, "test_no_installed_version_file_remains_in_source: gframe/client_updater.cpp unreadable (run from the repository root)");
+		return;
+	}
+	const std::string source((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+	check(source.find(".edopro_update_version") == std::string::npos,
+		 "D238: no on-disk .edopro_update_version file may remain — GetInstalledVersion() must return CLIENT_UPDATE_VERSION directly");
+	check(source.find("SetInstalledVersion") == std::string::npos,
+		 "D238: SetInstalledVersion must be gone entirely, not just unused");
+}
+
 void test_missing_sha256_is_schema_violation() {
 	const std::string document =
 		"{\"version\":1,\"files\":[{\"name\":\"a\",\"url\":\"https://example.invalid/a\"}]}";
@@ -489,6 +533,10 @@ int RunUpdateTests() {
 	test_equal_version_is_no_action();
 	test_lower_version_is_rollback();
 	test_higher_version_is_accept();
+	test_manifest_equal_to_client_update_version_is_already_current();
+	test_manifest_above_client_update_version_is_accept();
+	test_manifest_below_client_update_version_is_rollback();
+	test_no_installed_version_file_remains_in_source();
 	test_missing_sha256_is_schema_violation();
 	test_malformed_sha256_is_schema_violation();
 	test_duplicate_file_name_is_schema_violation();

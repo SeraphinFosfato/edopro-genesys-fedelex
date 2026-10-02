@@ -25,15 +25,6 @@
 #include "update_verify.h"
 #include "client_update_version.h"
 
-// Where this instance's last successfully-applied manifest version is
-// recorded (design/client-update.md, anti-rollback). Plain text, one
-// integer, same spirit as LOCKFILE just above: local, not sensitive, not
-// part of anything that ships. A player who edits this file already
-// controls their own client (see this repo's CLAUDE.md, "Onestà sui
-// deterrenti") — this file is not a defense against that, only the record
-// CompareVersion() checks a NETWORK payload against.
-#define UPDATE_VERSION_FILE EPRO_TEXT("./.edopro_update_version")
-
 #define LOCKFILE EPRO_TEXT("./.edopro_lock")
 #define UPDATES_FOLDER EPRO_TEXT("./updates/{}")
 
@@ -319,31 +310,14 @@ void ClientUpdater::DownloadUpdate(void* payload, update_callback callback) {
 		stream.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
 	}
 
-	if(!failed) {
-		// The version this manifest declared is now the installed one —
-		// recorded before Unzip()/Reboot() so the NEXT check's anti-rollback
-		// compares against it correctly (design/client-update.md, anti-rollback).
-		SetInstalledVersion(pending_version);
-	}
 	downloaded = true;
 }
 
 int ClientUpdater::GetInstalledVersion() {
-	FileStream stream{ UPDATE_VERSION_FILE, FileStream::in };
-	if(stream.fail())
-		return 0;
-	int version = 0;
-	stream >> version;
-	if(stream.fail())
-		return 0;
-	return version;
-}
-
-void ClientUpdater::SetInstalledVersion(int version) {
-	FileStream stream{ UPDATE_VERSION_FILE, FileStream::out | FileStream::trunc };
-	if(stream.fail())
-		return;
-	stream << version;
+	// D238 (design/client-update.md §6quinquies): the installed version is
+	// the running binary's own build number, not a file written after a
+	// download succeeded. See the declaration in client_updater.h for why.
+	return ygo::update::CLIENT_UPDATE_VERSION;
 }
 
 void ClientUpdater::CheckUpdate() {
@@ -433,7 +407,6 @@ void ClientUpdater::CheckUpdate() {
 	update_urls.clear();
 	for(const auto& file : manifest.files)
 		update_urls.emplace_back(DownloadInfo{ file.name, file.url, file.sha256, file.md5 });
-	pending_version = manifest.version;
 	status_message = epro::format("Aggiornamento disponibile: versione {} -> versione {}.", installed_version, manifest.version);
 	has_update = !update_urls.empty();
 }

@@ -87,14 +87,22 @@ private:
 		std::string sha256; // the only thing that authorizes installing this file (design/client-update.md, point 3)
 		std::string md5;    // upstream compatibility only, kept but never checked — see the same doc
 	};
-	// Reads the last version this instance successfully installed. 0 if the
-	// file is absent, which is not a chosen threshold (§ "punti di
-	// risalita" excludes exactly this): it is simply "no prior update
-	// applied by this updater", and any manifest.version >= 1 (every real
-	// manifest, by the same convention format_version already uses on the
-	// banlist side) compares as newer than that.
+	// The installed version IS the running binary's own build number
+	// (design/client-update.md §6quinquies, D238) — never a file written
+	// after a download. The file-based version (`.edopro_update_version`,
+	// written by a now-removed SetInstalledVersion()) lagged reality
+	// whenever DownloadUpdate() wrote it but Unzip()/Reboot() failed
+	// afterwards (§6bis/§6ter): the file said "already on the new version"
+	// while the OLD binary kept running, and from then on CompareVersion()
+	// answered AlreadyCurrent forever — the one remedy (updating) stopped
+	// being offered, permanently, to a client that still needed it. With
+	// D237's online gate this stops being merely annoying and becomes a
+	// trap: online would stay closed with no way out. CLIENT_UPDATE_VERSION
+	// cannot lag like that: it changes only when a new binary is actually
+	// running. A `.edopro_update_version` left behind by an older build is
+	// not read or deleted here — cleaning the data folder is not this
+	// function's job.
 	static int GetInstalledVersion();
-	static void SetInstalledVersion(int version);
 
 	std::vector<DownloadInfo> update_urls;
 	FileLock Lock{};
@@ -103,7 +111,6 @@ private:
 	std::atomic<bool> failed{ false };
 	std::atomic<bool> downloading{ false };
 	std::string update_url{ UPDATE_URL };
-	int pending_version = 0;
 	std::string status_message;
 	// See OnlineDisabled()/GetOnlineDisabledReason() above. Defaults to
 	// "not disabled": a launch that never reaches a verified manifest (no
