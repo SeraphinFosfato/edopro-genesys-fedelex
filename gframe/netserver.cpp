@@ -6,6 +6,8 @@
 #include "netserver.h"
 #include "generic_duel.h"
 #include "common.h"
+#include "game.h"
+#include "local_connection.h"
 
 namespace ygo {
 bool operator==(const ClientVersion& ver1, const ClientVersion& ver2) {
@@ -227,6 +229,32 @@ void NetServer::BroadcastEvent(evutil_socket_t fd, [[maybe_unused]] short events
 }
 void NetServer::ServerAccept([[maybe_unused]] evconnlistener* bev_listener, evutil_socket_t fd, [[maybe_unused]] sockaddr* address,
 							 [[maybe_unused]] int socklen, [[maybe_unused]] void* ctx) {
+	// FASE 59 — design/blocco-online.md §5, "Host locale solo per se'". A
+	// cancello chiuso, NetServer continua ad accettare (l'IA e il client
+	// stesso si collegano in locale per ogni host — vedi StartServer()
+	// piu' sopra, che crea sempre un GenericDuel passando da qui), ma un
+	// chiamante che non e' questo stesso computer viene chiuso subito, PRIMA
+	// di diventare un DuelPlayer: si garantisce CHI si collega, non DOVE si
+	// ascolta (la trappola che questo stesso documento segnala: ascoltare
+	// solo su ::1 rifiuterebbe anche l'IA e il client, che si collegano a
+	// 127.0.0.1). mainGame e' raggiungibile da questo file esattamente come
+	// da generic_duel.cpp, gia' incluso qui sotto e gia' dipendente da
+	// mainGame: StartServer() costruisce un GenericDuel nella stessa unita'
+	// di compilazione, quindi questo non e' un confine nuovo.
+	if(address && mainGame && mainGame->OnlineGateClosed()) {
+		bool is_local = false;
+		if(address->sa_family == AF_INET) {
+			const auto* sin = reinterpret_cast<const sockaddr_in*>(address);
+			is_local = IsLocalCallerAddress(reinterpret_cast<const uint8_t*>(&sin->sin_addr), AddressFamily::IPv4);
+		} else if(address->sa_family == AF_INET6) {
+			const auto* sin6 = reinterpret_cast<const sockaddr_in6*>(address);
+			is_local = IsLocalCallerAddress(reinterpret_cast<const uint8_t*>(&sin6->sin6_addr), AddressFamily::IPv6);
+		}
+		if(!is_local) {
+			evutil_closesocket(fd);
+			return;
+		}
+	}
 	bufferevent* bev = bufferevent_socket_new(net_evbase, fd, BEV_OPT_CLOSE_ON_FREE);
 	DuelPlayer dp;
 	dp.name[0] = 0;

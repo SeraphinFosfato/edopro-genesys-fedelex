@@ -2318,6 +2318,41 @@ bool Game::MainLoop() {
 				gClientUpdater->CheckOnlineGateThreshold();
 			}
 		}
+		// FASE 59 — design/blocco-online.md §6, grace_period.h. Consultata
+		// solo quando si e' davvero in una stanza online (isInLobby copre
+		// l'attesa prima dell'inizio, isInDuel/is_siding "in partita" come
+		// definito li') E connessi (DuelClient::IsConnected()) — un duello
+		// locale, contro IA, o un replay non passa mai da qui: il cancello
+		// chiuso da solo non vuol dire "si e' online in questo momento".
+		if(OnlineGateClosed() && gate_closed_since && DuelClient::IsConnected() &&
+		   (dInfo.isInLobby || dInfo.isInDuel || is_siding)) {
+			const bool room_started = dInfo.isInDuel || is_siding;
+			const auto elapsed_minutes = static_cast<int>(std::chrono::duration_cast<std::chrono::minutes>(
+				std::chrono::steady_clock::now() - *gate_closed_since).count());
+			switch(ygo::EvaluateGrace(true, room_started, elapsed_minutes)) {
+				case ygo::GraceDecision::ExitRoomNotStarted:
+				case ygo::GraceDecision::GraceExpired:
+					// FASE 59: forza la disconnessione normale — is_exiting
+					// resta false, quindi ClientEvent (duelclient.cpp) la
+					// tratta come un vero EOF/errore e il percorso di
+					// disconnessione gia' esistente (INTERNAL_HANDLE_CONNECTION_END)
+					// fa il resto: propone il replay se il duello era
+					// iniziato, pulisce lo stato, e ora mostra wMainMenu
+					// invece della lista stanze perche' il cancello e' chiuso.
+					DuelClient::StopClient();
+					break;
+				case ygo::GraceDecision::InGrace:
+					if(grace_warning_latch.ShouldWarnNow(ygo::GraceDecision::InGrace)) {
+						const auto expires_at = *gate_closed_since + std::chrono::minutes(60);
+						const auto remaining = std::chrono::duration_cast<std::chrono::minutes>(expires_at - std::chrono::steady_clock::now());
+						PopupMessage(epro::format(L"L'online e' stato chiuso per questo client. Hai ancora circa {} minuti di grazia per finire questa partita: dopo, la connessione si chiudera' da sola.", std::max<long long>(0, remaining.count())),
+									L"Online non disponibile a breve");
+					}
+					break;
+				case ygo::GraceDecision::GateOpen:
+					break;
+			}
+		}
 		for(auto& repo : gRepoManager->GetRepoStatus()) {
 			repoInfoGui[repo.first].progress1->setProgress(repo.second);
 			repoInfoGui[repo.first].progress2->setProgress(repo.second);

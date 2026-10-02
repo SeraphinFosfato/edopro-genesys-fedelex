@@ -403,7 +403,15 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 				mainGame->HideElement(mainGame->wHostPrepareL);
 				mainGame->HideElement(mainGame->wHostPrepareR);
 				mainGame->HideElement(mainGame->gBot.window);
-				if(mainGame->isHostingOnline) {
+				// FASE 59 — design/blocco-online.md §6: "una stanza non
+				// ancora iniziata non ha niente da finire" (ExitRoomNotStarted,
+				// grace_period.h) finisce qui — StopClient() chiamato da
+				// Game::MainLoop() per questo stesso motivo arriva a questo
+				// stesso ramo di pulizia gia' esistente, solo con la finestra
+				// finale diversa a cancello chiuso.
+				if(mainGame->OnlineGateClosed()) {
+					mainGame->ShowElement(mainGame->wMainMenu);
+				} else if(mainGame->isHostingOnline) {
 					mainGame->ShowElement(mainGame->wRoomListPlaceholder);
 				} else {
 					mainGame->ShowElement(mainGame->wLanWindow);
@@ -412,6 +420,8 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 				if(iseof)
 					mainGame->PopupMessage(gDataManager->GetSysString(1401));
 				else mainGame->PopupMessage(gDataManager->GetSysString(1402));
+				if(mainGame->OnlineGateClosed())
+					mainGame->ShowOnlineGateWarning();
 			} else {
 				gSoundManager->StopSounds();
 				if(mainGame->dInfo.isStarted) {
@@ -432,12 +442,22 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 				mainGame->dField.Clear();
 				mainGame->is_building = false;
 				mainGame->device->setEventReceiver(&mainGame->menuHandler);
-				if(mainGame->isHostingOnline) {
+				// FASE 59 — design/blocco-online.md §6, "se la grazia scade a
+				// partita in corso": questo ramo e' gia' il percorso di
+				// disconnessione che propone il salvataggio del replay
+				// (ReplayPrompt(true) sopra, se il duello era iniziato) — qui
+				// cambia solo quale finestra si mostra dopo, stesso pattern
+				// di STOC_DUEL_END.
+				if(mainGame->OnlineGateClosed()) {
+					mainGame->ShowElement(mainGame->wMainMenu);
+				} else if(mainGame->isHostingOnline) {
 					mainGame->ShowElement(mainGame->wRoomListPlaceholder);
 				} else {
 					mainGame->ShowElement(mainGame->wLanWindow);
 				}
 				mainGame->SetMessageWindow();
+				if(mainGame->OnlineGateClosed())
+					mainGame->ShowOnlineGateWarning();
 			}
 		}
 		break;
@@ -1092,7 +1112,17 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 			mainGame->btnJoinCancel->setEnabled(true);
 			mainGame->stTip->setVisible(false);
 			mainGame->device->setEventReceiver(&mainGame->menuHandler);
-			if(mainGame->isHostingOnline) {
+			// FASE 59 — design/blocco-online.md §6, punto 9: "invece di
+			// mostrare la lista delle stanze, si chiude la connessione, si
+			// mostra wMainMenu, poi l'avviso". STOC_DUEL_END arriva sempre
+			// DOPO l'ultima decisione sul replay (STOC_REPLAY, gestito
+			// sopra) — § stesso — quindi questo e' il punto giusto, e la
+			// pulizia sopra (dField.Clear(), isInDuel/isStarted a false,
+			// setEventReceiver) resta identica sia a cancello aperto che
+			// chiuso: cambia solo quale finestra si mostra dopo.
+			if(mainGame->OnlineGateClosed()) {
+				mainGame->ShowElement(mainGame->wMainMenu);
+			} else if(mainGame->isHostingOnline) {
 				mainGame->ShowElement(mainGame->wRoomListPlaceholder);
 			} else {
 				mainGame->ShowElement(mainGame->wLanWindow);
@@ -1101,6 +1131,10 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 		}
 		connect_state |= 0x100;
 		event_base_loopbreak(client_base);
+		// Fuori dal lock, stessa ragione di ServerLobby::JoinServer: una
+		// PopupMessage non deve competere con gMutex gia' rilasciato sopra.
+		if(mainGame->OnlineGateClosed())
+			mainGame->ShowOnlineGateWarning();
 		break;
 	}
 	case STOC_REPLAY: {
@@ -1244,6 +1278,17 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 		break;
 	}
 	case STOC_REMATCH: {
+		// FASE 59 — design/blocco-online.md, punto 11: "con il cancello
+		// chiuso non si offre". Il server decide comunque di mandare
+		// STOC_REMATCH (non possiamo impedirglielo), ma il client non
+		// mostra la domanda: risponde no da solo, come se il giocatore
+		// avesse premuto "No".
+		if(mainGame->OnlineGateClosed()) {
+			CTOS_RematchResponse crr;
+			crr.rematch = false;
+			DuelClient::SendPacketToServer(CTOS_REMATCH_RESPONSE, crr);
+			break;
+		}
 		std::lock_guard<epro::mutex> lock(mainGame->gMutex);
 		mainGame->dInfo.checkRematch = true;
 		if(mainGame->wQuery->isVisible())
