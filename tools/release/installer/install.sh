@@ -37,6 +37,16 @@
 #   ./install.sh --uninstall     toglie programma, avviatore, voce di menu
 #                                 e icona. NON tocca mai la cartella dati:
 #                                 mazzi e replay sono dell'utente.
+#
+# Regola sulla cartella PROGRAMMA (non quella dati): questo script non
+# cancella mai un file che non ha installato lui. Tiene l'elenco di cio' che
+# ha messo li' (.installed-files) e lo confronta con cio' che trova: un file
+# che non e' nel pacchetto nuovo ne' in quell'elenco non e' nostro — si
+# sposta nella cartella dati invece di sparire. Un vecchio aggiornatore
+# scriveva mazzi e replay proprio li' (prima che il client avesse una
+# cartella dati separata), e una reinstallazione con `rsync --delete` li ha
+# cancellati senza che nessuno se ne accorgesse: un mazzo dell'utente e'
+# andato perso cosi'. Dettagli sotto, in migrate_and_cleanup_program_dir().
 
 set -euo pipefail
 
@@ -322,6 +332,97 @@ cleanup_data_dir_remnants() {
 	fi
 }
 
+# ───────── protezione dei dati dell'utente nella cartella programma ────────
+# L'elenco dei file installati da questo script in $PROGRAM_DIR, uno per
+# riga, percorso relativo a $PROGRAM_DIR. E' la fonte di verita' su "cosa ci
+# ha messo install.sh": qualunque cosa nella cartella programma che non sia
+# ne' in questo elenco ne' nel pacchetto nuovo e' un dato dell'utente, per
+# definizione, e non si cancella mai.
+INSTALLED_FILES_MARKER=".installed-files"
+
+# Elenco dei file che il pacchetto corrente installerebbe in $PROGRAM_DIR,
+# percorsi relativi a $SCRIPT_DIR, uno per riga, ordinati. Rispecchia gli
+# --exclude passati a rsync piu' sotto: deve restare identico a quella lista
+# o il confronto in migrate_and_cleanup_program_dir() sbaglia.
+list_package_files() {
+	(
+		cd "$SCRIPT_DIR" && find . -mindepth 1 \
+			\( -name 'install.sh' -o -name 'installer-data' -o -name '*.desktop.in' \
+			-o -name 'icon.png' -o -name 'LEGGIMI.txt' \) -prune \
+			-o -type f -print
+	) | sed 's|^\./||' | sort
+}
+
+# Prima di (re)installare il programma: sposta nella cartella dati qualunque
+# file nella cartella programma che non e' ne' un file del pacchetto nuovo
+# ne' nell'elenco di cio' che un'installazione precedente di QUESTO script
+# ci ha messo (D242). Se l'elenco manca (installazione fatta prima di questa
+# regola, o prima installazione in assoluto) si comporta allo stesso modo:
+# l'insieme "gia' installato da noi" e' vuoto, quindi ogni file estraneo
+# finisce spostato, mai cancellato — e' esattamente la garanzia voluta.
+#
+# Toglie invece (senza spostare) i file che ERANO nell'elenco della vecchia
+# installazione ma non sono piu' nel pacchetto nuovo: sono vecchi file
+# nostri (es. una libreria non piu' spedita), non dati dell'utente.
+migrate_and_cleanup_program_dir() {
+	local data_dir="$1"
+	[[ -d "$PROGRAM_DIR" ]] || return 0
+
+	local tmp
+	tmp="$(mktemp -d)"
+
+	list_package_files >"$tmp/new.txt"
+
+	if [[ -f "$PROGRAM_DIR/$INSTALLED_FILES_MARKER" ]]; then
+		sort "$PROGRAM_DIR/$INSTALLED_FILES_MARKER" >"$tmp/old.txt"
+	else
+		: >"$tmp/old.txt"
+	fi
+
+	(
+		cd "$PROGRAM_DIR" && find . -mindepth 1 -type f \
+			-not -name "$INSTALLED_FILES_MARKER" -not -name "$(basename "$DATA_DIR_MARKER")" -print
+	) | sed 's|^\./||' | sort >"$tmp/existing.txt"
+
+	local rel dest base suffix
+	while IFS= read -r rel; do
+		[[ -n "$rel" ]] || continue
+
+		if grep -qxF "$rel" "$tmp/new.txt"; then
+			continue # file del pacchetto: rsync lo sovrascrive subito dopo
+		fi
+
+		if grep -qxF "$rel" "$tmp/old.txt"; then
+			# Era un file nostro (installazione precedente) ma il pacchetto
+			# nuovo non lo spedisce piu': si toglie, non e' dati dell'utente.
+			rm -f "$PROGRAM_DIR/$rel"
+			log "Rimosso file di una versione precedente non piu' nel pacchetto: $rel"
+			continue
+		fi
+
+		# Non e' nostro: ne' nel pacchetto nuovo, ne' installato da noi
+		# prima. Si sposta nella cartella dati, mai sovrascrivendo.
+		dest="$data_dir/$rel"
+		mkdir -p "$(dirname "$dest")"
+		if [[ -e "$dest" ]]; then
+			base="$dest"
+			suffix=1
+			while [[ -e "${base}.recuperato-${suffix}" ]]; do
+				suffix=$((suffix + 1))
+			done
+			dest="${base}.recuperato-${suffix}"
+		fi
+		mv "$PROGRAM_DIR/$rel" "$dest"
+		log "File non installato da questo script trovato nella cartella programma, spostato nella cartella dati: $rel -> $dest"
+	done <"$tmp/existing.txt"
+
+	rm -rf "$tmp"
+
+	# Cartelle rimaste vuote dopo gli spostamenti/cancellazioni sopra
+	# (es. deck/, replay/ create solo dal vecchio aggiornatore).
+	find "$PROGRAM_DIR" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+}
+
 # ───────────────────────────── verifica librerie ───────────────────────────
 check_libraries() {
 	local binario="$1"
@@ -368,9 +469,21 @@ do_install() {
 
 	log "Installo il programma in: $PROGRAM_DIR"
 	mkdir -p "$PROGRAM_DIR"
-	# rsync --delete: una reinstallazione da una versione con meno file di
-	# libreria non lascia .so orfani dietro (idempotenza, cancello 5).
-	rsync -a --delete \
+
+	# D242: prima di scrivere, sposta via qualunque dato dell'utente che si
+	# trova nella cartella programma (un vecchio aggiornatore ci salvava
+	# mazzi e replay) e toglie solo i file di una nostra installazione
+	# precedente che il pacchetto nuovo non spedisce piu'. Niente in questa
+	# cartella viene mai cancellato se non e' certo che sia nostro.
+	migrate_and_cleanup_program_dir "$data_dir"
+
+	# NIENTE --delete: cancellare per differenza con la sorgente e' proprio
+	# il meccanismo che ha perso dati dell'utente (D242) quando la cartella
+	# programma era anche, in passato, la cartella di lavoro del client. La
+	# pulizia dei file nostri ormai spariti dal pacchetto la fa
+	# migrate_and_cleanup_program_dir() sopra, confrontando l'elenco di cio'
+	# che abbiamo installato noi, non "tutto cio' che non sta nella sorgente".
+	rsync -a \
 		--exclude 'install.sh' \
 		--exclude 'installer-data' \
 		--exclude '*.desktop.in' \
@@ -378,6 +491,9 @@ do_install() {
 		--exclude 'LEGGIMI.txt' \
 		"$SCRIPT_DIR"/ "$PROGRAM_DIR"/
 	chmod +x "$PROGRAM_DIR/$BINARY_NAME"
+
+	list_package_files >"$PROGRAM_DIR/$INSTALLED_FILES_MARKER"
+	log "Elenco file installati aggiornato: $PROGRAM_DIR/$INSTALLED_FILES_MARKER"
 
 	echo "$data_dir" >"$DATA_DIR_MARKER"
 
@@ -445,8 +561,43 @@ do_uninstall() {
 		data_dir="$(<"$DATA_DIR_MARKER")"
 	fi
 
-	log "Rimuovo il programma: $PROGRAM_DIR"
-	rm -rf "$PROGRAM_DIR"
+	# D242: la cartella programma non si cancella piu' con rm -rf. Si
+	# toglie solo cio' che e' nell'elenco di cio' che questo script ci ha
+	# messo; qualunque altra cosa trovata li' dentro resta, e lo si dice.
+	if [[ -d "$PROGRAM_DIR" ]]; then
+		rm -f "$DATA_DIR_MARKER"
+		if [[ -f "$PROGRAM_DIR/$INSTALLED_FILES_MARKER" ]]; then
+			log "Rimuovo i file installati da: $PROGRAM_DIR"
+			local rel
+			while IFS= read -r rel; do
+				[[ -n "$rel" ]] || continue
+				rm -f "$PROGRAM_DIR/$rel"
+			done <"$PROGRAM_DIR/$INSTALLED_FILES_MARKER"
+			rm -f "$PROGRAM_DIR/$INSTALLED_FILES_MARKER"
+			find "$PROGRAM_DIR" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+
+			local rimasti
+			rimasti="$(find "$PROGRAM_DIR" -mindepth 1 2>/dev/null || true)"
+			if [[ -z "$rimasti" ]]; then
+				rmdir "$PROGRAM_DIR" 2>/dev/null || true
+				log "Cartella programma vuota, rimossa: $PROGRAM_DIR"
+			else
+				warn "nella cartella programma restano file che questo script non ha installato:"
+				while IFS= read -r rel; do
+					[[ -n "$rel" ]] || continue
+					warn "  $rel"
+				done <<<"$rimasti"
+				warn "lasciati intatti: $PROGRAM_DIR"
+			fi
+		else
+			warn "manca l'elenco dei file installati ($INSTALLED_FILES_MARKER, installazione"
+			warn "precedente a questa regola): per non rischiare di cancellare dati tuoi non"
+			warn "tocco niente dentro $PROGRAM_DIR. Rimuovila a mano se sei sicuro che non ci"
+			warn "sia niente tuo li' dentro."
+		fi
+	else
+		log "Cartella programma non trovata: $PROGRAM_DIR"
+	fi
 
 	log "Rimuovo l'avviatore: $LAUNCHER"
 	rm -f "$LAUNCHER"

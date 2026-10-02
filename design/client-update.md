@@ -396,6 +396,44 @@ pulita dice esplicitamente "Niente da ripulire nella cartella dati".
 <!-- verifica: grep -q "cleanup_data_dir_remnants" EdoproForkGSY/edopro_custom/tools/release/installer/install.sh -->
 <!-- verifica: grep -q "grep -qa fedelex" EdoproForkGSY/edopro_custom/tools/release/installer/install.sh -->
 
+### 6septies. L'installatore non cancella mai un file che non ha installato lui — FASE 62 (D242)
+
+**Scritto il 2026-10-02, dopo che un mazzo di un utente è andato perso.**
+Fino a `164c6049a` (28/09, prima di `v0.1.0-alpha`) il client girava con la
+cartella del **programma** come cartella di lavoro, e ci salvava dentro
+`deck/`, `replay/` eccetera — prima che esistesse la cartella dati separata
+di cui parla il resto di questo documento. `install.sh` reinstallava il
+programma con `rsync -a --delete`, che cancella dalla destinazione tutto ciò
+che non sta nella sorgente del pacchetto. Le reinstallazioni del 29/09 e del
+02/10 hanno cancellato così i mazzi e i replay lasciati in quella cartella,
+senza che nessuno lo vedesse: `--delete` non stampa cosa toglie.
+
+Da FASE 62 `install.sh` non usa più `--delete`. Tiene invece un elenco di
+cosa ha installato lui (`.installed-files`, dentro la cartella programma) e,
+prima di scrivere, confronta ogni file già presente nella cartella programma
+con due insiemi: il pacchetto che sta per installare, e quell'elenco.
+
+- Se il file è nel pacchetto nuovo: resta, verrà sovrascritto normalmente.
+- Se il file **era** nell'elenco di una nostra installazione precedente ma
+  il pacchetto nuovo non lo spedisce più (es. una libreria tolta): si
+  toglie. Non è un dato dell'utente, è un residuo nostro.
+- In ogni altro caso — non è nel pacchetto, non è nell'elenco — non si sa
+  di chi sia, quindi non si cancella mai: si **sposta** nella cartella dati,
+  con un suffisso se il nome è già occupato lì.
+
+Se l'elenco manca del tutto (un'installazione fatta da una versione di
+`install.sh` precedente a questa regola, o la primissima installazione),
+l'insieme "nostro" è vuoto: ogni file trovato nella cartella programma
+finisce quindi spostato, mai cancellato — la stessa garanzia, nel caso in
+cui si ha meno informazione.
+
+`--uninstall` segue la stessa regola: toglie solo i file dell'elenco: se
+nella cartella programma resta altro (un file che l'installatore non ha
+mai messo lì), lo lascia e lo dice esplicitamente, invece di fare `rm -rf`
+sull'intera cartella come prima.
+<!-- verifica: grep -q "migrate_and_cleanup_program_dir" EdoproForkGSY/edopro_custom/tools/release/installer/install.sh -->
+<!-- verifica(NON): grep -q -- "rsync -a --delete" EdoproForkGSY/edopro_custom/tools/release/installer/install.sh -->
+
 ## Cosa resta davvero aperto
 
 - ~~**Le due chiavi di aggiornamento non esistono ancora.**~~ **FALSO,
@@ -414,3 +452,7 @@ pulita dice esplicitamente "Niente da ripulire nella cartella dati".
   **corretto (D241, FASE 61, §6sexies)**: l'installatore Linux li toglie da
   solo a ogni installazione. Non ancora in una release pubblicata — il
   tarball `v0.1.1-alpha` porta ancora l'`install.sh` precedente.
+- ~~**`install.sh` poteva cancellare dati dell'utente nella cartella
+  programma (`rsync --delete`)**~~ **corretto (D242, FASE 62, §6septies)**:
+  non usa più `--delete`, sposta nella cartella dati qualunque file che non
+  è certo essere suo. Non ancora in una release pubblicata.
