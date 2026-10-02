@@ -7,7 +7,8 @@ nel sorgente a questo commit (§1.9 del CLAUDE.md del vault — qui la fonte e'
 ancora il sorgente, nessuna release lo porta).
 
 - **Fatto, con test verdi** (`./premake5 --file=tests/premake5.lua gmake2 &&
-  make -C tests/build config=release && ./bin/banlist_tests`):
+  make -C tests/build config=release && ./bin/banlist_tests` — 291 check,
+  0 fallimenti):
   - Cancello 1: `gframe/update_verify.h/.cpp` legge `launcher_files[]`
     (name/url/sha256/os/role) e filtra per piattaforma + role riconosciuto
     con `SelectLauncherFilesForPlatform()`. Unicita' per (nome, os), non per
@@ -17,18 +18,69 @@ ancora il sorgente, nessuna release lo porta).
     I/O: guardia del ciclo simulatore->launcher, anti-rollback sul proprio
     stato, sostituisci/tieni per hash, decisione della sequenza di verifica
     (hash -> bit eseguibile -> avvio -> installa/torna a `.old`).
+  - Cancello 3: `premake5.lua` ha ora il progetto separato
+    `fedelex-launcher` (niente irrlicht ne' core), e `launcher/main.cpp` e'
+    un eseguibile reale: individua PROGRAM_DIR/DATA_DIR, verifica il
+    manifesto firmato, installa i `launcher_files` selezionati e avvia il
+    simulatore con `-from-launcher`. Compilato e provato **solo su
+    Linux** (`./premake5 gmake2 --no-core=true --sound=sfml
+    --no-joystick=true --irrlicht-root=../irrlicht-custom && make -C build
+    config=release_x64 fedelex-launcher`): parte e avvia il simulatore in
+    <1s senza rete raggiungibile. I rami Windows (`#if _WIN32`, incluso il
+    nome `ygopro.exe` di D244.7) seguono lo stesso contratto ma non sono
+    MAI stati compilati — nessun toolchain Windows in questo ambiente.
+  - Cancello 4: provato a mano in un HOME finto (`program/`, `data/`),
+    `python3 -m http.server` locale, manifesto firmato con una **chiave di
+    prova generata ad hoc** (mai quella vera — vive solo in
+    `/tmp/.../scratchpad`, mai nel repo). Tre scenari reali: sostituzione
+    riuscita (hash ok, bit eseguibile impostato, prova di avvio superata,
+    `.old` tenuto, processo gia' avviato dalla prova usato come lancio
+    vero, `launcher-state.json` scritto per l'anti-rollback), binario che
+    non parte (prova di avvio fallita entro 1500ms — numero scelto
+    nell'implementazione, non deciso da nessuno prima — rollback senza
+    toccare il disco, loggato) e manifesto con SHA-256 malformata
+    (rifiutato dallo schema, nessuna modifica). Trovato e corretto nello
+    stesso giro: `zenity`/`kdialog`/`notify-send` possono bloccarsi a
+    tempo indefinito senza una sessione grafica raggiungibile — ogni
+    chiamata esterna ora ha un `timeout`, mai piu' un blocco silenzioso.
+  - Cancello 5: `gframe/cli_args.h` + `edopro_main.cpp` hanno il flag
+    `-from-launcher`; `gframe/gframe.cpp` chiama
+    `RelaunchLauncherIfNeeded()` come primissimo passo di `edopro_main()` —
+    usa la guardia pura del cancello 2, cerca il launcher accanto a
+    PROGRAM_DIR e lo rilancia se il segno di provenienza manca; se non lo
+    trova (build nuda, sviluppo) prosegue senza, mai un rifiuto ad
+    avviarsi. `gframe/client_updater.cpp`: `StartUpdate()` ritorna sempre
+    `false` (D244 punto 6) — il simulatore non installa piu' niente da
+    solo; `CheckUpdates()`/`CheckOnlineGateThreshold()` restano (D237,
+    sola lettura). `menu_handler.cpp`: il popup di avanzamento si apre
+    solo se l'aggiornamento e' davvero partito.
   - Cancello 7: `banlist/scripts/build_update_manifest.py` emette
     `launcher_files` da una tabella esplicita allegato -> (os, role); un
     allegato assente dalla release non e' un errore (release precedenti a
     questo cablaggio), un role fuori enumerazione lo e'.
-- **NON fatto**: nessun eseguibile del launcher esiste ancora (cancelli 3-5:
-  progetto premake `fedelex-launcher`, download/scarica/sostituisci reale
-  con curl, guardia `--from-launcher` nel punto di avvio del simulatore),
-  nessuna modifica a `.github/workflows/release.yml`, `build_windows.ps1`,
-  `tools/release/artifacts.json` o `tools/release/installer/install.sh`
-  (cancello 6), nessuna build Linux del launcher provata (cancello 3),
-  nessun test in HOME finto con server locale (cancello 4). Build Windows:
-  fuori portata per definizione fino al primo tag (vedi PHASES.md).
+  - Cancello 8 (parziale): suite C++ completa verde, `ygoprodll` e
+    `fedelex-launcher` compilano ed linkano puliti su Linux,
+    `controlla_documenti.py` verde (68 asserzioni). La build Linux
+    **del launcher** e' provata (cancello 3); quella del client con le
+    modifiche del cancello 5 anche (sopra). Manca ancora la build Windows
+    (fuori portata per definizione) e tutto cio' che cancello 6 avrebbe
+    dovuto esercitare.
+- **NON fatto**: cancello 6 per intero — nessuna modifica a
+  `.github/workflows/release.yml`, `build_windows.ps1`, agli impacchettatori
+  Linux/Windows, a `tools/release/artifacts.json` + README, ne' a
+  `tools/release/installer/install.sh` (la disposizione D244.7/8: il
+  launcher come `{EXEC}` del `.desktop`, l'installatore che smette di
+  scrivere il wrapper bash e scrive il binario del launcher, la pulizia di
+  un vecchio `bin/ygoprodll` orfano). Senza questo, **oggi una release
+  reale non contiene ancora il launcher**: il codice sopra esiste e
+  funziona in un HOME finto, ma nessuna pipeline lo impacchetta, nessun
+  installatore lo dispone, nessun giocatore puo' ancora riceverlo. Build
+  Windows: fuori portata per definizione fino al primo tag (vedi
+  PHASES.md).
+- **Non si pubblica una release da questo sorgente prima del cancello 6.**
+  Da `53c101e93` l'aggiornatore interno non installa piu' niente
+  (D244.6): una release senza launcher nei pacchetti lascerebbe i
+  giocatori senza nessun aggiornamento automatico.
 - Non e' un punto di risalita (§6.6): nessuna scelta di forma e' rimasta
   aperta, solo lavoro non ancora scritto — vedi PHASES.md, coda del brief
   FASE 64, per cosa riprendere e da dove.
