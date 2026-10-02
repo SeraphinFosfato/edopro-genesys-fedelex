@@ -394,37 +394,78 @@ jobs:
             dist/fedelex-launcher dist/ygoprodll.exe dist/fedelex.conf \
             --title "${{ github.ref_name }}" \
             --notes "$(cat <<EOF
+          ## Come installare
+
+          Scarica il file giusto dalla pagina della release:
+          https://github.com/SeraphinFosfato/edopro-genesys-fedelex/releases/latest
+
+          ### Windows
+          1. Serve gia' installato EDOPro ufficiale (Project Ignis). Se non ce l'hai,
+             installalo prima dal sito ufficiale.
+          2. Trova la cartella di EDOPro: tasto destro sull'icona di EDOPro sul
+             Desktop -> "Apri percorso file" (di solito e' \`C:\ProjectIgnis\`, ma non
+             darlo per scontato).
+          3. Scarica **\`edopro-custom-windows-x86-package.zip\`**, poi tasto destro sul
+             file -> "Estrai tutto".
+          4. Dalla cartella estratta copia \`ygopro.exe\` e le cartelle \`bin\` e
+             \`strings\` dentro la cartella di EDOPro trovata al passo 2. Se Windows
+             chiede di sostituire dei file, rispondi si'.
+          5. Da ora si apre \`ygopro.exe\` (consigliato: tasto destro su di esso ->
+             Mostra altre opzioni -> Invia a -> Desktop (crea collegamento)). Non
+             aprire mai il file dentro \`bin\ygoprodll.exe\`.
+          6. Al primo avvio Windows puo' mostrare "Windows ha protetto il PC" perche'
+             il programma non e' firmato con un certificato commerciale: clicca
+             "Ulteriori informazioni" poi "Esegui comunque".
+          7. Il primo avvio scarica i dati di gioco e puo' richiedere qualche
+             minuto: serve una connessione a Internet.
+
+          ### Linux
+          1. Scarica **\`edopro-custom-linux-x64.tar.gz\`** ed estrailo (tasto destro
+             -> Estrai qui).
+          2. Apri un terminale dentro la cartella estratta (tasto destro -> Apri nel
+             terminale) e lancia \`./install.sh\`, poi Invio.
+          3. Se trova gia' un'installazione di EDOPro, chiede se vuoi riusarla come
+             cartella dati (mazzi, replay, config): rispondi \`s\` per mantenere
+             mazzi e replay esistenti, altrimenti premi Invio per crearne una nuova.
+          4. Apri dal menu applicazioni la voce "EDOPro (Fedelex custom)".
+          5. Se avevi gia' installata una versione precedente di questo fork: rifai
+             questi passi una volta sola, mazzi e replay restano dove sono.
+
+          ### Aggiornamenti
+          Da questa versione il programma controlla da solo se c'e' un aggiornamento
+          ogni volta che lo apri e lo installa senza chiedere conferma: non devi
+          scaricare niente a mano.
+
+          ## Se qualcosa non va
+          Segnala il problema dal bot Telegram. Se puoi, allega anche:
+          - su Linux: il file \`launcher.log\` (nella cartella dati)
+          - su Windows: i file \`error.log\` e \`launcher.log\` (nella cartella di
+            EDOPro)
+
+          ---
+
+          ## Per chi vuole i dettagli tecnici
+
           Build automatica dal commit \`${{ github.sha }}\` (AGPLv3, sorgente
           completo in questo repository pubblico a quel commit).
 
-          - \`edopro-custom-linux-x64.tar.gz\` — **client Linux x64, da
-            preferire per un'installazione manuale.** Contiene \`ygoprodll\`
-            e una cartella \`lib/\` con le librerie che la distribuzione
-            dell'utente potrebbe non avere, o avere con un SONAME diverso. Si
-            copiano entrambi accanto al proprio eseguibile \`EDOPro\`.
-            Istruzioni in \`LEGGIMI.txt\`.
-          - \`ygoprodll\` — lo stesso binario, nudo. Linka le librerie di
-            ubuntu-latest: su una distribuzione diversa puo' non partire
-            affatto (\`error while loading shared libraries\`). Resta qui per
-            chi ha gia' le librerie giuste.
-          - \`edopro-custom-linux-x64.zip\` / \`edopro-custom-windows-x86.zip\`
-            — stessi eseguibili di sopra, impacchettati nel solo formato che
-            l'aggiornatore integrato sa installare da solo (ZIP). Non
-            scaricarli a mano: sono per il manifesto di aggiornamento
-            firmato, non hanno la chiusura di dipendenze del tarball Linux.
-          - \`edopro-custom-windows-x86-package.zip\` — **client Windows
-            x86, da preferire per un'installazione manuale.** Contiene
-            \`ygopro.exe\`, \`strings/fedelex.conf\` (senza, le etichette
-            del filtro punti restano "???") e \`notices/\` con le licenze
-            delle librerie collegate staticamente. Istruzioni in
-            \`LEGGIMI.txt\` dentro il pacchetto.
-          - \`fedelex-launcher\` — il launcher Linux nudo (quello che il
-            giocatore avvia, design/launcher.md). E' gia' dentro il tarball
-            sopra: questo allegato serve solo a chi vuole prenderlo da
-            solo.
-          - \`ygoprodll.exe\` / \`fedelex.conf\` — allegati nudi SOLO per il
-            launcher (si auto-aggiorna confrontando questi file per hash,
-            D244): non sono pensati per essere scaricati a mano, non hanno
-            licenze ne' istruzioni allegate.
+          - \`edopro-custom-windows-x86-package.zip\` — il pacchetto Windows da
+            scaricare per installare a mano (vedi sopra). Contiene \`ygopro.exe\`
+            (il launcher), \`bin/\` (il simulatore vero), \`strings/\`,
+            \`LEGGIMI.txt\` e \`notices/\` con le licenze delle librerie collegate
+            staticamente.
+          - \`edopro-custom-linux-x64.tar.gz\` — il pacchetto Linux da scaricare per
+            installare a mano (vedi sopra). Contiene \`install.sh\`, il launcher
+            (\`fedelex-launcher\`), \`bin/\` (il simulatore), \`lib/\` (le librerie
+            che la distribuzione dell'utente potrebbe non avere) e \`strings/\`.
+          - \`edopro-custom-linux-x64.zip\` / \`edopro-custom-windows-x86.zip\` —
+            stessi eseguibili di sopra, impacchettati nel solo formato che
+            l'aggiornatore integrato sa installare da solo (ZIP). Non scaricarli a
+            mano: sono per il manifesto di aggiornamento firmato, non hanno la
+            chiusura di dipendenze del tarball Linux.
+          - \`ygoprodll\`, \`ygoprodll.exe\`, \`fedelex.conf\`, \`fedelex-launcher\` —
+            allegati nudi usati SOLO dall'aggiornamento automatico (che li confronta
+            per hash con quelli gia' installati): non sono pensati per essere
+            scaricati a mano, non hanno istruzioni ne' licenze allegate.
           EOF
           )"
