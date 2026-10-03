@@ -1,6 +1,7 @@
 #ifndef CURL_H
 #define CURL_H
 #include <curl/curl.h>
+#include <string>
 #include <type_traits>
 #include "compiler_features.h"
 #include "fmt.h"
@@ -99,5 +100,37 @@ static inline auto curl_easy_init_int() {
 #define curl_easy_setopt(curl, option, ...) curl_easy_setopt_int<option>(curl, __VA_ARGS__)
 #define curl_easy_init() enrichedCurl{curl_easy_init_int()}
 #endif
+
+// D249 point 1 (design/decisioni.md, FASE 67): the Windows build of this
+// client ships curl linked against OpenSSL with no Schannel backend and no
+// cacert.pem bundled (strings on a real release binary confirmed this —
+// §1.9 of the vault CLAUDE.md, "si guarda l'artefatto"). Without either,
+// TLS verification on Windows has no certificate store to check against
+// and every HTTPS request fails. CURLOPT_SSL_OPTIONS = CURLSSLOPT_NATIVE_CA
+// (Windows' own certificate store, supported with OpenSSL since curl 7.71)
+// is the fix, and every curl handle in this client that can reach the
+// network needs it — this helper is the one place that decides it so the
+// five call sites stay a one-line call each instead of repeating the same
+// `#if EDOPRO_WINDOWS` five times.
+//
+// An explicit `cacert.pem` (the Linux/macOS case, or a Windows install that
+// dropped one next to the binary on purpose) always wins: this only kicks
+// in when `ssl_certificate_path_exists` is false, same priority order every
+// call site already gave CURLOPT_CAINFO before this helper existed. This
+// NEVER touches CURLOPT_SSL_VERIFYPEER — verification itself stays on,
+// always; this only gives it something to verify against on Windows.
+template<typename CurlHandle>
+static inline void ApplyCurlCertificateConfig(CurlHandle& curl, const std::string& ssl_certificate_path,
+												bool ssl_certificate_path_exists) {
+	if(ssl_certificate_path.size() && ssl_certificate_path_exists) {
+		curl_easy_setopt(curl, CURLOPT_CAINFO, ssl_certificate_path.data());
+		return;
+	}
+#if EDOPRO_WINDOWS
+#if (LIBCURL_VERSION_NUM >= CURL_VERSION_BITS(7,71,0))
+	curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
+#endif
+#endif
+}
 
 #endif

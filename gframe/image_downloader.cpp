@@ -90,8 +90,8 @@ void ImageDownloader::DownloadPic() {
 	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
 	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L);
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-	if(gGameConfig->ssl_certificate_path.size() && Utils::FileExists(Utils::ToPathString(gGameConfig->ssl_certificate_path)))
-		curl_easy_setopt(curl, CURLOPT_CAINFO, gGameConfig->ssl_certificate_path.data());
+	ApplyCurlCertificateConfig(curl, gGameConfig->ssl_certificate_path,
+								Utils::FileExists(Utils::ToPathString(gGameConfig->ssl_certificate_path)));
 	auto SetPayloadAndUrl = [&payload, &curl](epro::stringview url, FILE* stream) {
 		payload.stream = stream;
 		payload.header_written = 0;

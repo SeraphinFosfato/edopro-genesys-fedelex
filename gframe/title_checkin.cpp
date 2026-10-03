@@ -241,9 +241,8 @@ bool TitleCheckin::Post(const std::string& url, const std::string& credential, l
 	curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, Utils::GetUserAgent().data());
 	curl_easy_setopt(curl_handle, CURLOPT_NOPROXY, "*");
 	curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
-	if(gGameConfig->ssl_certificate_path.size()
-	   && Utils::FileExists(Utils::ToPathString(gGameConfig->ssl_certificate_path)))
-		curl_easy_setopt(curl_handle, CURLOPT_CAINFO, gGameConfig->ssl_certificate_path.data());
+	ApplyCurlCertificateConfig(curl_handle, gGameConfig->ssl_certificate_path,
+								Utils::FileExists(Utils::ToPathString(gGameConfig->ssl_certificate_path)));
 
 	// Deliberately NOT CURLOPT_FAILONERROR: unlike the banlist GET (which
 	// only ever cares about success), this call must distinguish 200 from

@@ -191,8 +191,8 @@ void ServerLobby::GetRoomsThread() {
 	curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, ygo::Utils::GetUserAgent().data());
 
 	curl_easy_setopt(curl_handle, CURLOPT_NOPROXY, "*");
-	if(gGameConfig->ssl_certificate_path.size() && Utils::FileExists(Utils::ToPathString(gGameConfig->ssl_certificate_path)))
-		curl_easy_setopt(curl_handle, CURLOPT_CAINFO, gGameConfig->ssl_certificate_path.data());
+	ApplyCurlCertificateConfig(curl_handle, gGameConfig->ssl_certificate_path,
+								Utils::FileExists(Utils::ToPathString(gGameConfig->ssl_certificate_path)));
 
 	auto res = curl_easy_perform(curl_handle);
 	curl_easy_cleanup(curl_handle);
