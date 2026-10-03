@@ -217,6 +217,22 @@ distribuito scende da ~67 a ~10 MB.
   persona, mai nel manifesto, mai scaricato dal launcher) e in
   `release.yml` (job `build-linux` e `publish`); `README.md` rigenerato,
   `check_artifacts_manifest.py` verde (9 allegati).
+
+  **Windows (`ygoprodll.exe`): valutato, nessun allegato aggiunto.** Il
+  brief (PHASES.md) chiedeva di valutare se allegare anche un `.pdb`, se
+  MSVC ne produce uno. Letto `premake5.lua` (§1.9: qui la fonte e' il
+  sorgente, non un binario — **nessuna build Windows e' mai girata in
+  questo progetto**, quindi non esiste un artefatto da controllare):
+  `symbols "On"` e' nel filtro `{"configurations:Release*",
+  "action:not vs*"}` (righe 337-338), cioe' **esclude** esplicitamente
+  `vs*` — l'azione che `build_windows.ps1` usa (`premake5.exe vs2022 ...`). Senza
+  quella riga MSVC non emette `<DebugInformationFormat>` per la
+  configurazione Release, quindi (dedotto, non misurato su un binario
+  reale che non esiste) oggi non nasce un `.pdb` con informazioni utili.
+  Nessun cambio ai file di impacchettamento: non c'e' niente da allegare
+  finche' quella riga non cambia. Non e' un punto di risalita (la forma
+  degli allegati non cambia, "resta com'e'" e' la risposta alla
+  valutazione chiesta, non un disegno nuovo).
 - **Cancello 7 — verde.** Suite C++ completa (`banlist_tests`: 291 check
   totali prima di questa fase, 299 ora, 0 fallimenti), build Linux intera
   (`ygoprodll` + `fedelex-launcher`, nessun warning nuovo —
