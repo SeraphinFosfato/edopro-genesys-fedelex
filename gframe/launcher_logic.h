@@ -101,6 +101,34 @@ SwapOutcome DecideSwap(bool downloaded_sha256_matches,
 						bool executable_bit_set_after_chmod,
 						bool new_binary_launches);
 
+// --- FASE 66 / design/decisioni.md D247: the update window's text --------
+//
+// D247 point 2: while a launcher_files[] download is in flight, the window
+// (zenity --progress on Linux, a native window on Windows — launcher/
+// progress.* , never this module) shows "Aggiornamento in corso", then a
+// running "<scaricati> / <totale> MB" counter, then "Avvio...". This
+// function is only the SECOND half of that: the text for the MB counter,
+// from the two facts curl's own progress callback already measured. It has
+// no I/O, no window, no curl — same discipline as every other function in
+// this header, which is what makes the window's one meaningful piece of
+// logic (how to read a byte count) testable without a display.
+//
+// total_bytes <= 0 means "not known yet" (no Content-Length received, or
+// not yet received this call) — never treated as "0 total downloaded is
+// 100%": formats as just the downloaded amount, nothing claimed about a
+// total that was not measured. downloaded_bytes is clamped into
+// [0, total_bytes] when a total is known, because curl's own counters can
+// overshoot by a handful of bytes right around the last chunk, and
+// "103 % downloaded" is not a truthful thing to show.
+std::string FormatDownloadProgress(long long downloaded_bytes, long long total_bytes);
+
+// Same two facts, as a 0-100 percentage for a progress bar / zenity's
+// "--progress" stdin protocol (a bare "NN\n" line sets the bar to NN%).
+// total_bytes <= 0 returns 0 — an unknown total has no percentage to claim,
+// not "assume done" and not "assume nothing", just the one value that asks
+// nothing of whoever reads it.
+int DownloadProgressPercent(long long downloaded_bytes, long long total_bytes);
+
 }
 
 #endif //LAUNCHER_LOGIC_H

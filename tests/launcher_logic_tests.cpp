@@ -118,6 +118,51 @@ void test_swap_verified_but_wont_launch_rolls_back() {
 		 "a verified, executable file that still refuses to launch must roll back to .old (launcher.md cancello 5, \"un eseguibile senza l'eseguibile assente -> torna alla copia precedente\")");
 }
 
+// --- FASE 66 / D247: download progress text and percentage -------------
+
+void test_progress_text_matches_d247_example() {
+	// design/decisioni.md D247 point 2's own example: "12,3 / 66,1 MB".
+	check(FormatDownloadProgress(12300000, 66100000) == "12,3 / 66,1 MB",
+		 "FormatDownloadProgress must match D247's own worked example");
+}
+
+void test_progress_text_unknown_total_omits_the_slash() {
+	check(FormatDownloadProgress(5000000, 0) == "5,0 MB",
+		 "an unknown total (<= 0) must show only the downloaded amount, never a bogus '/ 0 MB'");
+}
+
+void test_progress_text_clamps_overshoot_to_total() {
+	// curl's own dlnow can read a handful of bytes over dltotal right
+	// around the last chunk — never show more than 100% worth of bytes.
+	check(FormatDownloadProgress(66200000, 66100000) == "66,1 / 66,1 MB",
+		 "downloaded_bytes above total_bytes must clamp to total, never overshoot the text");
+}
+
+void test_progress_text_negative_downloaded_clamps_to_zero() {
+	check(FormatDownloadProgress(-1, 1000000) == "0,0 / 1,0 MB",
+		 "a negative downloaded_bytes (should never happen, but not asserted upstream) must clamp to zero, not print a minus sign");
+}
+
+void test_progress_percent_matches_fraction() {
+	check(DownloadProgressPercent(33000000, 66100000) == 50,
+		 "33.0/66.1 MB must round to 50%");
+}
+
+void test_progress_percent_unknown_total_is_zero() {
+	check(DownloadProgressPercent(5000000, 0) == 0,
+		 "an unknown total (<= 0) must report 0%, not a divide-by-zero or a false 100%");
+}
+
+void test_progress_percent_clamps_to_100() {
+	check(DownloadProgressPercent(70000000, 66100000) == 100,
+		 "downloaded_bytes above total_bytes must clamp the percentage to 100, never over 100");
+}
+
+void test_progress_percent_zero_downloaded_is_zero() {
+	check(DownloadProgressPercent(0, 66100000) == 0,
+		 "no bytes downloaded yet must be 0%, the first value the window ever shows");
+}
+
 }
 
 int RunLauncherLogicTests() {
@@ -135,6 +180,14 @@ int RunLauncherLogicTests() {
 	test_swap_bad_hash_rolls_back_without_touching_exec_bit();
 	test_swap_missing_exec_bit_asks_caller_to_fix_it();
 	test_swap_verified_but_wont_launch_rolls_back();
+	test_progress_text_matches_d247_example();
+	test_progress_text_unknown_total_omits_the_slash();
+	test_progress_text_clamps_overshoot_to_total();
+	test_progress_text_negative_downloaded_clamps_to_zero();
+	test_progress_percent_matches_fraction();
+	test_progress_percent_unknown_total_is_zero();
+	test_progress_percent_clamps_to_100();
+	test_progress_percent_zero_downloaded_is_zero();
 
 	std::printf("launcher_logic_tests: %d checks, %d failures\n", checks, failures);
 	return failures == 0 ? 0 : 1;
