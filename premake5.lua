@@ -433,6 +433,13 @@ project "fedelex-launcher"
 	includedirs { "gframe" }
 	files {
 		"launcher/main.cpp",
+		-- FASE 66 (design/decisioni.md D247): the update window itself —
+		-- zenity/notify-send on Linux, a native Win32 window on Windows
+		-- (see the #if split inside the file). Pure decision logic it
+		-- calls into (the MB-counter text, the percentage) stays in
+		-- gframe/launcher_logic.* below, unit-tested; this file is pure
+		-- I/O, same reasoning as main.cpp itself.
+		"launcher/progress.cpp",
 		"gframe/update_verify.cpp",
 		"gframe/launcher_logic.cpp",
 		"gframe/sha256.cpp",
@@ -460,7 +467,10 @@ project "fedelex-launcher"
 		-- integration links every installed library by its own file name
 		-- (libcurl.lib), exactly as it does for ygoprodll. Naming "curl"
 		-- made MSVC look for a curl.lib that does not exist (LNK1181).
-		links { "bcrypt", "ws2_32", "wldap32", "crypt32", "advapi32", "Secur32", "Normaliz", "user32" }
+		-- comctl32 (FASE 66, D247 point 3): the update window's progress
+		-- bar control (PROGRESS_CLASSW, InitCommonControlsEx) lives there,
+		-- not in user32.
+		links { "bcrypt", "ws2_32", "wldap32", "crypt32", "advapi32", "Secur32", "Normaliz", "user32", "comctl32" }
 	filter "system:not windows"
 		kind "ConsoleApp"
 		links { "curl" }

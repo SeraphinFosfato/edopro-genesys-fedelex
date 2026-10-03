@@ -21,16 +21,27 @@
 //   4. For each launcher_files[] entry selected for this platform, replace
 //      the installed file if its hash differs, verifying every step
 //      (design/decisioni.md D244 point 5) and never leaving PROGRAM_DIR
-//      without a working simulator.
+//      without a working simulator. If, and only if, at least one entry
+//      actually needs replacing, this step is accompanied by an update
+//      window (design/decisioni.md D247, FASE 66): "Aggiornamento in
+//      corso", a running MB counter, then "Avvio..." — see progress.h.
+//      Nothing here opens a window when there is nothing to download.
 //   5. Run the simulator with the provenance mark.
 //
-// Linux only has been built and run end to end (cancelli 3-5 were tested
-// on this platform). The Windows branches below follow the same contract
-// (MessageBoxW instead of a desktop notifier, .exe suffix, no chmod) but
-// have NEVER been compiled — there is no Windows toolchain in this
-// environment. Flagged honestly in design/launcher.md's stato
-// dell'implementazione; do not read "the code has an #ifdef for it" as "it
-// works on Windows" (§1.9 of the vault CLAUDE.md).
+// Linux only has been built and run end to end (cancelli 3-5 of FASE 64
+// were tested on this platform; FASE 66's progress window likewise). The
+// Windows branches below follow the same contract (MessageBoxW instead of
+// a desktop notifier, .exe suffix, no chmod) but have NEVER been compiled
+// — there is no Windows toolchain in this environment. Flagged honestly in
+// design/launcher.md's stato dell'implementazione; do not read "the code
+// has an #ifdef for it" as "it works on Windows" (§1.9 of the vault
+// CLAUDE.md). The Windows half of progress.cpp (a native Win32 window) is
+// written and compiles as part of this same project, but is NOT wired into
+// this file's Windows branch below: that branch still does not implement
+// the launcher_files install loop at all (a FASE 64 gap this phase does
+// not close — there is no "a file is downloading" moment on Windows yet
+// for the window to attach to). Wiring it is future work once that loop
+// exists, not a design question left open by this phase.
 
 #include <algorithm>
 #include <chrono>
@@ -38,6 +49,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <functional>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -45,6 +58,7 @@
 
 #include "update_verify.h"
 #include "launcher_logic.h"
+#include "progress.h"
 #include "sha256.h"
 
 #include <curl/curl.h>
@@ -59,6 +73,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <cerrno>
+#include <csignal>
 #endif
 
 namespace {
@@ -109,43 +124,49 @@ void NotifyUser(const std::string& title, const std::string& message) {
 		MB_OK | MB_ICONINFORMATION);
 }
 #else
+// Forward declaration: defined further down (next to the rest of the
+// process-handling code), reused here so this function and the simulator
+// probe share one fork()+execvp() implementation instead of two.
+pid_t SpawnDetached(const std::string& path, const std::vector<std::string>& args);
+
 // D244 point 1: zenity/kdialog if present, else notify-send, always also
 // the log file (handled by the caller via Log()). A missing notifier is
 // not an error — the log line is the ground truth either way.
+//
+// design/decisioni.md D247 point 5 (FASE 66): this used to run the
+// notifier through `system("timeout 5 " + ...)`, which (a) made THIS
+// process wait for the dialog to close and (b) killed the dialog after 5
+// seconds if the user had not closed it yet — found on a real machine:
+// the message looked like it closed itself, and a user who stepped away
+// for a few seconds never saw it. Both of those were the SAME bug (the
+// 5-second timeout was there only because the old code waited): spawning
+// detached via SpawnDetached() below removes the need for either. The
+// `command -v` probe keeps its own short timeout (it is not the dialog,
+// just a presence check) for the same screen-less-session reason the
+// original comment gave.
+//
+// `timeout 2 sh -c 'command -v NAME'`, not `timeout 2 command -v NAME`
+// (found while testing this phase's fake-zenity harness, FASE 66): `timeout`
+// execs its argument directly, it does not run it through a shell — and
+// `command` is a shell BUILTIN, not a file anywhere on PATH
+// (`type command` says so). `timeout 2 command -v zenity` therefore always
+// failed with "impossibile eseguire il comando «command»" (exit 127),
+// REGARDLESS of whether zenity/kdialog/notify-send were installed: this
+// probe had returned "not found" unconditionally since D244/FASE 64, so
+// NotifyUser() has never actually shown a notification in the field. Wrapping
+// `command -v NAME` inside `sh -c '...'` makes `timeout` exec a real program
+// (sh) that then evaluates the builtin itself.
 void NotifyUser(const std::string& title, const std::string& message) {
-	auto try_run = [](const std::string& cmd) {
-		return std::system(cmd.c_str()) == 0;
-	};
-	auto quote = [](const std::string& s) {
-		std::string out = "'";
-		for(char c : s) {
-			if(c == '\'')
-				out += "'\\''";
-			else
-				out += c;
-		}
-		out += "'";
-		return out;
-	};
-	// "timeout 5" in front of every notifier call, not just the
-	// command -v probe: found empirically (FASE 64 cancello 4, a session
-	// with DISPLAY set but no reachable X/DBus session — exactly a
-	// screen-less server or a sandboxed test run) that zenity blocks
-	// indefinitely trying to reach a display instead of failing fast. A
-	// notifier is a comodo (design/launcher.md §7 only requires the log,
-	// which the caller always writes); it must never be able to make the
-	// launcher itself hang — that would turn "non bloccare mai" into its
-	// opposite.
-	if(std::system("timeout 2 command -v zenity >/dev/null 2>&1") == 0) {
-		try_run("timeout 5 zenity --info --title=" + quote(title) + " --text=" + quote(message) + " 2>/dev/null");
+	if(std::system("timeout 2 sh -c 'command -v zenity' >/dev/null 2>&1") == 0) {
+		SpawnDetached("zenity", {"zenity", "--info", "--title=" + title, "--text=" + message});
 		return;
 	}
-	if(std::system("timeout 2 command -v kdialog >/dev/null 2>&1") == 0) {
-		try_run("timeout 5 kdialog --title=" + quote(title) + " --msgbox=" + quote(message) + " 2>/dev/null");
+	if(std::system("timeout 2 sh -c 'command -v kdialog' >/dev/null 2>&1") == 0) {
+		SpawnDetached("kdialog", {"kdialog", "--title=" + title, "--msgbox=" + message});
 		return;
 	}
-	if(std::system("timeout 2 command -v notify-send >/dev/null 2>&1") == 0) {
-		try_run("timeout 5 notify-send " + quote(title) + " " + quote(message) + " 2>/dev/null");
+	if(std::system("timeout 2 sh -c 'command -v notify-send' >/dev/null 2>&1") == 0) {
+		SpawnDetached("notify-send", {"notify-send", title, message});
 	}
 	// None present: the log file (always written by the caller) is the
 	// only record. Never fatal — design/launcher.md §7, "uscire in silenzio" is
@@ -259,7 +280,26 @@ size_t WriteCallback(char* ptr, size_t size, size_t nmemb, void* userdata) {
 	return size * nmemb;
 }
 
-CurlResult Fetch(const std::string& url, long timeout_seconds) {
+// FASE 66 (D247 point 2): curl's own XFERINFOFUNCTION, forwarding straight
+// to whatever callback Fetch() was given — no byte-counting logic of its
+// own, that is ygo::launcher::FormatDownloadProgress/DownloadProgressPercent's
+// job (gframe/launcher_logic.*, unit-tested). Returning nonzero would abort
+// the transfer, which this never wants to do on its own.
+using ProgressCallback = std::function<void(long long downloaded, long long total)>;
+
+int XferInfoCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t, curl_off_t) {
+	auto* cb = static_cast<ProgressCallback*>(clientp);
+	if(cb && *cb)
+		(*cb)(static_cast<long long>(dlnow), static_cast<long long>(dltotal));
+	return 0;
+}
+
+// `on_progress`, when set, is called from curl's own thread of execution
+// (synchronously, inside curl_easy_perform — libcurl has no background
+// thread) roughly once per received chunk. Left null (the manifest
+// doc/.sig fetches below both do) for anything small enough that a
+// progress window would be pointless.
+CurlResult Fetch(const std::string& url, long timeout_seconds, ProgressCallback on_progress = nullptr) {
 	CurlResult result;
 	CURL* curl = curl_easy_init();
 	if(!curl)
@@ -275,6 +315,11 @@ CurlResult Fetch(const std::string& url, long timeout_seconds) {
 	curl_easy_setopt(curl, CURLOPT_NOPROXY, "*");
 	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error_buffer);
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, "fedelex-launcher/1");
+	if(on_progress) {
+		curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+		curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, XferInfoCallback);
+		curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &on_progress);
+	}
 	auto res = curl_easy_perform(curl);
 	curl_easy_cleanup(curl);
 	result.ok = (res == CURLE_OK);
@@ -287,6 +332,13 @@ CurlResult Fetch(const std::string& url, long timeout_seconds) {
 #if !FEDELEX_WINDOWS
 // Spawns `path` with `args` (argv[0] included). Returns the child pid, or
 // -1 on a fork/exec failure.
+//
+// execvp, not execv (FASE 66): the simulator-probe call site below already
+// passes a full path (`tmp`, which always contains a '/'), so execvp
+// behaves exactly like execv there — but it is also now reused by
+// NotifyUser() above with a bare command name ("zenity", "notify-send",
+// ...) that must be found on PATH. One function, one fork/exec
+// implementation, for both uses.
 pid_t SpawnDetached(const std::string& path, const std::vector<std::string>& args) {
 	pid_t pid = fork();
 	if(pid < 0)
@@ -296,8 +348,8 @@ pid_t SpawnDetached(const std::string& path, const std::vector<std::string>& arg
 		for(auto& a : args)
 			argv.push_back(const_cast<char*>(a.c_str()));
 		argv.push_back(nullptr);
-		execv(path.c_str(), argv.data());
-		_exit(127); // execv only returns on failure
+		execvp(path.c_str(), argv.data());
+		_exit(127); // execvp only returns on failure
 	}
 	return pid;
 }
@@ -346,16 +398,22 @@ Destination ResolveDestination(const ygo::update::LauncherFile& file,
 // Downloads+verifies+installs a Strings-role file (no executable bit, no
 // launch probe — DecideSwap's state machine is specific to the simulator,
 // see launcher_logic.h; for a plain data file "hash matches" is the whole
-// contract).
+// contract). `progress` (FASE 66, may be null) gets the same MB-counter
+// updates the simulator download gives it — a small file finishes in one
+// or two ticks, which is correct: nothing here fakes progress that was not
+// measured.
 void InstallStringsFile(const ygo::update::LauncherFile& file, const Destination& dest,
-						 const std::string& data_dir) {
+						 const std::string& data_dir, ygo::launcher::ProgressWindow* progress) {
 	// Same rule as the simulator: the installed file's own hash decides.
 	// Without this the file was downloaded and replaced at every launch.
 	if(ygo::launcher::DecideReplace(HashFile(dest.final_path), file.sha256) == ygo::launcher::ReplaceDecision::Keep) {
 		Log(data_dir, "launcher_files: " + dest.final_path + " gia' aggiornato.");
 		return;
 	}
-	auto fetched = Fetch(file.url, 20);
+	auto fetched = Fetch(file.url, 20, [progress](long long dl, long long total) {
+		if(progress)
+			progress->Update(dl, total);
+	});
 	if(!fetched.ok) {
 		Log(data_dir, "launcher_files: impossibile scaricare " + file.name + ", mantengo il file esistente.");
 		return;
@@ -385,14 +443,17 @@ void InstallStringsFile(const ygo::update::LauncherFile& file, const Destination
 // caller falls back to launching whatever is already at dest.final_path).
 #if !FEDELEX_WINDOWS
 pid_t InstallSimulatorFile(const ygo::update::LauncherFile& file, const Destination& dest,
-							const std::string& data_dir) {
+							const std::string& data_dir, ygo::launcher::ProgressWindow* progress) {
 	std::string installed_hash = HashFile(dest.final_path);
 	auto replace = ygo::launcher::DecideReplace(installed_hash, file.sha256);
 	if(replace == ygo::launcher::ReplaceDecision::Keep) {
 		Log(data_dir, "launcher_files: " + dest.final_path + " gia' aggiornato.");
 		return -1;
 	}
-	auto fetched = Fetch(file.url, 60);
+	auto fetched = Fetch(file.url, 60, [progress](long long dl, long long total) {
+		if(progress)
+			progress->Update(dl, total);
+	});
 	if(!fetched.ok) {
 		Log(data_dir, "launcher_files: impossibile scaricare " + file.name + ", mantengo il simulatore attuale.");
 		return -1;
@@ -454,6 +515,19 @@ pid_t InstallSimulatorFile(const ygo::update::LauncherFile& file, const Destinat
 int main(int argc, char** argv) {
 	(void)argc; (void)argv;
 	curl_global_init(CURL_GLOBAL_DEFAULT);
+
+#if !FEDELEX_WINDOWS
+	// FASE 66 / design/decisioni.md D247 point 4: a write() to the update
+	// window's pipe after zenity has already exited (died, or never read
+	// anything) must come back as an ordinary EPIPE error that
+	// progress.cpp's ProgressWindow::Update() can log and recover from —
+	// not SIGPIPE's default action, which terminates this process. This
+	// is the one global, process-wide setting the whole "a dead window
+	// never blocks or breaks the update" rule depends on; it belongs in
+	// main(), not in progress.cpp, because it has to be set exactly once,
+	// before anything could possibly write to that pipe.
+	std::signal(SIGPIPE, SIG_IGN);
+#endif
 
 	// Step 1: locate self, PROGRAM_DIR, the simulator.
 #if FEDELEX_WINDOWS
@@ -536,17 +610,41 @@ int main(int argc, char** argv) {
 						   " piu' vecchio di quello gia' accettato (" + std::to_string(stored_version) + "), ignorato.");
 		} else {
 			auto files = ygo::update::SelectLauncherFilesForPlatform(manifest.launcher_files, kPlatform);
-			pid_t launched_pid = -1;
+
+			// FASE 66 / D247 point 1: resolve every destination and its
+			// replace decision BEFORE opening anything. The update window
+			// (if any) is constructed exactly once, outside the loop below,
+			// and ONLY if at least one entry actually needs replacing —
+			// "una finestra compare solo quando c'e' qualcosa da
+			// scaricare" is enforced here, not by the window itself (which
+			// has no way to know whether it should have existed).
+			std::vector<Destination> destinations;
+			destinations.reserve(files.size());
+			bool any_replace = false;
 			for(auto& file : files) {
 				auto dest = ResolveDestination(file, program_dir, data_dir);
+				if(!dest.final_path.empty() &&
+				   ygo::launcher::DecideReplace(HashFile(dest.final_path), file.sha256) == ygo::launcher::ReplaceDecision::Replace)
+					any_replace = true;
+				destinations.push_back(std::move(dest));
+			}
+
+			std::unique_ptr<ygo::launcher::ProgressWindow> progress;
+			if(any_replace)
+				progress = std::make_unique<ygo::launcher::ProgressWindow>(data_dir);
+
+			pid_t launched_pid = -1;
+			for(size_t i = 0; i < files.size(); ++i) {
+				auto& file = files[i];
+				auto& dest = destinations[i];
 				if(dest.final_path.empty())
 					continue;
 				if(dest.is_simulator) {
-					pid_t pid = InstallSimulatorFile(file, dest, data_dir);
+					pid_t pid = InstallSimulatorFile(file, dest, data_dir, progress.get());
 					if(pid > 0)
 						launched_pid = pid;
 				} else {
-					InstallStringsFile(file, dest, data_dir);
+					InstallStringsFile(file, dest, data_dir, progress.get());
 				}
 			}
 			if(acceptance == ygo::launcher::ManifestAcceptance::Accept) {
@@ -554,6 +652,11 @@ int main(int argc, char** argv) {
 				if(state)
 					state << "{\"version\":" << manifest.version << "}\n";
 			}
+			// D247 point 2: "Avvio..." then the window closes itself, right
+			// before control hands off to the simulator either way (the
+			// early return just below, or step 5 further down).
+			if(progress)
+				progress->Finish();
 			if(launched_pid > 0) {
 				// The simulator swap's own probe became the real launch —
 				// nothing left to do.
