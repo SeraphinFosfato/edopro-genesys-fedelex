@@ -30,18 +30,19 @@
 //
 // Linux only has been built and run end to end (cancelli 3-5 of FASE 64
 // were tested on this platform; FASE 66's progress window likewise). The
-// Windows branches below follow the same contract (MessageBoxW instead of
-// a desktop notifier, .exe suffix, no chmod) but have NEVER been compiled
-// — there is no Windows toolchain in this environment. Flagged honestly in
+// Windows branch below (FASE 67, design/decisioni.md D249) now implements
+// the same step 4 (launcher_files install loop, anti-rollback, the update
+// window) with one deliberate difference from Linux: the order of
+// swap-vs-probe is reversed (§D249 point 2 — Windows swaps final into place
+// BEFORE probing it, Linux probes the downloaded file in place before ever
+// touching `final`, see InstallSimulatorFile's two bodies below for why).
+// It follows the same contract everywhere else (MessageBoxW instead of a
+// desktop notifier, .exe suffix, no chmod) but has NEVER been compiled —
+// there is no Windows toolchain in this environment. Flagged honestly in
 // design/launcher.md's stato dell'implementazione; do not read "the code
-// has an #ifdef for it" as "it works on Windows" (§1.9 of the vault
-// CLAUDE.md). The Windows half of progress.cpp (a native Win32 window) is
-// written and compiles as part of this same project, but is NOT wired into
-// this file's Windows branch below: that branch still does not implement
-// the launcher_files install loop at all (a FASE 64 gap this phase does
-// not close — there is no "a file is downloading" moment on Windows yet
-// for the window to attach to). Wiring it is future work once that loop
-// exists, not a design question left open by this phase.
+// compiles" as "it works on Windows" (§1.9 of the vault CLAUDE.md) — the
+// first real proof is the CI's build-windows job after this is pushed, the
+// first real proof of BEHAVIOUR is a Windows tester's launcher.log.
 
 #include <algorithm>
 #include <chrono>
@@ -239,7 +240,17 @@ bool RemoveFile(const std::string& path) {
 	return std::remove(path.c_str()) == 0 || !FileExists(path);
 }
 
-bool MoveFile(const std::string& from, const std::string& to) {
+// Named RenameFile, not MoveFile: <windows.h> #defines MoveFile to
+// MoveFileW (UNICODE build, premake5.lua) / MoveFileA — a plain textual
+// macro, so a function of ours called MoveFile would get silently rewritten
+// by the preprocessor into a redeclaration of the real WinAPI MoveFileW
+// with the wrong signature, a hard compile error. Found while wiring up
+// this file's Windows branch for real (FASE 67): this helper already
+// existed and was already called unconditionally by InstallStringsFile
+// below, so this collision predates this phase and would have broken the
+// very first Windows compile regardless of what FASE 67 added — fixed here
+// because this phase is what finally makes that compile happen.
+bool RenameFile(const std::string& from, const std::string& to) {
 	RemoveFile(to); // D244.5: "una copia sola" — the previous .old, if any, is dropped first.
 	return std::rename(from.c_str(), to.c_str()) == 0;
 }
@@ -315,6 +326,16 @@ CurlResult Fetch(const std::string& url, long timeout_seconds, ProgressCallback 
 	curl_easy_setopt(curl, CURLOPT_NOPROXY, "*");
 	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error_buffer);
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, "fedelex-launcher/1");
+	// D249 point 1: the launcher never has a cacert.pem of its own (it has
+	// no gGameConfig, no ssl_certificate_path, unlike gframe/curl.h's
+	// ApplyCurlCertificateConfig() used by the simulator's curl sites) — on
+	// Windows it always asks curl to use the OS certificate store instead.
+	// Never touches CURLOPT_SSL_VERIFYPEER: verification stays on.
+#if FEDELEX_WINDOWS
+#if (LIBCURL_VERSION_NUM >= CURL_VERSION_BITS(7,71,0))
+	curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
+#endif
+#endif
 	if(on_progress) {
 		curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 		curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, XferInfoCallback);
@@ -326,8 +347,11 @@ CurlResult Fetch(const std::string& url, long timeout_seconds, ProgressCallback 
 	return result;
 }
 
-// --- process handling (POSIX only — the Windows equivalent is
-// CreateProcessW; not implemented, see the file-level comment) ---------
+// --- process handling (POSIX only — the Windows equivalent uses
+// CreateProcessW/WaitForSingleObject directly at its two call sites below,
+// InstallSimulatorFile's Windows body and step 5's final launch; there is
+// no shared Windows helper here because CreateProcessW is already a single
+// call, unlike fork()+execvp()) ---------
 
 #if !FEDELEX_WINDOWS
 // Spawns `path` with `args` (argv[0] included). Returns the child pid, or
@@ -428,20 +452,27 @@ void InstallStringsFile(const ygo::update::LauncherFile& file, const Destination
 		return;
 	}
 	if(FileExists(dest.final_path))
-		MoveFile(dest.final_path, dest.final_path + ".old");
-	if(!MoveFile(tmp, dest.final_path)) {
+		RenameFile(dest.final_path, dest.final_path + ".old");
+	if(!RenameFile(tmp, dest.final_path)) {
 		Log(data_dir, "launcher_files: impossibile installare " + dest.final_path);
 		return;
 	}
 	Log(data_dir, "launcher_files: " + dest.final_path + " aggiornato.");
 }
 
-// Downloads+verifies+installs the simulator. Returns a pid of an
-// already-launched child on success (InstallNew with the probe process
-// still alive — that process IS the real launch, never spawned twice), or
-// -1 if nothing was launched by this function (Keep, or any failure —
-// caller falls back to launching whatever is already at dest.final_path).
+// Downloads+verifies+installs the simulator. The two bodies below (Linux
+// vs Windows, split by #if) do the verification sequence in the OPPOSITE
+// order — D249 point 2 — but both answer the same question for main():
+// "did this function already launch the simulator, so step 5 must not
+// launch it again". In every failure case of either body, dest.final_path
+// is left as a file main() can still launch at step 5 — that invariant is
+// called out again at each rename below, not just here.
 #if !FEDELEX_WINDOWS
+// Returns a pid of an already-launched child on success (InstallNew with
+// the probe process still alive — that process IS the real launch, never
+// spawned twice), or -1 if nothing was launched by this function (Keep, or
+// any failure — caller falls back to launching whatever is already at
+// dest.final_path).
 pid_t InstallSimulatorFile(const ygo::update::LauncherFile& file, const Destination& dest,
 							const std::string& data_dir, ygo::launcher::ProgressWindow* progress) {
 	std::string installed_hash = HashFile(dest.final_path);
@@ -488,8 +519,8 @@ pid_t InstallSimulatorFile(const ygo::update::LauncherFile& file, const Destinat
 	auto outcome = ygo::launcher::DecideSwap(hash_ok, exec_bit, launches);
 	if(outcome == ygo::launcher::SwapOutcome::InstallNew) {
 		if(FileExists(dest.final_path))
-			MoveFile(dest.final_path, dest.final_path + ".old");
-		MoveFile(tmp, dest.final_path); // same inode as what `pid` is running — safe on POSIX.
+			RenameFile(dest.final_path, dest.final_path + ".old");
+		RenameFile(tmp, dest.final_path); // same inode as what `pid` is running — safe on POSIX.
 		Log(data_dir, "launcher_files: " + dest.final_path + " aggiornato e avviato.");
 		return pid;
 	}
@@ -507,6 +538,117 @@ pid_t InstallSimulatorFile(const ygo::update::LauncherFile& file, const Destinat
 			   "Il nuovo simulatore non si e' avviato correttamente: mantengo la versione attuale.");
 	Log(data_dir, "launcher_files: " + file.name + " non si avvia, rollback (nessuna modifica su disco).");
 	return -1;
+}
+#else
+// D249 point 2: the opposite order from Linux. Linux can safely probe the
+// downloaded file from its own .new path because replacing a running
+// executable is safe on POSIX; on Windows, launching the probe from a path
+// OTHER than `final` (ygoprodll.new.exe instead of ygoprodll.exe) would ask
+// the firewall to authorize a binary that is about to disappear — the
+// player would see a prompt for a file that is gone moments later. So
+// here: swap first (final -> final.old, .new -> final), THEN probe `final`
+// itself. Returns true if the probe succeeded — that probe process IS the
+// real launch, main() must not spawn a second one. Returns false
+// otherwise (nothing needed replacing, a download/verify step failed
+// before anything on disk was touched, or the probe failed and the swap
+// was undone) — dest.final_path is a launchable file in every one of
+// those cases, see the invariant comment at each rename below.
+bool InstallSimulatorFile(const ygo::update::LauncherFile& file, const Destination& dest,
+							const std::string& data_dir, ygo::launcher::ProgressWindow* progress) {
+	std::string installed_hash = HashFile(dest.final_path);
+	auto replace = ygo::launcher::DecideReplace(installed_hash, file.sha256);
+	if(replace == ygo::launcher::ReplaceDecision::Keep) {
+		Log(data_dir, "launcher_files: " + dest.final_path + " gia' aggiornato.");
+		return false;
+	}
+	auto fetched = Fetch(file.url, 60, [progress](long long dl, long long total) {
+		if(progress)
+			progress->Update(dl, total);
+	});
+	if(!fetched.ok) {
+		Log(data_dir, "launcher_files: impossibile scaricare " + file.name + ", mantengo il simulatore attuale.");
+		return false; // invariant: dest.final_path untouched, still there.
+	}
+	bool hash_ok = ygo::Sha256Hex(fetched.body) == file.sha256;
+	if(!hash_ok) {
+		Log(data_dir, "launcher_files: SHA-256 di " + file.name + " non corrisponde al manifesto, aggiornamento rifiutato.");
+		return false; // invariant: dest.final_path untouched, still there.
+	}
+	std::string tmp = dest.final_path + ".new";
+	if(!WriteFile(tmp, fetched.body)) {
+		Log(data_dir, "launcher_files: impossibile scrivere " + tmp);
+		return false; // invariant: dest.final_path untouched, still there.
+	}
+	// Windows has no POSIX exec bit (IsExecutable/SetExecutable already
+	// encode "presence is the whole check" for this platform) — there is
+	// nothing to set or retry, unlike the Linux body above. Passed through
+	// DecideSwap anyway so both bodies ask the same pure function the same
+	// question; it is simply always true here.
+	constexpr bool exec_bit = true;
+	std::string old_path = dest.final_path + ".old";
+	bool had_old = FileExists(dest.final_path); // see step 1 of main(): always true in practice, the simulator is already verified present before step 4 runs — checked anyway, never assumed.
+	if(had_old && !RenameFile(dest.final_path, old_path)) {
+		// invariant: the move failed, so dest.final_path is exactly what it
+		// was before this call (RenameFile only removes its destination,
+		// .old, before renaming — see RenameFile's own comment) — still there.
+		Log(data_dir, "launcher_files: impossibile spostare " + dest.final_path + " in " + old_path + ", aggiornamento annullato.");
+		RemoveFile(tmp);
+		return false;
+	}
+	if(!RenameFile(tmp, dest.final_path)) {
+		// Rename failed partway: put .old back FIRST, before anything else
+		// — D249's own wording ("la cartella non resta mai senza un
+		// simulatore avviabile"). invariant: after this restore,
+		// dest.final_path is back to what it was before this call.
+		if(had_old)
+			RenameFile(old_path, dest.final_path);
+		Log(data_dir, "launcher_files: impossibile installare " + dest.final_path + ", ripristinato il precedente.");
+		return false;
+	}
+	// invariant: dest.final_path now holds the NEW bytes — still there,
+	// just not yet proven to launch. Probe it directly (never `.new`, which
+	// no longer exists after the rename above): same provenance mark as a
+	// normal launch, so a probe that fully comes up is indistinguishable
+	// from one and needs no second CreateProcessW.
+	std::wstring wfinal(dest.final_path.begin(), dest.final_path.end());
+	std::wstring wdata(data_dir.begin(), data_dir.end());
+	std::wstring cmdline = L"\"" + wfinal + L"\" -from-launcher -C \"" + wdata + L"\"";
+	std::vector<wchar_t> cmdline_buf(cmdline.begin(), cmdline.end());
+	cmdline_buf.push_back(0);
+	STARTUPINFOW si{}; si.cb = sizeof(si);
+	PROCESS_INFORMATION pi{};
+	bool spawned = CreateProcessW(wfinal.c_str(), cmdline_buf.data(), nullptr, nullptr, FALSE, 0,
+								   nullptr, nullptr, &si, &pi) != 0;
+	bool launches = false;
+	if(spawned) {
+		CloseHandle(pi.hThread);
+		// WAIT_TIMEOUT within the budget = still running = launched, same
+		// reading as StillRunningAfter() in the Linux body above.
+		launches = WaitForSingleObject(pi.hProcess, static_cast<DWORD>(kLaunchProbeMillis)) == WAIT_TIMEOUT;
+		CloseHandle(pi.hProcess); // either it IS the real launch (nothing left to join) or it already exited (nothing left to reap) — never waited on further either way.
+	}
+	auto outcome = ygo::launcher::DecideSwap(hash_ok, exec_bit, launches);
+	if(outcome == ygo::launcher::SwapOutcome::InstallNew) {
+		Log(data_dir, "launcher_files: " + dest.final_path + " aggiornato e avviato.");
+		return true;
+	}
+	// RollbackToOld (the only other outcome reachable here — hash_ok is
+	// already true by construction, and exec_bit is always true on
+	// Windows, so FixExecutableBit never triggers in this body). Unlike
+	// the Linux body, `final` was ALREADY swapped — so "roll back" means
+	// actually undoing it: final -> final.failed, then .old -> final.
+	std::string failed_path = dest.final_path + ".failed";
+	if(!RenameFile(dest.final_path, failed_path))
+		Log(data_dir, "launcher_files: impossibile spostare " + dest.final_path + " in " + failed_path + ".");
+	// invariant: whether or not the line above succeeded, dest.final_path
+	// must hold a launchable file again after the next line — that is the
+	// whole point of this restore, not a best-effort extra.
+	if(had_old && !RenameFile(old_path, dest.final_path))
+		Log(data_dir, "launcher_files: impossibile ripristinare " + old_path + " in " + dest.final_path + " -- la cartella potrebbe restare senza simulatore.");
+	NotifyUser("Aggiornamento EDOPro (Fedelex custom)",
+			   "Il nuovo simulatore non si e' avviato correttamente: mantengo la versione attuale.");
+	Log(data_dir, "launcher_files: " + file.name + " non si avvia, ripristinato " + dest.final_path + ".");
+	return false;
 }
 #endif
 
@@ -534,6 +676,9 @@ int main(int argc, char** argv) {
 	wchar_t self_path_w[MAX_PATH];
 	GetModuleFileNameW(nullptr, self_path_w, MAX_PATH);
 	std::wstring wself(self_path_w);
+	// Limite noto, non chiuso qui (D249): narrowing carattere per carattere,
+	// non una vera conversione di codepage — regge le lettere accentate
+	// (code page 1252), non un percorso in un altro alfabeto.
 	std::string self_path(wself.begin(), wself.end());
 #else
 	char self_path_buf[4096];
@@ -588,10 +733,15 @@ int main(int argc, char** argv) {
 		}
 	}
 
-	// Step 4: launcher_files, only on Linux for now (SpawnDetached/probe is
-	// POSIX-only — see InstallSimulatorFile's #if above). Windows installs
-	// nothing through this path yet; it still launches the simulator below.
-#if !FEDELEX_WINDOWS
+	// Step 4: launcher_files, same cycle on every platform now (FASE 67,
+	// D249): anti-rollback on the launcher's own state, select+resolve
+	// every entry, open the update window only if something needs
+	// replacing, install each entry, close the window, launch if the
+	// simulator swap already did. The only platform split left is INSIDE
+	// the loop (InstallSimulatorFile has two bodies — see its #if above
+	// for why the verify/swap order is reversed on Windows) and in how
+	// "already launched" is represented (a pid on POSIX, a bool on
+	// Windows — CreateProcessW's PROCESS_INFORMATION is not a pid_t).
 	if(have_manifest) {
 		std::string state_path = data_dir + "/launcher-state.json";
 		int stored_version = 0;
@@ -633,16 +783,25 @@ int main(int argc, char** argv) {
 			if(any_replace)
 				progress = std::make_unique<ygo::launcher::ProgressWindow>(data_dir);
 
+#if FEDELEX_WINDOWS
+			bool simulator_already_launched = false;
+#else
 			pid_t launched_pid = -1;
+#endif
 			for(size_t i = 0; i < files.size(); ++i) {
 				auto& file = files[i];
 				auto& dest = destinations[i];
 				if(dest.final_path.empty())
 					continue;
 				if(dest.is_simulator) {
+#if FEDELEX_WINDOWS
+					if(InstallSimulatorFile(file, dest, data_dir, progress.get()))
+						simulator_already_launched = true;
+#else
 					pid_t pid = InstallSimulatorFile(file, dest, data_dir, progress.get());
 					if(pid > 0)
 						launched_pid = pid;
+#endif
 				} else {
 					InstallStringsFile(file, dest, data_dir, progress.get());
 				}
@@ -657,6 +816,15 @@ int main(int argc, char** argv) {
 			// early return just below, or step 5 further down).
 			if(progress)
 				progress->Finish();
+#if FEDELEX_WINDOWS
+			if(simulator_already_launched) {
+				// The simulator swap's own probe became the real launch —
+				// nothing left to do.
+				Log(data_dir, "simulatore gia' avviato durante la sostituzione.");
+				curl_global_cleanup();
+				return EXIT_SUCCESS;
+			}
+#else
 			if(launched_pid > 0) {
 				// The simulator swap's own probe became the real launch —
 				// nothing left to do.
@@ -664,11 +832,12 @@ int main(int argc, char** argv) {
 				curl_global_cleanup();
 				return EXIT_SUCCESS;
 			}
+#endif
 		}
 	}
 
 	// Step 5: normal launch (no update applicable, or the swap above never
-	// got to InstallNew — either way `simulator_path` is a file this
+	// got to InstallNew/true — either way `simulator_path` is a file this
 	// launcher already confirmed is present and executable).
 	// -C data_dir: without it the simulator chdirs to its own folder
 	// (gframe/gframe.cpp, WORK_DIR default is GetExeFolder()) instead of
@@ -677,6 +846,24 @@ int main(int argc, char** argv) {
 	// not PROGRAM_DIR/bin). Found while testing cancello 6 end to end in
 	// a fake HOME: the old bash wrapper this launcher replaces always
 	// passed -C itself.
+#if FEDELEX_WINDOWS
+	curl_global_cleanup();
+	std::wstring wsim(simulator_path.begin(), simulator_path.end());
+	std::wstring wdata(data_dir.begin(), data_dir.end());
+	std::wstring cmdline = L"\"" + wsim + L"\" -from-launcher -C \"" + wdata + L"\"";
+	std::vector<wchar_t> cmdline_buf(cmdline.begin(), cmdline.end());
+	cmdline_buf.push_back(0);
+	STARTUPINFOW si{}; si.cb = sizeof(si);
+	PROCESS_INFORMATION pi{};
+	if(CreateProcessW(wsim.c_str(), cmdline_buf.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+		return EXIT_SUCCESS;
+	}
+	Log(data_dir, "impossibile avviare " + simulator_path);
+	NotifyUser("EDOPro (Fedelex custom)", "Impossibile avviare il simulatore.");
+	return EXIT_FAILURE;
+#else
 	std::vector<std::string> args = { simulator_path, "-from-launcher", "-C", data_dir };
 	std::vector<char*> argv_exec;
 	for(auto& a : args)
@@ -687,24 +874,6 @@ int main(int argc, char** argv) {
 	// execv only returns on failure.
 	Log(data_dir, "impossibile avviare " + simulator_path + ": " + std::strerror(errno));
 	NotifyUser("EDOPro (Fedelex custom)", "Impossibile avviare il simulatore: " + std::string(std::strerror(errno)));
-	return EXIT_FAILURE;
-#else
-	// Windows: step 4 (launcher_files install) not implemented yet (see the
-	// file-level comment) — launch the simulator as-is.
-	curl_global_cleanup();
-	std::wstring wsim(simulator_path.begin(), simulator_path.end());
-	STARTUPINFOW si{}; si.cb = sizeof(si);
-	PROCESS_INFORMATION pi{};
-	std::wstring wdata(data_dir.begin(), data_dir.end());
-	std::wstring cmdline = L"\"" + wsim + L"\" -from-launcher -C \"" + wdata + L"\"";
-	std::vector<wchar_t> cmdline_buf(cmdline.begin(), cmdline.end());
-	cmdline_buf.push_back(0);
-	if(CreateProcessW(wsim.c_str(), cmdline_buf.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
-		CloseHandle(pi.hProcess);
-		CloseHandle(pi.hThread);
-		return EXIT_SUCCESS;
-	}
-	NotifyUser("EDOPro (Fedelex custom)", "Impossibile avviare il simulatore.");
 	return EXIT_FAILURE;
 #endif
 }
