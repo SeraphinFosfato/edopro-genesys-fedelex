@@ -241,15 +241,10 @@ bool RemoveFile(const std::string& path) {
 }
 
 // Named RenameFile, not MoveFile: <windows.h> #defines MoveFile to
-// MoveFileW (UNICODE build, premake5.lua) / MoveFileA — a plain textual
-// macro, so a function of ours called MoveFile would get silently rewritten
-// by the preprocessor into a redeclaration of the real WinAPI MoveFileW
-// with the wrong signature, a hard compile error. Found while wiring up
-// this file's Windows branch for real (FASE 67): this helper already
-// existed and was already called unconditionally by InstallStringsFile
-// below, so this collision predates this phase and would have broken the
-// very first Windows compile regardless of what FASE 67 added — fixed here
-// because this phase is what finally makes that compile happen.
+// MoveFileW (UNICODE build) — a textual macro, so a helper of ours called
+// MoveFile is really an overload of the WinAPI MoveFileW. It compiled
+// (v0.2.5/v0.2.6 shipped it) only because the parameter types differ; a
+// name that the preprocessor does not touch is one trap fewer.
 bool RenameFile(const std::string& from, const std::string& to) {
 	RemoveFile(to); // D244.5: "una copia sola" — the previous .old, if any, is dropped first.
 	return std::rename(from.c_str(), to.c_str()) == 0;

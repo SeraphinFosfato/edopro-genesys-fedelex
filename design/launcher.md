@@ -202,6 +202,8 @@ distribuito scende da ~67 a ~10 MB.
   e' rimasta aperta, e' lavoro futuro che aspetta che quel ciclo esista.
   Compila come parte dello stesso progetto `fedelex-launcher` (nessun
   toolchain Windows in questo ambiente — la prima prova vera e' la CI).
+  **Chiuso da FASE 67** (sotto): quel ciclo ora esiste e la finestra e'
+  agganciata.
 - **Cancello 6 — fatto e misurato su una build reale di questa sessione.**
   `tools/release/build_linux.sh`: dopo la build Release,
   `objcopy --only-keep-debug` + `--strip-unneeded` +
@@ -242,14 +244,101 @@ distribuito scende da ~67 a ~10 MB.
   sorgente era gia' a 13 — drift preesistente, non introdotto da questa
   fase, corretto perche' trovato mentre si verificava questo cancello).
 - Non e' un punto di risalita (§6.6): nessuna scelta di forma e' rimasta
-  aperta. Lavoro futuro, non bloccante: agganciare la finestra Win32 al
-  ciclo di installazione Windows quando quel ciclo verra' scritto; la
-  pipeline di release non e' mai girata su un runner vero (niente
-  push/tag/dispatch in questa sessione, per vincolo).
+  aperta. Lavoro futuro, non bloccante (**chiuso da FASE 67, sotto**):
+  agganciare la finestra Win32 al ciclo di installazione Windows quando
+  quel ciclo verra' scritto; la pipeline di release non e' mai girata su
+  un runner vero (niente push/tag/dispatch in questa sessione, per
+  vincolo — resta cosi' anche dopo FASE 67).
 
 **Scritto il 2026-10-02, sezione FASE 66 il 2026-10-03.** Decide la forma del componente deciso in D-56 del
 registro dei sospesi (vault privato), dopo che ogni correzione
 dell'aggiornatore ha richiesto una reinstallazione a mano.
+
+## Stato dell'implementazione (FASE 67)
+
+**Aggiornato il 2026-10-03.** Chiude D249: il ramo Windows di `main.cpp`
+implementa ora lo stesso ciclo del passo 4 (`launcher_files`) di Linux —
+prima di questa fase quel ramo si limitava ad avviare il simulatore
+com'era, senza mai aggiornarlo (il buco che D249 ha misurato: dalla
+v0.2.5-alpha i client Windows non si aggiornavano piu').
+
+- **Cancello 1 — non serviva una funzione pura nuova.** `DecideReplace` e
+  `DecideSwap` (`gframe/launcher_logic.h/.cpp`) bastano anche per l'ordine
+  Windows: l'ordine delle operazioni (D249 punto 2 — su Windows si scambia
+  PRIMA e si prova DOPO, il contrario di Linux) e' un fatto di I/O
+  sequenziale in `launcher/main.cpp`, non una decisione nuova da
+  codificare — le tre stesse domande (hash corretto? bit eseguibile?
+  parte?) restano identiche, cambia solo in quale ordine i fatti vengono
+  misurati e cosa succede sul disco in caso di esito negativo. Suite
+  invariata: `./bin/banlist_tests` verde, 299 check (0 nuovi, nessuno
+  perso).
+- **Cancello 2 — build Linux pulita, comportamento Linux invariato.**
+  `./premake5 gmake2 --no-core=true --sound=sfml --no-joystick=true
+  --irrlicht-root=../irrlicht-custom && make -C build config=release_x64
+  ygoprodll fedelex-launcher`: nessun warning nuovo (quello preesistente
+  su `CURLOPT_PROGRESSFUNCTION` deprecato in `client_updater.cpp` c'era
+  gia' prima di questa fase, verificato col vecchio sorgente). Il diff del
+  ramo `#if !FEDELEX_WINDOWS`/`#else` e' solo riorganizzazione dei blocchi
+  `#if`/commenti — la logica POSIX di `InstallSimulatorFile` e dello step
+  5 non e' cambiata una riga. Provato in un HOME finto (scratchpad, mai
+  `~/.local/...`): offline (`manifesto irraggiungibile`) avvia il
+  simulatore come prima.
+
+  **Incidente di sessione, non del codice**: il primo giro di prova ha
+  usato il comando di build esatto del brief, che (D249 lo aveva gia'
+  misurato) punta di default all'endpoint reale
+  (`seraphinfosfato.github.io/Banlist-dist/update.json`, `newoption` in
+  `premake5.lua`). Con `DISPLAY` reale e zenity vero sul `PATH` di questa
+  sessione, il launcher ha scaricato il manifesto e il simulatore reali e
+  **ha davvero aperto una finestra zenity sul desktop reale** (scomparsa
+  da sola, nessuna conferma manuale osservata). Nessun dato scritto,
+  nessuna chiave toccata — solo richieste HTTP in lettura verso
+  l'endpoint pubblico e una notifica momentanea. Rifatto subito dopo con
+  `--update-url` puntato a un indirizzo locale inesistente e con
+  `DISPLAY`/`WAYLAND_DISPLAY`/`PATH` svuotati, come le sessioni precedenti
+  di FASE 64/66 avevano gia' imposto per questa stessa ragione.
+- **Cancello 3 — ramo Windows scritto, MAI compilato.** Nessun
+  toolchain Windows in questo ambiente (confermato: nessun
+  `i686-w64-mingw32-g++`/`x86_64-w64-mingw32-g++` installato) — la sintassi
+  non e' stata verificata da nessun compilatore, solo da lettura attenta.
+  `grep -n "not implemented" launcher/main.cpp` e' vuoto. Ogni percorso di
+  errore di `InstallSimulatorFile` (Windows) lascia `dest.final_path` un
+  file presente su disco — commentato come invariante a ogni
+  `RenameFile`.
+
+  **Rinomina preventiva, non un guasto**: l'helper di questo file si
+  chiamava `MoveFile`, che `<windows.h>` ridefinisce come macro a
+  `MoveFileW` (build UNICODE). Diventava quindi un sovraccarico della
+  funzione Win32, che compilava solo perche' i tipi dei parametri sono
+  diversi: le build Windows di v0.2.5-alpha e v0.2.6-alpha lo contenevano
+  e sono passate. Rinominato in `RenameFile` per togliere la trappola.
+  (Una prima versione di questa nota diceva che nessuna build Windows era
+  mai arrivata al compilatore: falso, corretto prima del push.)
+- **Cancello 4 — certificati.** `gframe/curl.h`: nuovo helper
+  `ApplyCurlCertificateConfig()`, usato dai 5 siti che impostavano
+  `CURLOPT_CAINFO` condizionatamente (`image_downloader.cpp`,
+  `title_checkin.cpp`, `banlist_updater.cpp`, `server_lobby.cpp`,
+  `client_updater.cpp`) — `grep -rn "CURLSSLOPT_NATIVE_CA"` li trova tutti
+  piu' il launcher (`launcher/main.cpp`'s `Fetch()` non ha un
+  `ssl_certificate_path` proprio: imposta l'opzione direttamente nel suo
+  unico handle curl). Mai toccato `CURLOPT_SSL_VERIFYPEER`. Guardia di
+  versione (`LIBCURL_VERSION_NUM >= 7.71.0`) coerente con lo stile
+  esistente del file (`#if` su `CURLOPT_XFERINFOFUNCTION` in
+  `client_updater.cpp`), anche se sia il curl di sistema (8.22) sia quello
+  vendorizzato per Windows (8.7.0, vcpkg) lo superano ampiamente.
+- **Cancello 5 — documenti.** `python3 banlist/scripts/controlla_documenti.py`
+  dalla radice del vault: 0 NO (verificato dopo gli aggiornamenti di
+  questa sezione e di `launcher/main.cpp`'s commento di testa).
+- **Cancello 6 — commit per nome, nessun push.** Vedi PHASES.md FASE 67
+  per gli hash.
+
+**Nessuna prova di comportamento Windows**: questa fase scrive e fa
+compilare (si spera — nessun toolchain qui) il ramo Windows, non lo
+esegue. La prima prova reale e' il job `build-windows` della CI dopo il
+push (compilazione), poi un `launcher.log` di un tester Windows
+(comportamento). Non e' un punto di risalita: nessuna forma e' rimasta
+aperta — vedi i punti di risalita elencati in PHASES.md FASE 67, nessuno
+incontrato in questa sessione.
 
 Nessun codice qui: questo documento fissa il contratto. L'implementazione è
 doppia (Linux e Windows) e viene dopo.

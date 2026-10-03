@@ -417,6 +417,12 @@ jobs:
             dist/ygoprodll.debug \
             --title "${{ github.ref_name }}" \
             --notes "$(cat <<EOF
+          **Se giochi su Windows:** questa volta scarica e reinstalla il
+          pacchetto a mano (istruzioni sotto), anche se avevi gia' installata
+          una versione precedente. Da questa release in poi gli aggiornamenti
+          tornano automatici, come su Linux: prima di questa versione il
+          launcher Windows non sapeva ancora installarli da solo.
+
           ## Come installare
 
           Scarica il file giusto dalla pagina della release:
