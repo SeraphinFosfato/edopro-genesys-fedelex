@@ -35,6 +35,8 @@ Ogni release allega questi file (generato da
   Simulatore Windows nudo, SOLO per il launcher (D244, ALLEGATI_LAUNCHER): confrontato per hash e installato da fedelex-launcher sotto bin/. Non scaricarlo a mano: non ha licenze ne' istruzioni allegate.
 - **`fedelex.conf`** (Linux, SOLO per il launcher — non scaricarlo a mano)
   Le stringhe di questo fork (etichette del filtro punti), SOLO per il launcher (D244, ALLEGATI_LAUNCHER, role 'strings'): installa sia su Linux che su Windows, il campo 'sistema' qui sopra e' nominale. Non scaricarlo a mano.
+- **`ygoprodll.debug`** (Linux, da scaricare a mano)
+  Informazioni di debug del simulatore Linux (FASE 66, D247 punto 6), staccate dal binario distribuito per farlo scendere da 67 a ~10 MB. Non serve per giocare: scaricalo solo se devi leggere un crash con gdb (va messo accanto al binario che e' andato in crash, stesso nome con .debug).
 <!-- artifacts:end -->
 
 Le istruzioni d'installazione per ciascun file sono nel `LEGGIMI.txt` dentro

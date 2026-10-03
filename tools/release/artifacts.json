@@ -48,6 +48,12 @@
       "sistema": "linux",
       "destinatario": "launcher",
       "contenuto": "Le stringhe di questo fork (etichette del filtro punti), SOLO per il launcher (D244, ALLEGATI_LAUNCHER, role 'strings'): installa sia su Linux che su Windows, il campo 'sistema' qui sopra e' nominale. Non scaricarlo a mano."
+    },
+    {
+      "file": "ygoprodll.debug",
+      "sistema": "linux",
+      "destinatario": "persona",
+      "contenuto": "Informazioni di debug del simulatore Linux (FASE 66, D247 punto 6), staccate dal binario distribuito per farlo scendere da 67 a ~10 MB. Non serve per giocare: scaricalo solo se devi leggere un crash con gdb (va messo accanto al binario che e' andato in crash, stesso nome con .debug)."
     }
   ]
 }

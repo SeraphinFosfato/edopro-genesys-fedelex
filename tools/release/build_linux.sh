@@ -55,4 +55,31 @@ echo "Compilo (config=${CONFIG}_x64)..."
 # simulatore che impacchetta.
 make -Cbuild -j"$(nproc)" config="${CONFIG}_x64" ygoprodll fedelex-launcher
 
+BIN_DIR="$REPO_ROOT/bin/x64/$CONFIG"
+SIMULATOR_BIN="$BIN_DIR/ygoprodll"
+
+# FASE 66 / design/decisioni.md D247 punto 6: il simulatore Linux SI
+# DISTRIBUISCE senza le informazioni di debug (misurato: 67 MB con, ~10 MB
+# senza — premake5.lua ha `symbols "On"` anche per la configurazione
+# Release su gmake2, quindi senza questo passo ogni release le porta
+# dentro). Solo per la build di release: una Debug locale resta intera,
+# e' quella che si guarda con un debugger a mano. Il simbolo separato
+# (ygoprodll.debug) non e' nel manifesto, il launcher non lo scarica mai
+# (D247 punto 6): serve solo a chi legge un crash con gdb, allegato nudo
+# alla release (tools/release/artifacts.json).
+if [[ "$CONFIG" == "release" && -f "$SIMULATOR_BIN" ]]; then
+	SIZE_PRIMA="$(du -h "$SIMULATOR_BIN" | cut -f1)"
+	echo "Stacco le informazioni di debug da ygoprodll (D247.6)..."
+	objcopy --only-keep-debug "$SIMULATOR_BIN" "$SIMULATOR_BIN.debug"
+	objcopy --strip-unneeded "$SIMULATOR_BIN"
+	objcopy --add-gnu-debuglink="$SIMULATOR_BIN.debug" "$SIMULATOR_BIN"
+	# objcopy preserva i permessi del file che modifica in place, ma non
+	# di quello che CREA (.debug) — mai eseguibile, e' un dato per gdb,
+	# non un programma.
+	chmod -x "$SIMULATOR_BIN.debug"
+	SIZE_DOPO="$(du -h "$SIMULATOR_BIN" | cut -f1)"
+	SIZE_DEBUG="$(du -h "$SIMULATOR_BIN.debug" | cut -f1)"
+	echo "  ygoprodll: $SIZE_PRIMA -> $SIZE_DOPO (debug separato: $SIZE_DEBUG in ygoprodll.debug)"
+fi
+
 echo "Fatto: bin/x64/${CONFIG}/ygoprodll, bin/x64/${CONFIG}/fedelex-launcher"

@@ -68,6 +68,20 @@ jobs:
           path: bin/x64/release/ygoprodll
           if-no-files-found: error
 
+      # FASE 66 (design/decisioni.md D247 punto 6): build_linux.sh stacca le
+      # informazioni di debug dal binario sopra PRIMA che questo step o
+      # bundle_linux.sh lo leggano — tutte le copie di ygoprodll che questa
+      # release distribuisce (nuda, nel tarball, nello zip dell'aggiornatore)
+      # sono gia' quella da ~10 MB. Il file separato non entra nel manifesto
+      # firmato (il launcher non lo scarica mai): e' un allegato per chi deve
+      # leggere un crash con gdb.
+      - name: Carica le informazioni di debug del simulatore Linux
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-debug-symbols
+          path: bin/x64/release/ygoprodll.debug
+          if-no-files-found: error
+
       # FASE 64 cancello 6 (D244.7): il launcher, quello che il giocatore
       # avvia davvero. Allegato nudo accanto al simulatore nudo: non e' un
       # launcher_files (D244.9, il launcher non si auto-aggiorna), serve
@@ -340,6 +354,14 @@ jobs:
           name: linux-launcher-binary
           path: dist/
 
+      # FASE 66 (D247 punto 6): simbolo separato del simulatore Linux, non
+      # nel manifesto firmato (il launcher non lo scarica mai) — allegato
+      # nudo per chi deve leggere un crash con gdb.
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-debug-symbols
+          path: dist/
+
       - uses: actions/download-artifact@v4
         with:
           name: fedelex-conf
@@ -392,6 +414,7 @@ jobs:
             dist/edopro-custom-linux-x64.zip dist/edopro-custom-windows-x86.zip \
             dist/edopro-custom-windows-x86-package.zip \
             dist/fedelex-launcher dist/ygoprodll.exe dist/fedelex.conf \
+            dist/ygoprodll.debug \
             --title "${{ github.ref_name }}" \
             --notes "$(cat <<EOF
           ## Come installare
@@ -467,5 +490,8 @@ jobs:
             allegati nudi usati SOLO dall'aggiornamento automatico (che li confronta
             per hash con quelli gia' installati): non sono pensati per essere
             scaricati a mano, non hanno istruzioni ne' licenze allegate.
+          - \`ygoprodll.debug\` — informazioni di debug staccate dal simulatore
+            Linux per farlo scendere da ~67 a ~10 MB. Non serve per giocare:
+            scaricalo solo se devi analizzare un crash con gdb.
           EOF
           )"
