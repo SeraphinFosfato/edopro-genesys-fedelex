@@ -4455,6 +4455,11 @@ static std::vector<epro::Address> getAddresses() {
 		sockaddr* addr = interface->ifa_addr;
 		if((flags & (IFF_UP | IFF_RUNNING | IFF_LOOPBACK)) != (IFF_UP | IFF_RUNNING))
 			continue;
+		// getifaddrs() leaves ifa_addr null for interfaces with no address of
+		// their own: a tun device such as tailscale0 is UP|RUNNING and has it
+		// null. Dereferencing it crashed the LAN refresh button (2026-10-03).
+		if(addr == nullptr)
+			continue;
 		if(addr->sa_family == AF_INET) {
 			auto addr_in = reinterpret_cast<sockaddr_in*>(addr);
 			if(addr_in->sin_addr.s_addr != 0)

@@ -349,6 +349,12 @@ Destination ResolveDestination(const ygo::update::LauncherFile& file,
 // contract).
 void InstallStringsFile(const ygo::update::LauncherFile& file, const Destination& dest,
 						 const std::string& data_dir) {
+	// Same rule as the simulator: the installed file's own hash decides.
+	// Without this the file was downloaded and replaced at every launch.
+	if(ygo::launcher::DecideReplace(HashFile(dest.final_path), file.sha256) == ygo::launcher::ReplaceDecision::Keep) {
+		Log(data_dir, "launcher_files: " + dest.final_path + " gia' aggiornato.");
+		return;
+	}
 	auto fetched = Fetch(file.url, 20);
 	if(!fetched.ok) {
 		Log(data_dir, "launcher_files: impossibile scaricare " + file.name + ", mantengo il file esistente.");

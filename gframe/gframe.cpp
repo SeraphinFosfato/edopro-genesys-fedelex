@@ -75,7 +75,12 @@ inline bool RelaunchLauncherIfNeeded(const args_t& args) {
 	// GetExeFolder() is PROGRAM_DIR/bin (design/launcher.md §4); GetFilePath()
 	// strips one more path component, same helper GetExeFolder() itself is
 	// built from (GetFilePath(GetExePath())) — see utils.cpp.
-	const auto& exe_folder = ygo::Utils::GetExeFolder();
+	// GetExeFolder() ends with '/', and GetFilePath() only strips what comes
+	// after the last '/': without dropping it first the "parent" was bin/
+	// itself, and the launcher was looked for in bin/ (seen in error.log).
+	auto exe_folder = ygo::Utils::GetExeFolder();
+	while(!exe_folder.empty() && (exe_folder.back() == EPRO_TEXT('/') || exe_folder.back() == EPRO_TEXT('\\')))
+		exe_folder.pop_back();
 	auto program_dir = ygo::Utils::GetFilePath(exe_folder);
 #if EDOPRO_WINDOWS
 	auto launcher_path = epro::format(EPRO_TEXT("{}/ygopro.exe"), program_dir);
