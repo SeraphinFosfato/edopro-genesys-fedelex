@@ -138,7 +138,100 @@ ancora il sorgente, nessuna release lo porta).
   aperta, solo lavoro non ancora scritto — vedi PHASES.md, coda del brief
   FASE 64, per cosa riprendere e da dove.
 
-**Scritto il 2026-10-02.** Decide la forma del componente deciso in D-56 del
+## Stato dell'implementazione (FASE 66)
+
+**Aggiornato il 2026-10-03.** Chiude D247: il launcher ora mostra una
+finestra durante un aggiornamento (prima non mostrava niente — "sembra che
+non si stia aprendo" era il sintomo riportato) e il simulatore Linux
+distribuito scende da ~67 a ~10 MB.
+
+- **Cancello 1 — fatto, con test verdi.** `gframe/launcher_logic.h/.cpp`:
+  `FormatDownloadProgress`/`DownloadProgressPercent`, pure, producono il
+  testo ("12,3 / 66,1 MB") e la percentuale 0-100 per la finestra. 8 nuovi
+  check in `launcher_logic_tests.cpp` (22 totali, 0 fallimenti).
+- **Cancelli 2-4 — fatti e provati end-to-end su Linux**, non solo a
+  compilazione: `launcher/progress.h/.cpp` (nuovo modulo, pura I/O come
+  `main.cpp`). `zenity --progress` se c'e' una sessione grafica raggiungibile
+  (`DISPLAY`/`WAYLAND_DISPLAY`) e zenity e' su PATH; altrimenti due
+  `notify-send` (inizio/fine), mai una libreria grafica (D244.1). Compare
+  solo se almeno un `launcher_files[]` ha davvero bisogno di sostituzione
+  (calcolato PRIMA del ciclo di installazione): nessuna finestra "giusto per
+  controllare". `Fetch()` accetta ora un callback di avanzamento
+  (`CURLOPT_XFERINFOFUNCTION`).
+
+  Provato con un vero binario `fedelex-launcher` ricompilato con una chiave
+  Ed25519 di PROVA (generata ad hoc per questa sola sessione, mai quella
+  vera — vive solo in `/tmp/.../scratchpad`, `gframe/update_keys.h`
+  ripristinato con `git checkout` subito dopo ogni giro), uno zenity FINTO
+  messo in testa al `PATH` (mai il binario vero, mai con un `DISPLAY`
+  reale) che registra argv e stdin, un server HTTP locale che serve un
+  "simulatore" finto (uno script shell) a velocita' ridotta per osservare
+  piu' tick di avanzamento, e un `HOME` finto. Quattro scenari osservati
+  davvero: percentuali crescenti 0→100 con testo MB corretto e chiusura a
+  EOF (stdin chiuso -> il fake zenity esce da solo, come il vero farebbe
+  con `--auto-close`); hash gia' allineato -> nessuna invocazione di
+  zenity; nessun `DISPLAY`/`WAYLAND_DISPLAY` -> solo due `notify-send`;
+  zenity che muore subito dopo l'avvio -> l'aggiornamento finisce lo
+  stesso (richiede `signal(SIGPIPE, SIG_IGN)` in `main()`, altrimenti un
+  pipe rotto termina il processo).
+
+  **Due difetti trovati testando, corretti nello stesso giro** (non erano
+  nel brief, sono emersi dal test):
+  1. `NotifyUser()` lanciava il notificatore con `system("timeout 5 ...")`:
+     bloccante (il launcher aspettava la finestra) E con un'uccisione a 5
+     secondi che chiudeva il messaggio da solo (D247 punto 5 lo segnalava
+     come sintomo). Corretto spawnando staccato (`fork`+`execvp`, mai
+     un'attesa).
+  2. **La sonda di presenza era rotta dalla sua introduzione in FASE
+     64/D244**: `timeout N command -v NOME` fallisce sempre, perche'
+     `timeout` esegue il suo argomento direttamente (non tramite shell) e
+     `command` e' un builtin di shell senza file su `PATH` — verificato con
+     `type command` (nessun eseguibile) e riproducendo l'esatta chiamata.
+     Significa che **nessuna notifica e' mai stata mostrata in produzione**
+     da quando D244 l'ha scritta: il probe diceva sempre "assente". Corretto
+     avvolgendo in `sh -c 'command -v NOME'` in entrambi i punti
+     (`main.cpp`, `progress.cpp`).
+- **Cancello 5 — scritto con cura, compila, MAI eseguito.** Finestra Win32
+  nativa (`progress.cpp`, ramo `#if defined(_WIN32)`): `comctl32`
+  (`PROGRESS_CLASSW`, `InitCommonControlsEx`), un pompaggio messaggi non
+  bloccante (`PeekMessageW`), nessuna libreria nuova. **Non e' agganciata**
+  al ramo Windows di `main.cpp`: quel ramo non implementa ancora il ciclo
+  di installazione dei `launcher_files[]` (gap aperto da FASE 64, non
+  chiuso da questa fase — non c'e' un momento "si sta scaricando un file"
+  a cui attaccare la finestra). Non e' un punto di risalita: nessuna forma
+  e' rimasta aperta, e' lavoro futuro che aspetta che quel ciclo esista.
+  Compila come parte dello stesso progetto `fedelex-launcher` (nessun
+  toolchain Windows in questo ambiente — la prima prova vera e' la CI).
+- **Cancello 6 — fatto e misurato su una build reale di questa sessione.**
+  `tools/release/build_linux.sh`: dopo la build Release,
+  `objcopy --only-keep-debug` + `--strip-unneeded` +
+  `--add-gnu-debuglink` — misurato: 66 072 880 byte prima, 10 311 808 dopo
+  (~10 MB), debug separato 57 731 440 byte. `ldd` riporta la stessa,
+  identica chiusura di dipendenze prima e dopo (lo strip non tocca i
+  simboli dinamici necessari al linking). `gdb` con `ygoprodll.debug`
+  accanto risolve file e riga di `main` senza bisogno di
+  `set debug-file-directory`. Il binario stripped parte (provato con
+  `DISPLAY` fittizio — mai quello reale — fino al banner di versione e
+  all'errore atteso sulla cartella dati di prova assente). Nuovo allegato
+  `ygoprodll.debug` in `tools/release/artifacts.json` (destinatario
+  persona, mai nel manifesto, mai scaricato dal launcher) e in
+  `release.yml` (job `build-linux` e `publish`); `README.md` rigenerato,
+  `check_artifacts_manifest.py` verde (9 allegati).
+- **Cancello 7 — verde.** Suite C++ completa (`banlist_tests`: 291 check
+  totali prima di questa fase, 299 ora, 0 fallimenti), build Linux intera
+  (`ygoprodll` + `fedelex-launcher`, nessun warning nuovo —
+  `warnings "Extra"` + pedantic attivi), `controlla_documenti.py` dalla
+  radice del vault verde (71 asserzioni, incluse due corrette in questa
+  sessione: `CLIENT_UPDATE_VERSION` era rimasto a 12 nel documento mentre il
+  sorgente era gia' a 13 — drift preesistente, non introdotto da questa
+  fase, corretto perche' trovato mentre si verificava questo cancello).
+- Non e' un punto di risalita (§6.6): nessuna scelta di forma e' rimasta
+  aperta. Lavoro futuro, non bloccante: agganciare la finestra Win32 al
+  ciclo di installazione Windows quando quel ciclo verra' scritto; la
+  pipeline di release non e' mai girata su un runner vero (niente
+  push/tag/dispatch in questa sessione, per vincolo).
+
+**Scritto il 2026-10-02, sezione FASE 66 il 2026-10-03.** Decide la forma del componente deciso in D-56 del
 registro dei sospesi (vault privato), dopo che ogni correzione
 dell'aggiornatore ha richiesto una reinstallazione a mano.
 
