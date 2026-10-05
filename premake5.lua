@@ -442,6 +442,13 @@ project "fedelex-launcher"
 		"launcher/progress.cpp",
 		"gframe/update_verify.cpp",
 		"gframe/launcher_logic.cpp",
+		-- FASE 75 (design/launcher.md, PHASES.md "il link del tavolo"):
+		-- the same exclusive-file-lock technique client_updater.cpp uses
+		-- for a different lock file, generalized here so the launcher can
+		-- probe "is a simulator already open for this data dir?" before
+		-- handing it a deep link — zero gframe dependency, same reasoning
+		-- as the three files above it.
+		"gframe/single_instance_lock.cpp",
 		"gframe/sha256.cpp",
 		"gframe/tweetnacl/*.c",
 	}
