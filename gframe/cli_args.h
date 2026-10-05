@@ -21,6 +21,16 @@ enum LAUNCH_PARAM {
 	// directly" (a shortcut, a double-click on bin/ygoprodll, a dev run) —
 	// never read anywhere else.
 	FROM_LAUNCHER,
+	// FASE 75, design/decisioni.md D251, PHASES.md "il link del tavolo":
+	// the fedelex:// table-link URI, forwarded verbatim by the launcher
+	// (launcher/main.cpp) when it was itself invoked with one (the OS
+	// handing it the URI via the registered x-scheme-handler/fedelex
+	// association). Consumed exactly once, in gframe.cpp's CheckArguments()
+	// -> ygo::DuelClient::JoinFromDeepLink(), which does the actual parsing
+	// (gframe/deep_link.h) — this flag only carries the raw text across the
+	// process boundary, same role FROM_LAUNCHER plays for the provenance
+	// mark.
+	DEEP_LINK,
 	COUNT,
 };
 

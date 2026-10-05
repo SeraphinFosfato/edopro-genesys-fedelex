@@ -41,6 +41,8 @@ auto GetOption(epro::path_stringview option) {
 		return LAUNCH_PARAM::WANTS_TO_RUN_AS_ADMIN;
 	if(option == EPRO_TEXT("from-launcher"sv))
 		return LAUNCH_PARAM::FROM_LAUNCHER;
+	if(option == EPRO_TEXT("deep-link"sv))
+		return LAUNCH_PARAM::DEEP_LINK;
 	return LAUNCH_PARAM::COUNT;
 }
 
