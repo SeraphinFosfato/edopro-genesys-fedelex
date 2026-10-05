@@ -88,6 +88,17 @@ struct DuelInfo {
 	bool isTeam1;
 	bool isRelay;
 	bool isInLobby;
+	// FASE 75, design/decisioni.md D251, design/server-duelli.md §13.2's
+	// "strada A adesso (solo nel client)": true only for a room entered
+	// through a fedelex:// table link (DuelClient::JoinFromDeepLink), reset
+	// to false by every DuelClient::StartClient() call so it can never leak
+	// from one connection into the next. A client-only, client-trusted
+	// flag — nothing on the server enforces it (that is "strada B dopo" in
+	// D251, not built here) — so it hides optional-activation indicators
+	// and questions for THIS client's own display only (gframe/duelclient.cpp,
+	// MSG_SELECT_CHAIN), never changes what the server accepts as a
+	// response.
+	bool isTournamentRoom;
 	bool isSingleMode;
 	bool isHandTest;
 	bool compat_mode;
