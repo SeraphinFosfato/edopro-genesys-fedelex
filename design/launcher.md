@@ -345,6 +345,121 @@ doppia (Linux e Windows) e viene dopo.
 
 ---
 
+## Stato dell'implementazione (FASE 75)
+
+**Aggiornato il 2026-10-05.** Link `fedelex://tavolo?host=&port=&pass=&nome=`
+per entrare in una stanza di torneo con un clic, e "modalita' torneo"
+(indicatori di attivazione opzionale nascosti) per le stanze aperte cosi'.
+
+- **Cancello 1 — parsing e validazione del link, testati.**
+  `gframe/deep_link.h/.cpp` (nuovo, zero dipendenze oltre
+  `BufferIO::DecodeUTF8`): interpreta la query string, rifiuta porta fuori
+  range, host vuoto, campi oltre 19 code unit (limite reale imposto da
+  `BufferIO::EncodeUTF16` su un buffer `[20]`, non 20 — troncare in
+  silenzio avrebbe fatto entrare un nome diverso da quello del link).
+  `tests/deep_link_tests.cpp`: 14 funzioni, 21 verifiche. Verificato con
+  `./premake5 --file=tests/premake5.lua gmake2 && make -C tests/build
+  config=release && ./bin/banlist_tests` → verde, incluso
+  `deep_link_tests: 21 checks, 0 failures`.
+- **Cancello 2 — ingresso alla stanza, server sconosciuti rifiutati.**
+  `DuelClient::JoinFromDeepLink` (`gframe/duelclient.cpp`, accanto a
+  `JoinFromDiscord` di cui riusa il pattern) chiama
+  `ServerLobby::IsKnownHost` prima di connettersi e mostra un popup invece
+  di procedere in silenzio se l'host non e' elencato. **Non verificato con
+  un server reale**: non esiste un Multirole locale ne' remoto gia'
+  pronto con una lista di host nota da falsificare in questa sessione, e
+  costruirne uno per una sola prova avrebbe superato lo scope. Verificato
+  invece: (a) le 21 verifiche di `deep_link_tests.cpp` sulla sola analisi
+  del link; (b) lettura del punto di chiamata — `IsKnownHost` e' lo stesso
+  controllo gia' in produzione per `JoinFromDiscord`, non una funzione
+  nuova scritta per l'occasione; (c) build completa (sotto). Il
+  round-trip vero resta da provare a mano, in `SOSPESI.md` del vault.
+- **Cancello 3 — registrazione dello schema, END-TO-END su Linux.**
+  `tools/release/installer/fedelex-edopro.desktop.in` dichiara
+  `MimeType=x-scheme-handler/fedelex` e passa `%u` a `Exec`; `install.sh`
+  registra lo schema con `xdg-mime default` dopo l'`update-desktop-database`
+  gia' esistente. Provato per intero in una HOME finta
+  (scratchpad, mai `~/.local/share/fedelex-edopro` ne' `~/.local/opt/edopro`):
+  installazione → `xdg-mime query default x-scheme-handler/fedelex` risolve
+  il `.desktop` → `xdg-open 'fedelex://tavolo?...'` con un simulatore finto
+  (script che registra i suoi argv) al posto del binario vero → il finto
+  simulatore riceve `-from-launcher -C <data_dir> -deep-link
+  fedelex://tavolo?host=...&port=...&pass=...&nome=...`, lo stesso URI
+  passato in ingresso. Primo tentativo con `DISPLAY` svuotato ha dato
+  `xdg-open: no method available`: diagnosticato leggendo
+  `/usr/bin/xdg-open` — `open_generic_xdg_x_scheme_handler` (la ricerca
+  per `x-scheme-handler/<schema>`) gira solo dentro `if has_display`, e
+  `has_display()` e' un controllo di stringa su `$DISPLAY`/`$WAYLAND_DISPLAY`,
+  mai una connessione vera al server grafico. Rifatto con `DISPLAY=:99`
+  (valore finto, nessun display reale dietro, nessuna finestra apribile):
+  la ricerca per schema si attiva e il comando riesce. Nessuna finestra
+  reale aperta in nessun tentativo. Ramo Windows (`HKCU\Software\Classes\
+  fedelex`) scritto e letto con attenzione ma **mai compilato ne' eseguito**:
+  nessun toolchain Windows qui, stesso limite gia' registrato per FASE 67.
+- **Cancello 4 — niente simulatore singolo, lock provato.**
+  `SingleInstanceLock` (flock POSIX / `CreateFileW` esclusivo Windows,
+  `gframe/single_instance_lock.h/.cpp`): provato in sandbox tenendo il lock
+  aperto a mano mentre il launcher tentava un secondo avvio con un link —
+  il launcher ha rifiutato di spawnare, scritto
+  `deep-link: un simulatore e' gia' aperto...` nel suo log e non ha aperto
+  nessun processo nuovo (verificato sul log delle invocazioni del
+  simulatore finto: una sola riga, non due). Rilasciato il lock e ripetuto:
+  il launcher ha spawnato normalmente, inoltrando `-deep-link`.
+  **Scelta deliberata**: e' una sonda puntuale (apre, controlla, chiude),
+  non un servizio in ascolto — nessun socket, nessuna porta, nessun
+  processo che resta vivo oltre la vita della sonda. Non e' il punto di
+  risalita "serve qualcosa in ascolto sulla macchina": non serve niente di
+  nuovo che resti attivo.
+- **Cancello 5 — modalita' torneo, verificata a codice e a compilazione,
+  non a duello vero.** In `MSG_SELECT_CHAIN`
+  (`gframe/duelclient.cpp`), quando `dInfo.isTournamentRoom` e' vero e la
+  chain non e' forzata: le carte attivabili perdono `is_selectable` (il
+  solo indicatore visivo, `gframe/drawing.cpp`) ma **non** il `cmdFlag` che
+  pilota il menu contestuale (`event_handler.cpp`'s `ShowMenu()`) — il
+  click per attivare resta identico a una stanza normale. La domanda
+  opzionale (popup `wQuery` Si/No) e' sostituita dal pulsante
+  Annulla/Fine gia' esistente (`ShowCancelOrFinishButton`), mai nascosta
+  senza alternativa. Build completa verificata: `./premake5 gmake2
+  --no-core=true --sound=sfml --no-joystick=true
+  --irrlicht-root=../irrlicht-custom && make -C build config=release_x64
+  ygoprodll fedelex-launcher -j$(nproc)` → nessun warning nuovo (solo il
+  deprecato preesistente di `CURLOPT_PROGRESSFUNCTION`, gia' noto da FASE
+  67). **Non verificato con un duello reale** (due client, una mano con
+  carte attivabili, confronto visivo stanza-link vs stanza-normale): serve
+  un server Multirole raggiungibile e due istanze grafiche del simulatore,
+  fuori scope sicuro per questa sessione (niente DISPLAY reale, niente
+  Multirole gia' pronto con una lista host adatta). In
+  `SOSPESI.md` del vault, come prova a mano.
+  **Scope deliberatamente non coperto**: `MSG_SELECT_EFFECTYN` (nessuna
+  alternativa di click, solo il Si/No del popup) e il `panelmode`
+  (attivazioni da mazzo/cimitero/bandito/materiale Xyz: nessun click sul
+  campo possibile per queste zone). Nasconderne l'indicatore avrebbe
+  bloccato un'attivazione voluta — la stessa guardia del punto di risalita
+  del brief, applicata qui come scelta di scope invece che come problema
+  da risolvere.
+- **Cancello 6 — documenti.** `python3 banlist/scripts/controlla_documenti.py`
+  dalla radice del vault: 0 NO.
+- **Cancello 7 — commit per nome, nessun push.** Un file o un gruppo
+  coerente per commit, mai `git add -A`. Nessun push, nessun tag, nessuna
+  release.
+
+**Punti di risalita del brief: nessuno incontrato come blocco.** Il rischio
+"nascondere le domande facoltative impedisce un'attivazione voluta" e'
+stato evitato per costruzione (si nasconde solo `is_selectable`, mai
+`cmdFlag`) invece di essere incontrato e aggirato. Il rischio "serve
+qualcosa in ascolto sulla macchina" non si e' posto: `SingleInstanceLock`
+e' una sonda, non un servizio.
+
+**Resta non verificato, honestamente**: il round-trip reale di ingresso a
+una stanza (cancello 2), la differenza visiva osservata in un duello vero
+fra stanza-link e stanza-normale (cancello 4 del brief, qui numerato 5), e
+l'intero ramo Windows (compilazione e registro). Tutti e tre richiedono
+infrastruttura (un server Multirole con lista host nota, due client grafici,
+un toolchain Windows) non disponibile o non sicura da allestire in questa
+sessione — non sono stati aggirati ne' dati per scontati.
+
+---
+
 ## 1. Il problema, in una riga
 
 L'aggiornatore attuale vive **dentro** il client: il codice che esegue
