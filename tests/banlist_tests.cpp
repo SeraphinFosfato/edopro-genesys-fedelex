@@ -54,6 +54,9 @@ int RunUpdaterManagedFilesTests();
 // Defined in launcher_logic_tests.cpp — same reasoning, for the FASE 64
 // launcher's pure decision functions (design/launcher.md, D244).
 int RunLauncherLogicTests();
+// Defined in deep_link_tests.cpp — same reasoning, for FASE 75's fedelex://
+// table-link parser (design/decisioni.md D251).
+int RunDeepLinkTests();
 
 using namespace ygo;
 
@@ -739,5 +742,6 @@ int main() {
 	const int online_gate_failures = RunOnlineGateTests();
 	const int updater_managed_files_failures = RunUpdaterManagedFilesTests();
 	const int launcher_logic_failures = RunLauncherLogicTests();
-	return (failures == 0 && diff_failures == 0 && title_failures == 0 && update_failures == 0 && game_data_ready_failures == 0 && online_gate_failures == 0 && updater_managed_files_failures == 0 && launcher_logic_failures == 0) ? 0 : 1;
+	const int deep_link_failures = RunDeepLinkTests();
+	return (failures == 0 && diff_failures == 0 && title_failures == 0 && update_failures == 0 && game_data_ready_failures == 0 && online_gate_failures == 0 && updater_managed_files_failures == 0 && launcher_logic_failures == 0 && deep_link_failures == 0) ? 0 : 1;
 }
