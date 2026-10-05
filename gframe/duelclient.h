@@ -6,6 +6,7 @@
 #include <deque>
 #include <set>
 #include <atomic>
+#include <string>
 #include "epro_thread.h"
 #include "epro_mutex.h"
 #include "epro_condition_variable.h"
@@ -61,6 +62,19 @@ public:
 	static std::atomic<bool> answered;
 
 	static void JoinFromDiscord();
+	// FASE 75, design/decisioni.md D251: same handoff as JoinFromDiscord()
+	// above, for a fedelex:// table link instead of a Discord invite. `uri`
+	// is the raw link text (gframe/cli_args.h's DEEP_LINK argument,
+	// forwarded by the launcher). Parses it with gframe/deep_link.h,
+	// refuses anything that does not parse or whose host is not already in
+	// ServerLobby::serversVector (design/server-duelli.md §7: "un link non
+	// puo' far entrare il client in un server sconosciuto" — the same rule
+	// OnJoin() already applies to a Discord secret), and otherwise behaves
+	// like JoinFromDiscord(): JOIN_GAME with gameid 0, the permit's
+	// password, and the permit's name set as this client's own nickname
+	// before connecting (StartClient()'s CTOS_PLAYER_INFO sends whatever
+	// ebNickName holds).
+	static void JoinFromDeepLink(const std::string& uri);
 	static bool StartClient(const epro::Address& ip, uint16_t port, uint32_t gameid = 0, bool create_game = true);
 	static void ConnectTimeout(evutil_socket_t fd, short events, void* arg);
 	static void StopClient(bool is_exiting = false);

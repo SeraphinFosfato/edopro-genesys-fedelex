@@ -31,6 +31,9 @@
 #include "fmt.h"
 #include "localtime.h"
 #include "room_list_notice.h"
+#include "server_lobby.h"
+#include "deep_link.h"
+#include "logging.h"
 
 #define DEFAULT_DUEL_RULE 5
 namespace ygo {
@@ -95,6 +98,71 @@ void DuelClient::JoinFromDiscord() {
 #undef HIDE_AND_CHECK
 }
 
+void DuelClient::JoinFromDeepLink(const std::string& uri) {
+	// Same early-out as OnJoin()/JoinFromDiscord() in discord_wrapper.cpp:
+	// a link that arrives while we are already doing something (siding, in
+	// a duel, in a lobby, watching a replay, already preparing a host) is
+	// silently ignored rather than tearing any of that down — this can only
+	// happen at process startup today (gframe.cpp's CheckArguments() calls
+	// this exactly once, before MainLoop() has run a single frame), but the
+	// guard costs nothing and keeps this function safe to call from
+	// anywhere later without re-deriving the condition.
+	if((mainGame->is_building && mainGame->is_siding) || mainGame->dInfo.isInDuel ||
+	   mainGame->dInfo.isInLobby || mainGame->dInfo.isReplay || mainGame->wHostPrepare->isVisible())
+		return;
+	deep_link::TableLink link;
+	auto error = deep_link::ParseTableLink(uri, link);
+	if(error != deep_link::ParseError::Ok) {
+		ErrorLog("Link fedelex:// scartato ({}).", deep_link::ToString(error));
+		mainGame->PopupMessage(L"Il link ricevuto non e' valido: non e' stato possibile entrare nel tavolo.");
+		return;
+	}
+	auto host = epro::Host::resolve(epro::stringview(link.host), link.port);
+	// design/server-duelli.md §7: "un link non puo' far entrare il client
+	// in un server sconosciuto" — the same rule discord_wrapper.cpp's
+	// OnJoin() already applies to a Discord secret, reused here rather than
+	// reinvented. Rejects outright: unlike the Discord path (sys string
+	// 1468, "do you still want to connect?"), there is no override — a
+	// fedelex:// link is something a stranger could craft and send, a
+	// Discord invite is something a friend already chose to share.
+	if(!ServerLobby::IsKnownHost(host)) {
+		ErrorLog("Link fedelex:// verso un server non elencato: {}:{}.", epro::format_address(host.address), host.port);
+		mainGame->PopupMessage(L"Questo link punta a un server non tra quelli conosciuti dal client: ignorato.");
+		return;
+	}
+	mainGame->isHostingOnline = true;
+	mainGame->dInfo.secret.pass = link.pass;
+	// The permit's own name (design/server-duelli.md §4.1): StartClient()'s
+	// CTOS_PLAYER_INFO always sends whatever ebNickName currently holds, so
+	// setting it here is the only hook needed for the server to see the
+	// name the permit expects, with no change to the wire protocol.
+	mainGame->ebNickName->setText(link.nome.data());
+	if(!StartClient(host.address, host.port, /*gameid=*/0, /*create_game=*/false))
+		return;
+	// StartClient() above unconditionally resets isTournamentRoom to false
+	// (same place it resets isCatchingUp/checkRematch) — set it true only
+	// AFTER a successful connection attempt, same ordering JoinFromDiscord()
+	// uses for isHostingOnline.
+	mainGame->dInfo.isTournamentRoom = true;
+#define HIDE_AND_CHECK(obj) do {if(obj->isVisible()) mainGame->HideElement(obj);} while(0)
+	if(mainGame->is_building)
+		mainGame->deckBuilder.Terminate(false);
+	HIDE_AND_CHECK(mainGame->wMainMenu);
+	HIDE_AND_CHECK(mainGame->wLanWindow);
+	HIDE_AND_CHECK(mainGame->wCreateHost);
+	HIDE_AND_CHECK(mainGame->wReplay);
+	HIDE_AND_CHECK(mainGame->wSinglePlay);
+	HIDE_AND_CHECK(mainGame->wDeckEdit);
+	HIDE_AND_CHECK(mainGame->wRules);
+	HIDE_AND_CHECK(mainGame->wRoomListPlaceholder);
+	HIDE_AND_CHECK(mainGame->wCardImg);
+	HIDE_AND_CHECK(mainGame->wInfos);
+	HIDE_AND_CHECK(mainGame->btnLeaveGame);
+	HIDE_AND_CHECK(mainGame->wFileSave);
+	mainGame->device->setEventReceiver(&mainGame->menuHandler);
+#undef HIDE_AND_CHECK
+}
+
 bool DuelClient::StartClient(const epro::Address& ip, uint16_t port, uint32_t gameid, bool create_game) {
 	if(connect_state)
 		return false;
@@ -140,6 +208,11 @@ bool DuelClient::StartClient(const epro::Address& ip, uint16_t port, uint32_t ga
 	mainGame->dInfo.secret.host.address = ip;
 	mainGame->dInfo.isCatchingUp = false;
 	mainGame->dInfo.checkRematch = false;
+	// FASE 75: reset on EVERY connection attempt, never just the deep-link
+	// one, so the flag can never leak from a tournament room into whatever
+	// is connected to next — JoinFromDeepLink() is the only place that sets
+	// it back to true, and only after this call returns successfully.
+	mainGame->dInfo.isTournamentRoom = false;
 	mainGame->frameSignal.SetNoWait(true);
 	if(client_thread.joinable())
 		client_thread.join();
@@ -2270,6 +2343,27 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 					panelmode = true;
 			}
 		}
+		// FASE 75/D251, cancello 4 ("nessun indicatore delle carte
+		// attivabili... per gli effetti facoltativi" in a tournament
+		// room): clear the outline-driving flag set in the loop above,
+		// AFTER panelmode is known (set inside that same loop — see the
+		// comment on the `if(panelmode)` branch below for why panel-based
+		// activations are excluded). drawing.cpp only reads is_selectable
+		// to decide whether to draw the highlight outline
+		// (DUELFIELD_SELECTABLE_CARD_OUTLINE_VAL); event_handler.cpp's
+		// MSG_SELECT_CHAIN click handling builds its context menu from
+		// cmdFlag alone (ShowMenu(clicked_card->cmdFlag, ...)), never from
+		// is_selectable — so clearing it here only removes the visual
+		// highlight, it does not also remove the player's ability to
+		// click the card and activate it. conti_cards (EFFECT_CLIENT_MODE_RESOLVE,
+		// a mandatory resolution, D251's own "effetti obbligatori in
+		// risoluzione" example) never had is_selectable set to begin with,
+		// so they are unaffected by construction, not by an extra check
+		// here.
+		if(mainGame->dInfo.isTournamentRoom && !mainGame->dField.chain_forced && !panelmode) {
+			for(auto& ac : mainGame->dField.activatable_cards)
+				ac->is_selectable = false;
+		}
 		const auto ignore_chain = mainGame->btnChainIgnore->isPressed();
 		const auto always_chain = mainGame->btnChainAlways->isPressed();
 		const auto chain_when_avail = mainGame->btnChainWhenAvail->isPressed();
@@ -2296,6 +2390,15 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			mainGame->stHintMsg->setText(gDataManager->GetSysString(556).data());
 		mainGame->stHintMsg->setVisible(true);
 		if(panelmode) {
+			// FASE 75/D251 does NOT reach into this branch: a deck/GY/
+			// banished/Xyz-material activation has no on-field card to
+			// click at all — ShowChainCard()'s panel IS the only way to
+			// select one. Hiding it here would not conceal an indicator,
+			// it would make the activation impossible, exactly the
+			// outcome design/launcher.md's/PHASES.md's own punto di
+			// risalita warns against. Tournament mode leaves this branch
+			// untouched; the concealment below only ever applies to cards
+			// the player can click directly on the field.
 			mainGame->dField.list_command = COMMAND_ACTIVATE;
 			mainGame->dField.selectable_cards = mainGame->dField.activatable_cards;
 			std::sort(mainGame->dField.selectable_cards.begin(), mainGame->dField.selectable_cards.end());
@@ -2304,13 +2407,35 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			mainGame->dField.ShowChainCard();
 		} else {
 			if(!mainGame->dField.chain_forced) {
-				if(count == 0)
-					mainGame->stQMessage->setText(epro::format(L"{}\n{}", gDataManager->GetSysString(201), gDataManager->GetSysString(202)).data());
-				else if(select_trigger)
-					mainGame->stQMessage->setText(epro::format(L"{}\n{}\n{}", event_string, gDataManager->GetSysString(222), gDataManager->GetSysString(223)).data());
-				else
-					mainGame->stQMessage->setText(epro::format(L"{}\n{}", event_string, gDataManager->GetSysString(203)).data());
-				mainGame->PopupElement(mainGame->wQuery);
+				// FASE 75/D251, design/server-duelli.md §13: a tournament
+				// room (joined through the fedelex:// link,
+				// dInfo.isTournamentRoom — never set for an ordinary
+				// connection) hides the "vuoi attivare?" question for an
+				// OPTIONAL chain window. The card(s) involved already lost
+				// their outline just above (is_selectable cleared right
+				// after the per-card loop, see that comment);
+				// cmdFlag/COMMAND_ACTIVATE is untouched, so the player can
+				// still open the card's
+				// context menu and activate it directly, exactly as the
+				// brief requires ("il giocatore puo' comunque attivare
+				// cliccando la carta nella finestra giusta"). What this
+				// replaces is only the UNPROMPTED popup: the SAME question
+				// still appears if the player presses Cancel/Finish to
+				// decline (event_handler.cpp's CancelOrFinish(),
+				// MSG_SELECT_CHAIN branch, re-shows wQuery when it was not
+				// already visible) — that is a deliberate fallback a
+				// player chose to open, never something shown automatically.
+				if(mainGame->dInfo.isTournamentRoom) {
+					mainGame->dField.ShowCancelOrFinishButton(1);
+				} else {
+					if(count == 0)
+						mainGame->stQMessage->setText(epro::format(L"{}\n{}", gDataManager->GetSysString(201), gDataManager->GetSysString(202)).data());
+					else if(select_trigger)
+						mainGame->stQMessage->setText(epro::format(L"{}\n{}\n{}", event_string, gDataManager->GetSysString(222), gDataManager->GetSysString(223)).data());
+					else
+						mainGame->stQMessage->setText(epro::format(L"{}\n{}", event_string, gDataManager->GetSysString(203)).data());
+					mainGame->PopupElement(mainGame->wQuery);
+				}
 			}
 		}
 		return false;
