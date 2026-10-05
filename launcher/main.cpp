@@ -61,6 +61,7 @@
 #include "launcher_logic.h"
 #include "progress.h"
 #include "sha256.h"
+#include "single_instance_lock.h"
 
 #include <curl/curl.h>
 
@@ -123,6 +124,50 @@ void NotifyUser(const std::string& title, const std::string& message) {
 		std::wstring(message.begin(), message.end()).c_str(),
 		std::wstring(title.begin(), title.end()).c_str(),
 		MB_OK | MB_ICONINFORMATION);
+}
+
+// FASE 75, design/decisioni.md D251, PHASES.md "il link del tavolo" point
+// 2: "Windows con la chiave HKCU\Software\Classes\fedelex". There is no
+// installer wizard yet (design/launcher.md §8 cancello 8 describes one as
+// DECIDED, not built — tools/release/ only ever produces a zip, see
+// package_windows_release.py), so the launcher registers itself every time
+// it runs instead: writing the same values again is a harmless no-op, and
+// it means the association is never missing after a manual zip extraction
+// (today's only real install path on Windows), same spirit as this file
+// never requiring an installer to have run first. HKCU, never HKLM/HKCR:
+// no admin privileges, no writing outside what this user owns
+// (design/launcher.md §7, "mai chiedere privilegi di amministratore").
+// Failures here are logged and otherwise ignored — never fatal, same rule
+// as every other non-essential step in this file (§7, "non bloccare mai").
+void RegisterWindowsUriScheme(const std::string& data_dir, const std::string& self_path) {
+	const std::wstring wself(self_path.begin(), self_path.end());
+	// %1 is replaced by the OS with the full URI (quoted) when it invokes
+	// Exec — argv[1] in main() above is exactly this.
+	const std::wstring command = L"\"" + wself + L"\" \"%1\"";
+	struct KeyValue { const wchar_t* subkey; const wchar_t* value; };
+	const KeyValue entries[] = {
+		{ L"Software\\Classes\\fedelex", L"URL:Fedelex Table Link" },
+		{ L"Software\\Classes\\fedelex\\shell\\open\\command", command.c_str() },
+	};
+	for(const auto& entry : entries) {
+		HKEY key{};
+		if(RegCreateKeyExW(HKEY_CURRENT_USER, entry.subkey, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS) {
+			Log(data_dir, std::string("registrazione schema fedelex:// fallita (chiave) per ") +
+						  std::string(entry.subkey, entry.subkey + wcslen(entry.subkey)));
+			continue;
+		}
+		const auto value_len = static_cast<DWORD>((wcslen(entry.value) + 1) * sizeof(wchar_t));
+		RegSetValueExW(key, nullptr, 0, REG_SZ, reinterpret_cast<const BYTE*>(entry.value), value_len);
+		RegCloseKey(key);
+	}
+	// "URL Protocol" = "" on the parent key marks it as a URI scheme handler
+	// to the shell — without this value Windows treats "fedelex" as an
+	// ordinary (non-navigable) ProgID instead.
+	HKEY key{};
+	if(RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Classes\\fedelex", 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) == ERROR_SUCCESS) {
+		RegSetValueExW(key, L"URL Protocol", 0, REG_SZ, reinterpret_cast<const BYTE*>(L""), sizeof(wchar_t));
+		RegCloseKey(key);
+	}
 }
 #else
 // Forward declaration: defined further down (next to the rest of the
@@ -469,7 +514,8 @@ void InstallStringsFile(const ygo::update::LauncherFile& file, const Destination
 // any failure — caller falls back to launching whatever is already at
 // dest.final_path).
 pid_t InstallSimulatorFile(const ygo::update::LauncherFile& file, const Destination& dest,
-							const std::string& data_dir, ygo::launcher::ProgressWindow* progress) {
+							const std::string& data_dir, ygo::launcher::ProgressWindow* progress,
+							const std::string& deep_link = {}) {
 	std::string installed_hash = HashFile(dest.final_path);
 	auto replace = ygo::launcher::DecideReplace(installed_hash, file.sha256);
 	if(replace == ygo::launcher::ReplaceDecision::Keep) {
@@ -509,7 +555,16 @@ pid_t InstallSimulatorFile(const ygo::update::LauncherFile& file, const Destinat
 	// one). Passing -from-launcher so a probe that DOES come up fully is
 	// indistinguishable from a normal launch and does not need a second
 	// exec.
-	pid_t pid = SpawnDetached(tmp, { tmp, "-from-launcher", "-C", data_dir });
+	std::vector<std::string> probe_args = { tmp, "-from-launcher", "-C", data_dir };
+	// FASE 75: forward the deep link to whichever launch ends up being the
+	// real one. If THIS probe is the one that stays alive (InstallNew
+	// below), it IS the real launch — there is no second exec to attach it
+	// to, so it must be included here, not just at step 5 further down.
+	if(!deep_link.empty()) {
+		probe_args.emplace_back("-deep-link");
+		probe_args.emplace_back(deep_link);
+	}
+	pid_t pid = SpawnDetached(tmp, probe_args);
 	bool launches = pid > 0 && StillRunningAfter(pid, kLaunchProbeMillis);
 	auto outcome = ygo::launcher::DecideSwap(hash_ok, exec_bit, launches);
 	if(outcome == ygo::launcher::SwapOutcome::InstallNew) {
@@ -549,7 +604,8 @@ pid_t InstallSimulatorFile(const ygo::update::LauncherFile& file, const Destinat
 // was undone) — dest.final_path is a launchable file in every one of
 // those cases, see the invariant comment at each rename below.
 bool InstallSimulatorFile(const ygo::update::LauncherFile& file, const Destination& dest,
-							const std::string& data_dir, ygo::launcher::ProgressWindow* progress) {
+							const std::string& data_dir, ygo::launcher::ProgressWindow* progress,
+							const std::string& deep_link = {}) {
 	std::string installed_hash = HashFile(dest.final_path);
 	auto replace = ygo::launcher::DecideReplace(installed_hash, file.sha256);
 	if(replace == ygo::launcher::ReplaceDecision::Keep) {
@@ -608,6 +664,12 @@ bool InstallSimulatorFile(const ygo::update::LauncherFile& file, const Destinati
 	std::wstring wfinal(dest.final_path.begin(), dest.final_path.end());
 	std::wstring wdata(data_dir.begin(), data_dir.end());
 	std::wstring cmdline = L"\"" + wfinal + L"\" -from-launcher -C \"" + wdata + L"\"";
+	// FASE 75: same reasoning as the POSIX body above — this probe IS the
+	// real launch if it survives, so the deep link has to ride along here.
+	if(!deep_link.empty()) {
+		std::wstring wlink(deep_link.begin(), deep_link.end());
+		cmdline += L" -deep-link \"" + wlink + L"\"";
+	}
 	std::vector<wchar_t> cmdline_buf(cmdline.begin(), cmdline.end());
 	cmdline_buf.push_back(0);
 	STARTUPINFOW si{}; si.cb = sizeof(si);
@@ -650,7 +712,18 @@ bool InstallSimulatorFile(const ygo::update::LauncherFile& file, const Destinati
 } // namespace
 
 int main(int argc, char** argv) {
-	(void)argc; (void)argv;
+	// FASE 75, design/decisioni.md D251: the OS hands a fedelex:// link to
+	// whatever the x-scheme-handler/fedelex association points at (the
+	// .desktop file's Exec=... %u on Linux, HKCU\Software\Classes\fedelex
+	// on Windows — both registered elsewhere, see RegisterWindowsUriScheme()
+	// below and tools/release/installer/install.sh) as a single bare
+	// argument, always ASCII (percent-encoding never produces a raw byte
+	// above 0x7f — see gframe/deep_link.cpp's header comment), so reading it
+	// with plain `char**` argv is safe even in the Windows build's ANSI
+	// main(). This launcher does NOT parse or validate it — that is
+	// gframe/deep_link.h's job, in the ONE place deciding what a table link
+	// means (ygo::DuelClient::JoinFromDeepLink). It is forwarded verbatim.
+	std::string deep_link_arg = (argc > 1 && argv[1]) ? argv[1] : std::string{};
 	curl_global_init(CURL_GLOBAL_DEFAULT);
 
 #if !FEDELEX_WINDOWS
@@ -701,6 +774,42 @@ int main(int argc, char** argv) {
 	}
 	MakeDir(data_dir);
 	Log(data_dir, "avvio, program_dir=" + program_dir + " data_dir=" + data_dir);
+
+#if FEDELEX_WINDOWS
+	RegisterWindowsUriScheme(data_dir, self_path);
+#endif
+
+	// FASE 75, design/launcher.md cancello 3: "se il simulatore e' gia'
+	// aperto non se ne apre un secondo". Chosen form (brief left it open,
+	// "forma a scelta, locale alla macchina", flagging only a NEW network
+	// listener as a real punto di risalita — this is not that): probe the
+	// same lock file gframe/gframe.cpp's simulator holds for its entire
+	// run (ygo::SingleInstanceLock, gframe/single_instance_lock.h). This
+	// probe instance is destroyed again immediately (its only job is the
+	// Acquired() check) — only the simulator's OWN long-lived instance
+	// ever keeps the lock. A point-in-time check, not a security boundary
+	// (same "onesta' sui deterrenti" as everything else in this file): a
+	// click-click-click burst could still race past it, and a manually
+	// started second simulator this launcher did not spawn is invisible to
+	// it in exactly the same way client_updater.cpp's own FileLock cannot
+	// see a process that never links against it.
+	//
+	// Known, accepted gap: this only catches "another fedelex simulator
+	// for this data dir is alive", regardless of how IT was started — it
+	// does NOT attempt to hand the already-open window the new link (that
+	// would need the flagged listener). The player sees "already open,
+	// close it and retry" instead of the room opening in the existing
+	// window.
+	if(!deep_link_arg.empty()) {
+		ygo::SingleInstanceLock probe(data_dir + "/" + ygo::kTournamentLockFileName);
+		if(!probe.Acquired()) {
+			Log(data_dir, "deep-link: un simulatore e' gia' aperto per questa cartella dati, non ne apro un secondo.");
+			NotifyUser("EDOPro (Fedelex custom)",
+					   "Il client e' gia' aperto. Chiudilo e riapri il link per entrare nel tavolo.");
+			curl_global_cleanup();
+			return EXIT_SUCCESS; // nothing failed — there is simply nothing more to do here.
+		}
+	}
 
 	if(!IsExecutable(simulator_path)) {
 		std::string msg = "Simulatore non trovato o non eseguibile: " + simulator_path;
@@ -790,10 +899,10 @@ int main(int argc, char** argv) {
 					continue;
 				if(dest.is_simulator) {
 #if FEDELEX_WINDOWS
-					if(InstallSimulatorFile(file, dest, data_dir, progress.get()))
+					if(InstallSimulatorFile(file, dest, data_dir, progress.get(), deep_link_arg))
 						simulator_already_launched = true;
 #else
-					pid_t pid = InstallSimulatorFile(file, dest, data_dir, progress.get());
+					pid_t pid = InstallSimulatorFile(file, dest, data_dir, progress.get(), deep_link_arg);
 					if(pid > 0)
 						launched_pid = pid;
 #endif
@@ -846,6 +955,10 @@ int main(int argc, char** argv) {
 	std::wstring wsim(simulator_path.begin(), simulator_path.end());
 	std::wstring wdata(data_dir.begin(), data_dir.end());
 	std::wstring cmdline = L"\"" + wsim + L"\" -from-launcher -C \"" + wdata + L"\"";
+	if(!deep_link_arg.empty()) {
+		std::wstring wlink(deep_link_arg.begin(), deep_link_arg.end());
+		cmdline += L" -deep-link \"" + wlink + L"\"";
+	}
 	std::vector<wchar_t> cmdline_buf(cmdline.begin(), cmdline.end());
 	cmdline_buf.push_back(0);
 	STARTUPINFOW si{}; si.cb = sizeof(si);
@@ -860,6 +973,10 @@ int main(int argc, char** argv) {
 	return EXIT_FAILURE;
 #else
 	std::vector<std::string> args = { simulator_path, "-from-launcher", "-C", data_dir };
+	if(!deep_link_arg.empty()) {
+		args.emplace_back("-deep-link");
+		args.emplace_back(deep_link_arg);
+	}
 	std::vector<char*> argv_exec;
 	for(auto& a : args)
 		argv_exec.push_back(const_cast<char*>(a.c_str()));
