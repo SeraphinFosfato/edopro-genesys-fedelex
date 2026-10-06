@@ -458,6 +458,120 @@ infrastruttura (un server Multirole con lista host nota, due client grafici,
 un toolchain Windows) non disponibile o non sicura da allestire in questa
 sessione — non sono stati aggirati ne' dati per scontati.
 
+## Stato dell'implementazione (FASE 75b)
+
+**Aggiornato il 2026-10-06.** D252 (`design/decisioni.md`,
+`design/server-duelli.md` §13.5): FASE 75 nascondeva solo l'evidenziazione
+delle carte attivabili (`is_selectable`); l'utente ha chiarito che anche il
+fatto stesso che una domanda compaia o non compaia, e i pannelli che
+elencano solo le carte attivabili, sono un indizio. Ramo `fase-75b`, creato
+da `fase-75` (rimasto a `9d9299288`, invariato), 7 commit, pushato su
+`origin/fase-75b`. Nessuna PR, nessun merge: questa sezione descrive uno
+stato non ancora unito a `master`.
+
+- **Cancello 1 — funzione pura e test.** `gframe/tournament_mode.h/.cpp`
+  (nuovo, zero dipendenze gframe/irrlicht/rete, stesso schema di
+  `deep_link.h`): quattro funzioni, una per decisione — `ChainAutoPasses`
+  (punto 1: mai la risposta automatica a una catena opzionale in torneo),
+  `AutoChainOrderApplies` (punto 5: l'ordine automatico di catena non si
+  applica mai in torneo), `ZoneMenuFlags` (punti 2/3: una zona non vuota
+  offre solo "Guarda", mai "Attiva"/"Evoca speciale" a livello di zona),
+  `EffectYNIsConcealed` (punto 4: `MSG_SELECT_EFFECTYN` e' nascosto fuori
+  dalla risoluzione di un'altra catena, non durante). `tests/
+  tournament_mode_tests.cpp`: 23 verifiche, ognuna o fissa
+  `isTournamentRoom == false` e controlla che il risultato sia la formula
+  esatta di prima di FASE 75b, o fissa `== true` e controlla la regola di
+  D252. Verde: `./bin/banlist_tests` → `tournament_mode_tests: 23 checks,
+  0 failures`.
+- **Cancello 2 — testo unico, verificato con `grep`.** Ogni punto dove il
+  client scrive il testo del popup di catena o di `MSG_SELECT_EFFECTYN`
+  e' stato letto a mano:
+  - `duelclient.cpp`, `MSG_SELECT_CHAIN`: in torneo e non forzata,
+    `stQMessage` prende sempre e solo la sysstring 1395 ("Vuoi attivare un
+    effetto?"), mai `event_string` ne' il testo che varia per
+    count/select_trigger/effetto scatenante — lo stesso ramo vale anche
+    per `panelmode` (materiali Xyz), che FASE 75 escludeva esplicitamente
+    (vedi sopra, cancello 5: "scope deliberatamente non coperto").
+  - `duelclient.cpp`, `MSG_SELECT_EFFECTYN`: `concealed` e' calcolato
+    PRIMA di costruire qualunque stringa — se vero, il ramo che chiama
+    `GetName(code)`/`FormatLocation(...)` non viene eseguito affatto (non
+    e' nascosto a schermo: non viene costruito), e si usa la stessa
+    sysstring 1395; `is_highlighting`/`highlighting_card` restano
+    entrambi intatti (mai assegnati).
+  - `event_handler.cpp`: `ShowCancelOrFinishButton` ha un nuovo `case 3`
+    con la sysstring 1396 ("Non attivo niente"), condiviso dalla pausa di
+    catena e da quella di `EFFECTYN` — nessun testo diverso fra le due.
+  - Le uniche stringhe non toccate in quel momento sono `stHintMsg`
+    (sysstring 550/556, "Select the effect you want to activate"/"...to
+    resolve"): preesistenti, identiche in torneo e fuori, mai
+    card-specific — non sono un indizio nuovo.
+  - Le due sysstring nuove (1395/1396) sono in `strings/fedelex.conf`
+    (non in `runtime/`, che e' gitignored e non versionato — vedi il
+    commento nel file stesso), codici 1393-1399 verificati vuoti
+    nell'intervallo upstream 1392→1400 prima di scegliere i numeri.
+- **Cancello 3 — build.** Linux locale: `./premake5 gmake2 --no-core=true
+  --sound=sfml --no-joystick=true --irrlicht-root=../irrlicht-custom &&
+  make -C build config=release_x64 ygoprodll` → verde, nessun warning
+  nuovo. Suite dei test: `make -C tests/build config=debug banlist_tests`
+  da zero → verde, tutte le suite (`banlist_tests`, `tournament_mode_tests`
+  incluso). CI del fork sul ramo `fase-75b`, **due run, entrambe verdi
+  dopo il push finale**: `build-windows` success, `Test (banlist_tests)`
+  success (fa girare anche `tournament_mode_tests` su una macchina pulita,
+  non solo in locale), `Manifesto artefatti (D218)` success, `Build Linux
+  (client)` skipped — stesso comportamento gia' osservato su `fase-75`,
+  non una regressione di questo ramo.
+- **Cancello 4 — nessuna attivazione persa, percorso di clic per ogni
+  zona.** In torneo, durante la pausa (dopo "Si'" alla domanda generica,
+  o per `MSG_SELECT_EFFECTYN` fuori dalla risoluzione):
+
+  | Zona | Percorso di clic |
+  |---|---|
+  | Mano | Clic diretto sulla carta (`LOCATION_HAND`) → `ShowMenu(cmdFlag)` apre il menu con "Attiva" se il bit c'e' — identico a fuori torneo, mai filtrato prima |
+  | Campo (mostri/magie-trappole) | Clic diretto sulla carta (`LOCATION_MZONE`/`LOCATION_SZONE`) → stesso `ShowMenu(cmdFlag)` |
+  | Cimitero | Clic sulla zona → `ZoneMenuFlags` forza il menu a solo "Guarda" (`COMMAND_LIST`) → "Guarda" apre la lista **completa e non filtrata** del cimitero → clic sulla carta nella lista: se ha un `cmdFlag` si apre lo stesso `ShowMenu(cmdFlag)` di un clic diretto sul campo; se non ne ha, nessuna reazione (silenzioso, non un indizio: ogni altra carta della stessa lista e' altrettanto silenziosa se non ha niente) |
+  | Banditi (removed) | Stesso percorso del cimitero, `LOCATION_REMOVED` |
+  | Deck | Stesso percorso, `LOCATION_DECK` (gia' limitato a "Guarda" anche in `isSingleMode`, qui lo e' sempre in torneo) |
+  | Extra deck (fase principale, es. evocazione speciale) | Stesso percorso, `LOCATION_EXTRA`; il clic su una carta della lista con `cmdFlag` apre `ShowMenu`, da cui "Evoca speciale" segue lo stesso `BUTTON_CMD_SPSUMMON` di un clic diretto sul campo |
+  | Materiali Xyz (catena) | "Si'" alla domanda generica, quando i candidati erano materiali (`panelmode`): si apre un pannello "Guarda" con **tutti** i materiali di ogni mostro Xyz candidato (non solo quello attivabile — stessa regola delle zone sopra), `ShowChainCard()`. Clic su un materiale che e' davvero nella lista attivabile: risolve subito (una sola opzione) o apre la scelta delle descrizioni (`ShowSelectOption`, piu' opzioni). Clic su un materiale presente nel pannello ma non attivabile: nessuna reazione (corretto il 2026-10-06 un vettore vuoto non controllato in questo ramo, vedi sotto) |
+
+  Nessuna delle sette non ha un percorso: la tabella e' la prova richiesta
+  dal brief, non solo la sua descrizione.
+- **Un difetto trovato rileggendo il codice per questo cancello, non
+  durante la scrittura.** Il pannello materiali Xyz in torneo mostra il
+  set COMPLETO di materiali (`all_materials`), non il sottinsieme
+  attivabile come fa `selectable_cards` fuori torneo (dove coincide sempre
+  con `activatable_cards`). Cliccare un materiale presente nel pannello ma
+  non nella lista attivabile lasciava `select_options` vuoto, e il ramo
+  `else` di quel blocco in `event_handler.cpp` leggeva `select_options[0]`
+  senza controllare la dimensione — un vettore vuoto letto in lettura,
+  mai esercitato prima perche' irraggiungibile fuori da questo percorso
+  nuovo. Commit `bed066bc6`, stessa famiglia del controllo gia' messo in
+  `BUTTON_CMD_ACTIVATE`/`BUTTON_CMD_RESET` per un caso analogo (clic da
+  "Guarda" su una carta senza niente da offrire).
+
+**Punti di risalita del brief: nessuno incontrato come blocco.** In
+particolare "la vista 'Guarda' di una zona non puo' offrire comandi sulla
+singola carta senza riscrivere il meccanismo dei menu" e' stato evitato per
+costruzione: il clic su una carta nella lista richiama lo stesso
+`ShowMenu(cmdFlag)` di un clic diretto sul campo (`clicked_card`,
+`list_command = 0`), non un meccanismo parallelo. "Distinguere 'durante la
+risoluzione' richiede uno stato che il client non ha in modo affidabile" e'
+stato risolto leggendo `ocgcore/processor.cpp` (`Processors::SolveChain`):
+`core.chain_solving` e' vero esattamente fra l'invio di `MSG_CHAIN_SOLVING`
+e quello di `MSG_CHAIN_SOLVED`, quindi uno specchio booleano lato client
+(`ClientField::in_chain_resolution`, impostato in quei due punti) e' una
+misura, non un'ipotesi.
+
+**Resta non verificato, honestamente**: nessun duello reale giocato in una
+stanza di torneo (niente DISPLAY, niente Multirole con mano di prova in
+questa sessione) — la tabella del cancello 4 e' letta dal codice, non vista
+a schermo. Il ritmo della domanda ripetuta a ogni finestra (se risponde
+"No" decine di volte per turno sia vivibile) non e' misurabile da codice
+per definizione: resta in P-40 di `SOSPESI.md` del vault, aggiornata con lo
+stato di questa fase. Il ramo Windows e' verificato solo dalla CI
+(`build-windows` success): nessuna esecuzione su un Windows vero, stesso
+limite gia' registrato per FASE 75 (P-39).
+
 ---
 
 ## 1. Il problema, in una riga
