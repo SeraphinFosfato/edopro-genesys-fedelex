@@ -772,6 +772,22 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 								if (index == -1) index = static_cast<int>(i);
 							}
 						}
+						// FASE 75b/D252 point 2: reachable now that the
+						// tournament Xyz-materials panel shows the FULL
+						// material set (all_materials, duelclient.cpp's
+						// MSG_SELECT_CHAIN BUTTON_YES handling), not just
+						// the activatable subset -- outside tournament
+						// selectable_cards is always <= activatable_cards
+						// here, so this click can only land on a card
+						// that has no activatable_descs entry in
+						// tournament. Same "silent, not a tell" rule as
+						// the COMMAND_LIST branch above: nothing happens,
+						// the panel and the "Non attivo niente" button
+						// stay exactly as they were.
+						if(select_options.empty()) {
+							command_card = nullptr;
+							break;
+						}
 						if (select_options.size() == 1) {
 							if (mainGame->dInfo.curMsg == MSG_SELECT_IDLECMD) {
 								DuelClient::SetResponseI((index << 16) + 5);
