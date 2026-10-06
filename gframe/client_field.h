@@ -87,6 +87,29 @@ public:
 	bool last_chain;
 	bool deck_reversed;
 	bool conti_selecting;
+	// FASE 75b, design/decisioni.md D252, design/server-duelli.md §13.5:
+	// state the tournament-mode concealment needs that nothing else in
+	// ClientField already tracked reliably.
+	//   - in_chain_resolution mirrors ocgcore's own core.chain_solving
+	//     window (processor.cpp's SolveChain, set true at MSG_CHAIN_SOLVING,
+	//     false at MSG_CHAIN_SOLVED): point 4's carve-out ("durante la
+	//     risoluzione... resta com'e' oggi") needs to know whether the
+	//     current MSG_SELECT_EFFECTYN arrived inside that window.
+	//   - effectyn_pending_card is the one card a concealed MSG_SELECT_EFFECTYN
+	//     is about. It is never added to activatable_cards/summonable_cards
+	//     etc. (those belong to the chain/idle/battle messages), so nothing
+	//     else clears its cmdFlag bit automatically — ResolveEffectYNPause()
+	//     is the single place that does, called from every exit path
+	//     (BUTTON_YES answering directly, BUTTON_NO, CancelOrFinish's direct
+	//     send, and BUTTON_CMD_ACTIVATE's EFFECTYN short-circuit).
+	//   - pending_panel_reveal remembers, for the ONE tournament chain
+	//     window that asks the generic question before knowing whether
+	//     "Si'" should open the plain pause or the full-materials "Guarda"
+	//     (panelmode, Xyz materials), which of the two BUTTON_YES must do.
+	bool in_chain_resolution;
+	ClientCard* effectyn_pending_card;
+	bool pending_panel_reveal;
+	void ResolveEffectYNPause();
 
 	ClientField();
 	void Clear();

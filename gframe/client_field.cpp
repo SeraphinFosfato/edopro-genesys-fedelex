@@ -43,6 +43,9 @@ ClientField::ClientField() {
 	conti_act = false;
 	deck_reversed = false;
 	conti_selecting = false;
+	in_chain_resolution = false;
+	effectyn_pending_card = nullptr;
+	pending_panel_reveal = false;
 	for(int p = 0; p < 2; ++p) {
 		skills[p] = nullptr;
 		mzone[p].resize(7, nullptr);
@@ -110,6 +113,9 @@ void ClientField::Clear() {
 	conti_act = false;
 	conti_selecting = false;
 	deck_reversed = false;
+	in_chain_resolution = false;
+	effectyn_pending_card = nullptr;
+	pending_panel_reveal = false;
 }
 void ClientField::Initial(uint8_t player, uint32_t deckc, uint32_t extrac) {
 	ClientCard* pcard;
@@ -338,6 +344,21 @@ void ClientField::ClearCommandFlag() {
 	extra_act[0] = extra_act[1] = false;
 	pzone_act[0] = pzone_act[1] = false;
 	conti_act = false;
+}
+void ClientField::ResolveEffectYNPause() {
+	// FASE 75b (D252 point 4): effectyn_pending_card is never part of
+	// activatable_cards/summonable_cards/etc., so ClearCommandFlag() and
+	// ClearChainSelect() never touch it — this is the one place its
+	// COMMAND_ACTIVATE bit (set only while concealing it, see
+	// MSG_SELECT_EFFECTYN in duelclient.cpp) gets cleared again. Masking
+	// just that bit, not zeroing cmdFlag outright: MSG_SELECT_EFFECTYN can
+	// in principle land on a card that ALSO has a legitimate, unrelated
+	// cmdFlag bit from the duel's normal flow (e.g. COMMAND_ATTACK) — this
+	// must not erase that.
+	if(effectyn_pending_card) {
+		effectyn_pending_card->cmdFlag &= ~COMMAND_ACTIVATE;
+		effectyn_pending_card = nullptr;
+	}
 }
 void ClientField::ClearSelect() {
 	for(auto& pcard : selectable_cards) {
