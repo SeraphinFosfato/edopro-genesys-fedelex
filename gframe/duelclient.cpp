@@ -33,6 +33,7 @@
 #include "room_list_notice.h"
 #include "server_lobby.h"
 #include "deep_link.h"
+#include "tournament_mode.h"
 #include "logging.h"
 
 #define DEFAULT_DUEL_RULE 5
@@ -1902,12 +1903,20 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				mainGame->dField.conti_act = true;
 			} else {
 				pcard->cmdFlag |= COMMAND_ACTIVATE;
-				if (pcard->location == LOCATION_GRAVE)
-					mainGame->dField.grave_act[pcard->controler] = true;
-				else if (pcard->location == LOCATION_REMOVED)
-					mainGame->dField.remove_act[pcard->controler] = true;
-				else if (pcard->location == LOCATION_EXTRA)
-					mainGame->dField.extra_act[pcard->controler] = true;
+				// FASE 75b/D252 point 2: cmdFlag is untouched (clicking the
+				// card directly still works, see event_handler.cpp's
+				// LOCATION_GRAVE/REMOVED/EXTRA single-card branch) -- only
+				// the ambient glow this pile would otherwise draw
+				// (drawing.cpp's DrawMisc, dField.*_act) is suppressed, the
+				// same split FASE 75 already used for is_selectable.
+				if(!mainGame->dInfo.isTournamentRoom) {
+					if (pcard->location == LOCATION_GRAVE)
+						mainGame->dField.grave_act[pcard->controler] = true;
+					else if (pcard->location == LOCATION_REMOVED)
+						mainGame->dField.remove_act[pcard->controler] = true;
+					else if (pcard->location == LOCATION_EXTRA)
+						mainGame->dField.extra_act[pcard->controler] = true;
+				}
 			}
 		}
 		mainGame->dField.attackable_cards.clear();
@@ -1967,26 +1976,32 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			pcard = mainGame->dField.GetCard(con, loc, seq);
 			mainGame->dField.spsummonable_cards.push_back(pcard);
 			pcard->cmdFlag |= COMMAND_SPSUMMON;
-			switch(pcard->location) {
-			case LOCATION_DECK:
+			// FASE 75b/D252 point 2: same split as the ACTIVATE loops below
+			// -- cmdFlag (the click still works) vs the *_act glow (the
+			// pile/pendulum zone must not announce it from a distance).
+			if(pcard->location == LOCATION_DECK)
 				pcard->SetCode(code);
-				mainGame->dField.deck_act[pcard->controler] = true;
-				break;
-			case LOCATION_GRAVE:
-				mainGame->dField.grave_act[pcard->controler] = true;
-				break;
-			case LOCATION_REMOVED:
-				mainGame->dField.remove_act[pcard->controler] = true;
-				break;
-			case LOCATION_EXTRA:
-				mainGame->dField.extra_act[pcard->controler] = true;
-				break;
-			case LOCATION_SZONE: {
-				if((pcard->type & TYPE_PENDULUM) && !pcard->equipTarget && pcard->sequence == mainGame->dInfo.GetPzoneIndex(0))
-					mainGame->dField.pzone_act[pcard->controler] = true;
-				break;
-			}
-			default: break;
+			if(!mainGame->dInfo.isTournamentRoom) {
+				switch(pcard->location) {
+				case LOCATION_DECK:
+					mainGame->dField.deck_act[pcard->controler] = true;
+					break;
+				case LOCATION_GRAVE:
+					mainGame->dField.grave_act[pcard->controler] = true;
+					break;
+				case LOCATION_REMOVED:
+					mainGame->dField.remove_act[pcard->controler] = true;
+					break;
+				case LOCATION_EXTRA:
+					mainGame->dField.extra_act[pcard->controler] = true;
+					break;
+				case LOCATION_SZONE: {
+					if((pcard->type & TYPE_PENDULUM) && !pcard->equipTarget && pcard->sequence == mainGame->dInfo.GetPzoneIndex(0))
+						mainGame->dField.pzone_act[pcard->controler] = true;
+					break;
+				}
+				default: break;
+				}
 			}
 		}
 		mainGame->dField.reposable_cards.clear();
@@ -2059,12 +2074,16 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				mainGame->dField.conti_act = true;
 			} else {
 				pcard->cmdFlag |= COMMAND_ACTIVATE;
-				if (pcard->location == LOCATION_GRAVE)
-					mainGame->dField.grave_act[pcard->controler] = true;
-				else if (pcard->location == LOCATION_REMOVED)
-					mainGame->dField.remove_act[pcard->controler] = true;
-				else if (pcard->location == LOCATION_EXTRA)
-					mainGame->dField.extra_act[pcard->controler] = true;
+				// FASE 75b/D252 point 2: see the identical split in
+				// MSG_SELECT_BATTLECMD above.
+				if(!mainGame->dInfo.isTournamentRoom) {
+					if (pcard->location == LOCATION_GRAVE)
+						mainGame->dField.grave_act[pcard->controler] = true;
+					else if (pcard->location == LOCATION_REMOVED)
+						mainGame->dField.remove_act[pcard->controler] = true;
+					else if (pcard->location == LOCATION_EXTRA)
+						mainGame->dField.extra_act[pcard->controler] = true;
+				}
 			}
 		}
 		std::lock_guard<epro::mutex> lock(mainGame->gMutex);
@@ -2093,26 +2112,52 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		CoreUtils::loc_info info = CoreUtils::ReadLocInfo(pbuf, mainGame->dInfo.compat_mode);
 		info.controler = mainGame->LocalPlayer(info.controler);
 		uint64_t desc = CompatRead<uint32_t, uint64_t>(pbuf);
+		// FASE 75b/D252 point 4: concealed outside chain resolution in a
+		// tournament room; during resolution (between MSG_CHAIN_SOLVING and
+		// MSG_CHAIN_SOLVED, dField.in_chain_resolution) this is unchanged,
+		// D252's own carve-out.
+		const bool concealed = tournament_mode::EffectYNIsConcealed(mainGame->dInfo.isTournamentRoom, mainGame->dField.in_chain_resolution);
 		std::wstring text;
-		if(desc == 0) {
-			text = epro::format(L"{}\n{}", event_string,
-							   epro::sprintf(gDataManager->GetSysString(200), gDataManager->GetName(code), gDataManager->FormatLocation(info.location, info.sequence)));
-		} else if(desc == 221) {
-			text = epro::format(L"{}\n{}\n{}", event_string,
-							   epro::sprintf(gDataManager->GetSysString(221), gDataManager->GetName(code), gDataManager->FormatLocation(info.location, info.sequence)),
-							   gDataManager->GetSysString(223));
-		} else {
-			text = epro::sprintf(gDataManager->GetDesc(desc, mainGame->dInfo.compat_mode), gDataManager->GetName(code));
+		if(!concealed) {
+			if(desc == 0) {
+				text = epro::format(L"{}\n{}", event_string,
+								   epro::sprintf(gDataManager->GetSysString(200), gDataManager->GetName(code), gDataManager->FormatLocation(info.location, info.sequence)));
+			} else if(desc == 221) {
+				text = epro::format(L"{}\n{}\n{}", event_string,
+								   epro::sprintf(gDataManager->GetSysString(221), gDataManager->GetName(code), gDataManager->FormatLocation(info.location, info.sequence)),
+								   gDataManager->GetSysString(223));
+			} else {
+				text = epro::sprintf(gDataManager->GetDesc(desc, mainGame->dInfo.compat_mode), gDataManager->GetName(code));
+			}
 		}
 		std::lock_guard<epro::mutex> lock(mainGame->gMutex);
 		ClientCard* pcard = mainGame->dField.GetCard(info.controler, info.location, info.sequence);
 		if (pcard->code != code)
 			pcard->SetCode(code);
-		if(info.location != LOCATION_DECK) {
-			pcard->is_highlighting = true;
-			mainGame->dField.highlighting_card = pcard;
+		// Defensive reset: effectyn_pending_card is never one of the
+		// vectors ClearChainSelect()/ClearCommandFlag() sweep (see
+		// client_field.h's comment), so nothing else clears a stray
+		// pointer left over from an earlier, differently-resolved prompt.
+		mainGame->dField.ResolveEffectYNPause();
+		if(concealed) {
+			// Never event_string, never the card's name/location, never
+			// is_highlighting: that is exactly what point 4 withholds
+			// until the player finds and clicks this card themselves.
+			// cmdFlag is the only mark left on it -- the same bit a direct
+			// field click already checks (event_handler.cpp's
+			// LOCATION_HAND/MZONE/SZONE branch) and the one the new
+			// MSG_SELECT_EFFECTYN branch there checks for a pile card
+			// reached through "Guarda".
+			pcard->cmdFlag |= COMMAND_ACTIVATE;
+			mainGame->dField.effectyn_pending_card = pcard;
+			mainGame->stQMessage->setText(gDataManager->GetSysString(1395).data());
+		} else {
+			if(info.location != LOCATION_DECK) {
+				pcard->is_highlighting = true;
+				mainGame->dField.highlighting_card = pcard;
+			}
+			mainGame->stQMessage->setText(text.data());
 		}
-		mainGame->stQMessage->setText(text.data());
 		mainGame->PopupElement(mainGame->wQuery);
 		return false;
 	}
@@ -2330,16 +2375,24 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 					pcard->cmdFlag |= COMMAND_RESET;
 				else
 					pcard->cmdFlag |= COMMAND_ACTIVATE;
+				// FASE 75b/D252 point 2: cmdFlag above is untouched (a
+				// direct click still works); only the pile's ambient glow
+				// is suppressed in tournament, same split as
+				// MSG_SELECT_BATTLECMD/IDLECMD above.
 				if(pcard->location == LOCATION_DECK) {
 					pcard->SetCode(code);
-					mainGame->dField.deck_act[pcard->controler] = true;
-				} else if(info.location == LOCATION_GRAVE)
-					mainGame->dField.grave_act[pcard->controler] = true;
-				else if(info.location == LOCATION_REMOVED)
-					mainGame->dField.remove_act[pcard->controler] = true;
-				else if(info.location == LOCATION_EXTRA)
-					mainGame->dField.extra_act[pcard->controler] = true;
-				else if(info.location == LOCATION_OVERLAY)
+					if(!mainGame->dInfo.isTournamentRoom)
+						mainGame->dField.deck_act[pcard->controler] = true;
+				} else if(info.location == LOCATION_GRAVE) {
+					if(!mainGame->dInfo.isTournamentRoom)
+						mainGame->dField.grave_act[pcard->controler] = true;
+				} else if(info.location == LOCATION_REMOVED) {
+					if(!mainGame->dInfo.isTournamentRoom)
+						mainGame->dField.remove_act[pcard->controler] = true;
+				} else if(info.location == LOCATION_EXTRA) {
+					if(!mainGame->dInfo.isTournamentRoom)
+						mainGame->dField.extra_act[pcard->controler] = true;
+				} else if(info.location == LOCATION_OVERLAY)
 					panelmode = true;
 			}
 		}
@@ -2367,7 +2420,15 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		const auto ignore_chain = mainGame->btnChainIgnore->isPressed();
 		const auto always_chain = mainGame->btnChainAlways->isPressed();
 		const auto chain_when_avail = mainGame->btnChainWhenAvail->isPressed();
-		if(!select_trigger && !mainGame->dField.chain_forced && (ignore_chain || ((count == 0 || specount == 0) && !always_chain)) && (count == 0 || !chain_when_avail)) {
+		// FASE 75b/D252 point 1: ygo::tournament_mode::ChainAutoPasses is
+		// the exact pre-FASE-75b predicate, gated so it is always false in
+		// tournament (chain_forced aside) — see gframe/tournament_mode.h
+		// and tests/tournament_mode_tests.cpp for why each of
+		// select_trigger/count/specount/the three chain buttons stopped
+		// mattering there: every one of them was a way an empty chain
+		// window looked different from a full one.
+		if(tournament_mode::ChainAutoPasses(mainGame->dInfo.isTournamentRoom, mainGame->dField.chain_forced, select_trigger,
+				count, specount, ignore_chain, always_chain, chain_when_avail)) {
 			SetResponseI(-1);
 			mainGame->dField.ClearChainSelect();
 			if(mainGame->tabSettings.chkNoChainDelay->isChecked() && !ignore_chain) {
@@ -2377,7 +2438,11 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			DuelClient::SendResponse();
 			return true;
 		}
-		if(mainGame->tabSettings.chkAutoChainOrder->isChecked() && mainGame->dField.chain_forced && !(always_chain || chain_when_avail)) {
+		// FASE 75b/D252 point 5: ygo::tournament_mode::AutoChainOrderApplies
+		// turns this off in tournament -- a forced chain's order is always
+		// chosen by the player there, never auto-picked.
+		if(tournament_mode::AutoChainOrderApplies(mainGame->dInfo.isTournamentRoom, mainGame->dField.chain_forced,
+				mainGame->tabSettings.chkAutoChainOrder->isChecked()) && !(always_chain || chain_when_avail)) {
 			SetResponseI(0);
 			mainGame->dField.ClearChainSelect();
 			DuelClient::SendResponse();
@@ -2389,16 +2454,24 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		else
 			mainGame->stHintMsg->setText(gDataManager->GetSysString(556).data());
 		mainGame->stHintMsg->setVisible(true);
-		if(panelmode) {
-			// FASE 75/D251 does NOT reach into this branch: a deck/GY/
-			// banished/Xyz-material activation has no on-field card to
-			// click at all — ShowChainCard()'s panel IS the only way to
-			// select one. Hiding it here would not conceal an indicator,
-			// it would make the activation impossible, exactly the
-			// outcome design/launcher.md's/PHASES.md's own punto di
-			// risalita warns against. Tournament mode leaves this branch
-			// untouched; the concealment below only ever applies to cards
-			// the player can click directly on the field.
+		mainGame->dField.pending_panel_reveal = panelmode;
+		if(mainGame->dInfo.isTournamentRoom && !mainGame->dField.chain_forced) {
+			// FASE 75b/D252 point 1 (and point 2 for the materials
+			// sub-case): ask the SAME generic question first, no matter
+			// whether the candidates are on-field cards or Xyz materials
+			// (panelmode) -- unlike the FASE 75 code this replaces,
+			// panelmode no longer bypasses the question in tournament.
+			// BUTTON_YES (event_handler.cpp) reads pending_panel_reveal,
+			// set just above, to decide whether "Si'" opens the plain
+			// pause or the full-materials "Guarda" panel. Never event_string:
+			// that would be the card name the whole point is to withhold.
+			mainGame->stQMessage->setText(gDataManager->GetSysString(1395).data());
+			mainGame->PopupElement(mainGame->wQuery);
+		} else if(panelmode) {
+			// Outside tournament (or a forced chain, in or out of it):
+			// unchanged from before FASE 75b. A deck/GY/banished/Xyz-material
+			// activation has no on-field card to click at all --
+			// ShowChainCard()'s panel IS the only way to select one.
 			mainGame->dField.list_command = COMMAND_ACTIVATE;
 			mainGame->dField.selectable_cards = mainGame->dField.activatable_cards;
 			std::sort(mainGame->dField.selectable_cards.begin(), mainGame->dField.selectable_cards.end());
@@ -2407,35 +2480,13 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			mainGame->dField.ShowChainCard();
 		} else {
 			if(!mainGame->dField.chain_forced) {
-				// FASE 75/D251, design/server-duelli.md §13: a tournament
-				// room (joined through the fedelex:// link,
-				// dInfo.isTournamentRoom — never set for an ordinary
-				// connection) hides the "vuoi attivare?" question for an
-				// OPTIONAL chain window. The card(s) involved already lost
-				// their outline just above (is_selectable cleared right
-				// after the per-card loop, see that comment);
-				// cmdFlag/COMMAND_ACTIVATE is untouched, so the player can
-				// still open the card's
-				// context menu and activate it directly, exactly as the
-				// brief requires ("il giocatore puo' comunque attivare
-				// cliccando la carta nella finestra giusta"). What this
-				// replaces is only the UNPROMPTED popup: the SAME question
-				// still appears if the player presses Cancel/Finish to
-				// decline (event_handler.cpp's CancelOrFinish(),
-				// MSG_SELECT_CHAIN branch, re-shows wQuery when it was not
-				// already visible) — that is a deliberate fallback a
-				// player chose to open, never something shown automatically.
-				if(mainGame->dInfo.isTournamentRoom) {
-					mainGame->dField.ShowCancelOrFinishButton(1);
-				} else {
-					if(count == 0)
-						mainGame->stQMessage->setText(epro::format(L"{}\n{}", gDataManager->GetSysString(201), gDataManager->GetSysString(202)).data());
-					else if(select_trigger)
-						mainGame->stQMessage->setText(epro::format(L"{}\n{}\n{}", event_string, gDataManager->GetSysString(222), gDataManager->GetSysString(223)).data());
-					else
-						mainGame->stQMessage->setText(epro::format(L"{}\n{}", event_string, gDataManager->GetSysString(203)).data());
-					mainGame->PopupElement(mainGame->wQuery);
-				}
+				if(count == 0)
+					mainGame->stQMessage->setText(epro::format(L"{}\n{}", gDataManager->GetSysString(201), gDataManager->GetSysString(202)).data());
+				else if(select_trigger)
+					mainGame->stQMessage->setText(epro::format(L"{}\n{}\n{}", event_string, gDataManager->GetSysString(222), gDataManager->GetSysString(223)).data());
+				else
+					mainGame->stQMessage->setText(epro::format(L"{}\n{}", event_string, gDataManager->GetSysString(203)).data());
+				mainGame->PopupElement(mainGame->wQuery);
 			}
 		}
 		return false;
@@ -3641,6 +3692,11 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 	case MSG_CHAIN_SOLVING: {
 		const auto ct = BufferIO::Read<uint8_t>(pbuf);
 		auto lock = LockIf();
+		// FASE 75b/D252 point 4: mirrors ocgcore's own core.chain_solving
+		// window (processor.cpp's Processors::SolveChain step 1 sets it,
+		// step 5 clears it before MSG_CHAIN_SOLVED is sent) -- the carve-out
+		// for a MSG_SELECT_EFFECTYN asked "durante la risoluzione".
+		mainGame->dField.in_chain_resolution = true;
 		if(!mainGame->dInfo.isCatchingUp) {
 			if(mainGame->dField.last_chain)
 				mainGame->WaitFrameSignal(11, lock);
@@ -3658,6 +3714,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 	}
 	case MSG_CHAIN_SOLVED: {
 		/*const auto ct = BufferIO::Read<uint8_t>(pbuf);*/
+		mainGame->dField.in_chain_resolution = false;
 		return true;
 	}
 	case MSG_CHAIN_END: {
