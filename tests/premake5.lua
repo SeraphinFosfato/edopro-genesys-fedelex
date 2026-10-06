@@ -38,6 +38,7 @@ project "banlist_tests"
 		"updater_managed_files_tests.cpp",
 		"launcher_logic_tests.cpp",
 		"deep_link_tests.cpp",
+		"tournament_mode_tests.cpp",
 		"../gframe/banlist_verify.cpp",
 		"../gframe/banlist_diff.cpp",
 		"../gframe/title_verify.cpp",
@@ -45,6 +46,7 @@ project "banlist_tests"
 		"../gframe/update_verify.cpp",
 		"../gframe/launcher_logic.cpp",
 		"../gframe/deep_link.cpp",
+		"../gframe/tournament_mode.cpp",
 		"../gframe/sha256.cpp",
 		"../gframe/tweetnacl/*.c",
 	}
