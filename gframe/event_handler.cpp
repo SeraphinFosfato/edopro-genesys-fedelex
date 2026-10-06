@@ -8,6 +8,7 @@
 #include "network.h"
 #include "game.h"
 #include "duelclient.h"
+#include "tournament_mode.h"
 #include "data_manager.h"
 #include "image_manager.h"
 #include "replay_mode.h"
@@ -212,11 +213,31 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 					break;
 				}
 				switch(mainGame->dInfo.curMsg) {
-				case MSG_SELECT_YESNO:
-				case MSG_SELECT_EFFECTYN: {
+				case MSG_SELECT_YESNO: {
 					if(highlighting_card)
 						highlighting_card->is_highlighting = false;
 					highlighting_card = 0;
+					DuelClient::SetResponseI(1);
+					mainGame->HideElement(mainGame->wQuery, true);
+					break;
+				}
+				case MSG_SELECT_EFFECTYN: {
+					// FASE 75b/D252 point 4: in the tournament pause,
+					// "Si'" must NOT answer yet -- it opens the same pause
+					// as a chain window (below), where the player still
+					// has to find and click the actual card themselves.
+					// effectyn_pending_card is only ever set (in
+					// duelclient.cpp's MSG_SELECT_EFFECTYN) when this
+					// concealment applies, so checking it alone is enough.
+					if(mainGame->dInfo.isTournamentRoom && effectyn_pending_card) {
+						mainGame->HideElement(mainGame->wQuery);
+						ShowCancelOrFinishButton(3);
+						break;
+					}
+					if(highlighting_card)
+						highlighting_card->is_highlighting = false;
+					highlighting_card = 0;
+					ResolveEffectYNPause();
 					DuelClient::SetResponseI(1);
 					mainGame->HideElement(mainGame->wQuery, true);
 					break;
@@ -229,7 +250,33 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 				case MSG_SELECT_CHAIN: {
 					mainGame->HideElement(mainGame->wQuery);
 					if (!chain_forced) {
-						ShowCancelOrFinishButton(1);
+						// FASE 75b/D252 point 1/2: pending_panel_reveal
+						// (set in duelclient.cpp's MSG_SELECT_CHAIN, right
+						// before this same popup was shown) says whether
+						// "Si'" opens the plain pause (player clicks a
+						// card directly) or the full-materials "Guarda"
+						// panel (the candidates were Xyz materials,
+						// panelmode -- there is no on-field card to click
+						// for those, same reasoning FASE 75's comment
+						// already gave for leaving this branch alone
+						// outside tournament).
+						if(mainGame->dInfo.isTournamentRoom && pending_panel_reveal) {
+							std::vector<ClientCard*> all_materials;
+							for(auto& ac : activatable_cards) {
+								if(ac->overlayTarget) {
+									for(auto& mat : ac->overlayTarget->overlayed)
+										all_materials.push_back(mat);
+								}
+							}
+							std::sort(all_materials.begin(), all_materials.end());
+							auto eit = std::unique(all_materials.begin(), all_materials.end());
+							all_materials.erase(eit, all_materials.end());
+							list_command = COMMAND_ACTIVATE;
+							selectable_cards = std::move(all_materials);
+							ShowChainCard();
+						} else {
+							ShowCancelOrFinishButton(mainGame->dInfo.isTournamentRoom ? 3 : 1);
+						}
 					}
 					break;
 				}
@@ -255,6 +302,10 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 					if(highlighting_card)
 						highlighting_card->is_highlighting = false;
 					highlighting_card = 0;
+					// FASE 75b/D252 point 4: no-op outside a concealed
+					// pause (effectyn_pending_card is already null for a
+					// plain MSG_SELECT_YESNO or a non-tournament EFFECTYN).
+					ResolveEffectYNPause();
 					DuelClient::SetResponseI(0);
 					mainGame->HideElement(mainGame->wQuery, true);
 					break;
@@ -352,6 +403,18 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 			case BUTTON_CMD_RESET: {
 				mainGame->wCmdMenu->setVisible(false);
 				ShowCancelOrFinishButton(0);
+				// FASE 75b/D252 point 4: clicking "Attiva" IS the "Si'"
+				// answer to a concealed MSG_SELECT_EFFECTYN -- it is a
+				// plain yes/no, never a list of descriptions, so none of
+				// the activatable_cards/activatable_descs machinery below
+				// applies (that data belongs to the LAST MSG_SELECT_CHAIN/
+				// BATTLECMD/IDLECMD, unrelated to this prompt).
+				if(mainGame->dInfo.curMsg == MSG_SELECT_EFFECTYN) {
+					ResolveEffectYNPause();
+					DuelClient::SetResponseI(1);
+					DuelClient::SendResponse();
+					break;
+				}
 				if(!list_command) {
 					int index = -1;
 					select_options.clear();
@@ -367,6 +430,21 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 							select_options.push_back(activatable_descs[i].first);
 							if (index == -1) index = static_cast<int>(i);
 						}
+					}
+					// FASE 75b/D252 point 3: reachable now that a card
+					// clicked from inside a tournament "Guarda" pile list
+					// can open this same per-card menu (see the
+					// MSG_SELECT_IDLECMD/BATTLECMD/CHAIN BUTTON_CARD_x
+					// handling below) with cmdFlag set but with nothing
+					// actually in activatable_cards/descs for it -- e.g. a
+					// card that can only be special summoned, not
+					// activated. Outside that new path this can never
+					// happen (every card offered this button already had
+					// a matching activatable_cards entry), so the branch
+					// below is unaffected.
+					if(select_options.empty()) {
+						clicked_card = nullptr;
+						break;
 					}
 					if (select_options.size() == 1) {
 						if (mainGame->dInfo.curMsg == MSG_SELECT_IDLECMD) {
@@ -628,9 +706,48 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 				switch(mainGame->dInfo.curMsg) {
 				case MSG_SELECT_IDLECMD:
 				case MSG_SELECT_BATTLECMD:
-				case MSG_SELECT_CHAIN: {
-					if(list_command == COMMAND_LIST)
+				case MSG_SELECT_CHAIN:
+				case MSG_SELECT_EFFECTYN: {
+					// MSG_SELECT_EFFECTYN only ever reaches this case with
+					// list_command == COMMAND_LIST (its own zone-click
+					// handling above never offers SPSUMMON/ACTIVATE at the
+					// zone level, tournament or not) -- the branches below
+					// for those are simply unreachable for it, not wrong.
+					if(list_command == COMMAND_LIST) {
+						// FASE 75b/D252 point 2/3: outside tournament this
+						// list is purely a viewer (BUTTON_CMD_SHOWLIST,
+						// "Guarda" today only reachable via MSG_WAITING) --
+						// unchanged, still a no-op. In tournament the SAME
+						// panel is now how a non-field activatable/
+						// special-summonable card (a pile the zone-click
+						// masked to COMMAND_LIST, see ZoneMenuFlags) gets
+						// used at all: clicking a card in it opens that
+						// ONE card's own menu, exactly like clicking it
+						// directly on the field would (list_command = 0,
+						// same ShowMenu call the LOCATION_HAND/MZONE/SZONE
+						// branch above uses). A card with nothing to offer
+						// (cmdFlag == 0) shows no menu, same as clicking a
+						// blank patch of field -- not a tell, since every
+						// OTHER card in the same "Guarda" list is just as
+						// clickable and just as silent if it has nothing.
+						if(mainGame->dInfo.isTournamentRoom) {
+							ClientCard* list_card = selectable_cards[id - BUTTON_CARD_0 + mainGame->scrCardList->getPos() / 10];
+							if(list_card->cmdFlag) {
+								clicked_card = list_card;
+								list_command = 0;
+								// Deliberately NOT ShowCancelOrFinishButton(0)
+								// here: the "Non attivo niente" button this
+								// pile was reached through (ShowCancelOrFinishButton(3),
+								// BUTTON_YES) must stay available -- the
+								// player may still back out instead of
+								// using the small menu this opens.
+								mainGame->HideElement(mainGame->wCardSelect);
+								auto curpos = mainGame->device->getCursorControl()->getPosition();
+								ShowMenu(clicked_card->cmdFlag, curpos.X, curpos.Y);
+							}
+						}
 						break;
+					}
 					if(list_command == COMMAND_SPSUMMON) {
 						command_card = selectable_cards[id - BUTTON_CARD_0 + mainGame->scrCardList->getPos() / 10];
 						int index = 0;
@@ -1269,7 +1386,15 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 			}
 			case MSG_SELECT_BATTLECMD:
 			case MSG_SELECT_IDLECMD:
-			case MSG_SELECT_CHAIN: {
+			case MSG_SELECT_CHAIN:
+			case MSG_SELECT_EFFECTYN: {
+				// FASE 75b/D252 point 4: MSG_SELECT_EFFECTYN never reached
+				// this switch before FASE 75b. Outside a tournament room
+				// it stays exactly that way -- clicking a card during an
+				// ordinary yes/no popup still does nothing; the player
+				// answers the popup directly, unchanged.
+				if(mainGame->dInfo.curMsg == MSG_SELECT_EFFECTYN && !mainGame->dInfo.isTournamentRoom)
+					break;
 				switch(hovered_location) {
 				case LOCATION_DECK: {
 					int command_flag = 0;
@@ -1279,6 +1404,10 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 						command_flag |= deck[hovered_controler][i]->cmdFlag;
 					if(mainGame->dInfo.isSingleMode)
 						command_flag |= COMMAND_LIST;
+					// FASE 75b/D252 point 2/3: a non-empty pile offers only
+					// "Guarda" in tournament, regardless of what is in it
+					// -- see gframe/tournament_mode.h.
+					command_flag = tournament_mode::ZoneMenuFlags(mainGame->dInfo.isTournamentRoom, true, command_flag, COMMAND_LIST);
 					list_command = 1;
 					ShowMenu(command_flag, x, y);
 					break;
@@ -1302,6 +1431,7 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 					for(size_t i = 0; i < grave[hovered_controler].size(); ++i)
 						command_flag |= grave[hovered_controler][i]->cmdFlag;
 					command_flag |= COMMAND_LIST;
+					command_flag = tournament_mode::ZoneMenuFlags(mainGame->dInfo.isTournamentRoom, true, command_flag, COMMAND_LIST);
 					list_command = 1;
 					ShowMenu(command_flag, x, y);
 					break;
@@ -1313,6 +1443,7 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 					for(size_t i = 0; i < remove[hovered_controler].size(); ++i)
 						command_flag |= remove[hovered_controler][i]->cmdFlag;
 					command_flag |= COMMAND_LIST;
+					command_flag = tournament_mode::ZoneMenuFlags(mainGame->dInfo.isTournamentRoom, true, command_flag, COMMAND_LIST);
 					list_command = 1;
 					ShowMenu(command_flag, x, y);
 					break;
@@ -1324,11 +1455,17 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 					for(size_t i = 0; i < extra[hovered_controler].size(); ++i)
 						command_flag |= extra[hovered_controler][i]->cmdFlag;
 					command_flag |= COMMAND_LIST;
+					command_flag = tournament_mode::ZoneMenuFlags(mainGame->dInfo.isTournamentRoom, true, command_flag, COMMAND_LIST);
 					list_command = 1;
 					ShowMenu(command_flag, x, y);
 					break;
 				}
 				case POSITION_HINT: {
+					// D252 point 5: obligatory continuous resolutions are
+					// untouched by this brief; EFFECTYN never populates
+					// conti_cards to begin with.
+					if(mainGame->dInfo.curMsg == MSG_SELECT_EFFECTYN)
+						break;
 					int command_flag = 0;
 					if(conti_cards.size() == 0)
 						break;
@@ -2733,6 +2870,14 @@ void ClientField::ShowCancelOrFinishButton(int buttonOp) {
 			mainGame->btnCancelOrFinish->setText(gDataManager->GetSysString(1296).data());
 			mainGame->btnCancelOrFinish->setVisible(true);
 			break;
+		case 3:
+			// FASE 75b/D252: the tournament pause (a chain window's "Si'"
+			// or a concealed MSG_SELECT_EFFECTYN's "Si'") -- "Non attivo
+			// niente", strings/fedelex.conf 1396. Shared by both callers,
+			// same generic wording either way.
+			mainGame->btnCancelOrFinish->setText(gDataManager->GetSysString(1396).data());
+			mainGame->btnCancelOrFinish->setVisible(true);
+			break;
 		case 0:
 		default:
 			mainGame->btnCancelOrFinish->setVisible(false);
@@ -2925,11 +3070,33 @@ void ClientField::CancelOrFinish() {
 		}
 		break;
 	}
-	case MSG_SELECT_YESNO:
+	case MSG_SELECT_YESNO: {
+		if (highlighting_card)
+			highlighting_card->is_highlighting = false;
+		highlighting_card = 0;
+		DuelClient::SetResponseI(0);
+		mainGame->HideElement(mainGame->wQuery, true);
+		break;
+	}
 	case MSG_SELECT_EFFECTYN: {
 		if (highlighting_card)
 			highlighting_card->is_highlighting = false;
 		highlighting_card = 0;
+		if (effectyn_pending_card) {
+			// FASE 75b/D252 point 4: "Non attivo niente" during the
+			// tournament pause (wQuery is NOT visible here -- the player
+			// already answered "Si'" to it) passes directly, same outcome
+			// as a plain "No" on the popup itself would give. There is
+			// nothing visible to fade here (wQuery is already hidden), so
+			// SendResponse() is called directly, same pattern as the
+			// MSG_SELECT_CHAIN autopass a few hundred lines up in
+			// duelclient.cpp.
+			ResolveEffectYNPause();
+			DuelClient::SetResponseI(0);
+			ShowCancelOrFinishButton(0);
+			DuelClient::SendResponse();
+			break;
+		}
 		DuelClient::SetResponseI(0);
 		mainGame->HideElement(mainGame->wQuery, true);
 		break;
@@ -2991,12 +3158,28 @@ void ClientField::CancelOrFinish() {
 			break;
 		if (mainGame->wCardSelect->isVisible()) {
 			mainGame->HideElement(mainGame->wCardSelect);
+			// FASE 75b/D252: closing the full-materials "Guarda" panel
+			// (pending_panel_reveal) without picking anything goes back
+			// to the plain pause, not all the way back to an unanswered
+			// state -- the player already said "Si'".
+			if(mainGame->dInfo.isTournamentRoom)
+				ShowCancelOrFinishButton(3);
 			break;
 		}
 		if (mainGame->wQuery->isVisible()) {
 			DuelClient::SetResponseI(-1);
 			ShowCancelOrFinishButton(0);
 			mainGame->HideElement(mainGame->wQuery, true);
+		}
+		else if (mainGame->dInfo.isTournamentRoom) {
+			// FASE 75b/D252 point 1: "Non attivo niente" during the
+			// pause (wQuery not visible -- the generic question was
+			// already answered "Si'") passes directly. Re-asking the
+			// same question here (what this replaces) would be a
+			// pointless extra round-trip, and itself a tell.
+			DuelClient::SetResponseI(-1);
+			ShowCancelOrFinishButton(0);
+			DuelClient::SendResponse();
 		}
 		else {
 			mainGame->PopupElement(mainGame->wQuery);
