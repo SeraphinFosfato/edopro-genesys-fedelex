@@ -60,6 +60,17 @@ namespace ygo {
 std::string showing_repo = "";
 
 bool ClientField::OnEvent(const irr::SEvent& event) {
+	// FASE 76b, design/server-duelli.md §13.6 punto 5: "nessun altro
+	// comando accettato da tastiera o mouse" while a tournament-room
+	// reconnect is in progress. This is the single gatekeeper for every
+	// keyboard/mouse event reaching the duel scene (it is the device's
+	// event receiver for the whole duration of a duel, see
+	// gframe/duelclient.cpp's STOC_DUEL_START/STOC_CATCHUP handling) — a
+	// guard here, before OnCommonEvent and before the switch below, covers
+	// card clicks, every GUI button and window the duel UI can show, and
+	// keyboard shortcuts alike, with one check instead of one per branch.
+	if(tournament_mode::ReconnectBlocksInput(mainGame->dInfo.isAwaitingReconnect))
+		return true;
 	bool stopPropagation = false;
 	if(OnCommonEvent(event, stopPropagation))
 		return stopPropagation;

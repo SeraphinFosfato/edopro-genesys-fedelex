@@ -74,6 +74,13 @@ epro::Address DuelClient::temp_ip{};
 uint16_t DuelClient::temp_port = 0;
 uint16_t DuelClient::temp_ver = 0;
 bool DuelClient::try_needed = false;
+// FASE 76b: zero-valued steady_clock::time_point, i.e. "infinitely long
+// ago" — the first tick after a drop is always immediately due, since
+// ReconnectAttemptDue(elapsed, interval) sees an elapsed time far past any
+// real interval. HandleSTOCPacketLanAsync re-arms it to "now" the instant
+// the overlay opens, so in practice the very first retry still waits one
+// full interval, same cadence as every later one.
+std::chrono::steady_clock::time_point DuelClient::last_reconnect_attempt{};
 
 void DuelClient::JoinFromDiscord() {
 	const auto& secret = mainGame->dInfo.secret;
@@ -164,6 +171,30 @@ void DuelClient::JoinFromDeepLink(const std::string& uri) {
 #undef HIDE_AND_CHECK
 }
 
+void DuelClient::TournamentReconnectTick() {
+	// A retry is already in flight, or the OLD connection's network thread
+	// hasn't finished tearing down yet (ClientThread() joins parsing_thread
+	// and only then zeroes connect_state) — StartClient() itself would
+	// refuse to start a second one anyway (its very first check), but
+	// bailing here also skips touching last_reconnect_attempt on a tick
+	// that could not have attempted anything.
+	if(connect_state)
+		return;
+	static constexpr uint32_t kReconnectIntervalMs = 2000;
+	const auto now = std::chrono::steady_clock::now();
+	const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_reconnect_attempt).count();
+	if(!tournament_mode::ReconnectAttemptDue(elapsedMs < 0 ? 0 : static_cast<uint32_t>(elapsedMs), kReconnectIntervalMs))
+		return;
+	last_reconnect_attempt = now;
+	StartClient(mainGame->dInfo.secret.host.address, mainGame->dInfo.secret.host.port, /*gameid=*/0, /*create_game=*/false);
+	// StartClient() unconditionally resets both flags (same place it
+	// resets isCatchingUp) so they can never leak into a connection this
+	// function didn't ask for — restore them immediately after, same
+	// ordering JoinFromDeepLink() already uses for isTournamentRoom.
+	mainGame->dInfo.isTournamentRoom = true;
+	mainGame->dInfo.isAwaitingReconnect = true;
+}
+
 bool DuelClient::StartClient(const epro::Address& ip, uint16_t port, uint32_t gameid, bool create_game) {
 	if(connect_state)
 		return false;
@@ -214,6 +245,14 @@ bool DuelClient::StartClient(const epro::Address& ip, uint16_t port, uint32_t ga
 	// is connected to next — JoinFromDeepLink() is the only place that sets
 	// it back to true, and only after this call returns successfully.
 	mainGame->dInfo.isTournamentRoom = false;
+	// FASE 76b: same reasoning, same ordering — DuelClient::
+	// TournamentReconnectTick() is the only place that sets this back to
+	// true, and only after THIS call returns. Without this reset, an
+	// uninitialized DuelInfo::isAwaitingReconnect (the struct has no
+	// constructor) could read as garbage-true on a process's very first
+	// connection and have ClientField::OnEvent swallow every input in an
+	// ordinary, non-tournament duel.
+	mainGame->dInfo.isAwaitingReconnect = false;
 	mainGame->frameSignal.SetNoWait(true);
 	if(client_thread.joinable())
 		client_thread.join();
@@ -226,6 +265,17 @@ bool DuelClient::StartClient(const epro::Address& ip, uint16_t port, uint32_t ga
 void DuelClient::ConnectTimeout([[maybe_unused]] evutil_socket_t fd, [[maybe_unused]] short events, [[maybe_unused]] void* arg) {
 	if(connect_state & 0x7)
 		return;
+	if(mainGame->dInfo.isAwaitingReconnect) {
+		// FASE 76b: this reconnect ATTEMPT's own TCP connect simply timed
+		// out (still no network) -- "not yet due", not "given up". The
+		// overlay stays up and the duel session stays exactly as it is;
+		// the next Game::MainLoop tick (DuelClient::TournamentReconnectTick)
+		// retries once its interval is due. Never the lobby-ish cleanup
+		// below (wLanWindow/wRoomListPlaceholder, sysstring 1400), which
+		// would wrongly abandon a match still in progress mid-duel.
+		event_base_loopbreak(client_base);
+		return;
+	}
 	if(!is_closing) {
 		temp_ver = 0;
 		std::lock_guard<epro::mutex> lock(mainGame->gMutex);
@@ -496,6 +546,25 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 				else mainGame->PopupMessage(gDataManager->GetSysString(1402));
 				if(mainGame->OnlineGateClosed())
 					mainGame->ShowOnlineGateWarning();
+			} else if(tournament_mode::ReconnectShouldActivate(mainGame->dInfo.isTournamentRoom, mainGame->dInfo.isInDuel)) {
+				// FASE 76b, design/server-duelli.md §13.6 punto 5: a
+				// tournament-room connection loss mid-duel does NOT end the
+				// duel the way the plain `else` below does. Nothing here
+				// touches dField, lp, isInDuel, the event receiver, or any
+				// other duel-in-progress state — the last known board stays
+				// on screen, under the overlay. DuelClient::
+				// TournamentReconnectTick(), called every frame from
+				// Game::MainLoop while isAwaitingReconnect is true, is what
+				// tries StartClient() again; a successful rejoin's
+				// STOC_CATCHUP(false) (case STOC_CATCHUP below) is what
+				// clears this and hides the overlay — same catch-up signal
+				// already relied on for a spectator joining mid-duel, not a
+				// new mechanism.
+				std::lock_guard<epro::mutex> lock(mainGame->gMutex);
+				mainGame->dInfo.isAwaitingReconnect = true;
+				mainGame->stReconnecting->setText(gDataManager->GetSysString(1397).data());
+				mainGame->wReconnecting->setVisible(true);
+				DuelClient::last_reconnect_attempt = std::chrono::steady_clock::now();
 			} else {
 				gSoundManager->StopSounds();
 				if(mainGame->dInfo.isStarted) {
@@ -549,6 +618,54 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 		case ERROR_TYPE::JOINERROR: {
 			auto pkt = BufferIO::getStruct<JoinError>(pdata, len);
 			temp_ver = 0;
+			if(mainGame->dInfo.isAwaitingReconnect && tournament_mode::ReconnectGivesUp(true)) {
+				// FASE 76b, design/server-duelli.md §13.6 punto 5: "un
+				// messaggio chiaro se il server risponde che il tavolo per
+				// lui e' chiuso" — any JoinError variant on a reconnect
+				// ATTEMPT is exactly that (gframe/tournament_mode.h's
+				// ReconnectGivesUp: the identical CTOS_JOIN_GAME, same
+				// password and name, was just refused). This finishes, now,
+				// the cleanup the connection-loss handler deliberately
+				// deferred (HandleSTOCPacketLanAsync's
+				// INTERNAL_HANDLE_CONNECTION_END, ReconnectShouldActivate
+				// branch) instead of falling into the generic isHostingOnline
+				// branch below, which assumes a pre-duel lobby, not a match
+				// in progress. ReplayPrompt() takes mainGame->gMutex itself —
+				// must run BEFORE this function's own lock below, same
+				// ordering the non-tournament mid-duel cleanup already uses.
+				gSoundManager->StopSounds();
+				if(mainGame->dInfo.isStarted)
+					ReplayPrompt(true);
+				std::lock_guard<epro::mutex> lock(mainGame->gMutex);
+				mainGame->dInfo.isAwaitingReconnect = false;
+				mainGame->wReconnecting->setVisible(false);
+				mainGame->PopupMessage(gDataManager->GetSysString(1398));
+				mainGame->btnCreateHost->setEnabled(mainGame->IsGameDataReady());
+				mainGame->btnJoinHost->setEnabled(true);
+				mainGame->btnJoinCancel->setEnabled(true);
+				mainGame->stTip->setVisible(false);
+				mainGame->stHintMsg->setVisible(false);
+				mainGame->dInfo.checkRematch = false;
+				mainGame->dInfo.isInDuel = false;
+				mainGame->dInfo.isStarted = false;
+				mainGame->dField.Clear();
+				mainGame->is_building = false;
+				mainGame->device->setEventReceiver(&mainGame->menuHandler);
+				mainGame->wChat->setVisible(false);
+				if(mainGame->OnlineGateClosed()) {
+					mainGame->ShowElement(mainGame->wMainMenu);
+				} else if(mainGame->isHostingOnline) {
+					mainGame->ShowElement(mainGame->wRoomListPlaceholder);
+				} else {
+					mainGame->ShowElement(mainGame->wLanWindow);
+				}
+				mainGame->SetMessageWindow();
+				if(mainGame->OnlineGateClosed())
+					mainGame->ShowOnlineGateWarning();
+				connect_state |= 0x100;
+				event_base_loopbreak(client_base);
+				break;
+			}
 			std::lock_guard<epro::mutex> lock(mainGame->gMutex);
 			if(mainGame->isHostingOnline) {
 #define HIDE_AND_CHECK(obj) if(obj->isVisible()) mainGame->HideElement(obj);
@@ -1348,6 +1465,16 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 		if(!mainGame->dInfo.isCatchingUp) {
 			std::lock_guard<epro::mutex> lock(mainGame->gMutex);
 			mainGame->dField.RefreshAllCards();
+			// FASE 76b, design/server-duelli.md §13.6 punto 5: "caught up
+			// to live" is also "successfully reconnected" for a tournament
+			// room awaiting one — the server only ever frames a reconnect's
+			// replayed cache in MakeCatchUp(true)/(false) (same as the
+			// spectator-joining-mid-duel path this signal already serves),
+			// so there is no separate "you're back" message to listen for.
+			if(mainGame->dInfo.isAwaitingReconnect) {
+				mainGame->dInfo.isAwaitingReconnect = false;
+				mainGame->wReconnecting->setVisible(false);
+			}
 		}
 		break;
 	}

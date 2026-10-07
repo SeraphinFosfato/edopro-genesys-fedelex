@@ -99,6 +99,20 @@ struct DuelInfo {
 	// MSG_SELECT_CHAIN), never changes what the server accepts as a
 	// response.
 	bool isTournamentRoom;
+	// FASE 76b, design/server-duelli.md §13.6 punto 5: true from the
+	// moment a tournament-room connection is lost mid-duel (gframe/
+	// duelclient.cpp's INTERNAL_HANDLE_CONNECTION_END handling) until the
+	// client either rejoins (STOC_CATCHUP's "false" arrives — the same
+	// signal already used for a spectator catching up to a live duel) or
+	// gets an explicit JOINERROR that means this seat's table is closed
+	// for good. Drives the blocking overlay (wReconnecting), gates
+	// DuelClient::TournamentReconnectTick() (called every frame from
+	// Game::MainLoop while this is true), and — through gframe/
+	// tournament_mode.h's ReconnectBlocksInput — makes
+	// ClientField::OnEvent swallow every keyboard/mouse event. Never true
+	// outside a tournament room: nothing sets it unless isTournamentRoom
+	// was already true at the moment of the drop.
+	bool isAwaitingReconnect;
 	bool isSingleMode;
 	bool isHandTest;
 	bool compat_mode;
@@ -479,6 +493,13 @@ struct game_field_elements {
 	irr::gui::IGUIStaticText* stQMessage;
 	irr::gui::IGUIButton* btnYes;
 	irr::gui::IGUIButton* btnNo;
+	// FASE 76b, design/server-duelli.md §13.6 punto 5: the blocking
+	// "reconnecting" overlay for a tournament room, no buttons, not
+	// draggable, close button hidden -- same shape as wACMessage, which it
+	// sits on top of instead of reusing (wACMessage is itself driven by
+	// unrelated events, e.g. Discord's own connect/disconnect notice).
+	irr::gui::IGUIWindow* wReconnecting;
+	irr::gui::IGUIStaticText* stReconnecting;
 	//options
 	irr::gui::IGUIWindow* wOptions;
 	irr::gui::IGUIStaticText* stOptions;

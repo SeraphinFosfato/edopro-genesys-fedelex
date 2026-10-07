@@ -7,6 +7,7 @@
 #include <set>
 #include <atomic>
 #include <string>
+#include <chrono>
 #include "epro_thread.h"
 #include "epro_mutex.h"
 #include "epro_condition_variable.h"
@@ -52,6 +53,13 @@ private:
 	static epro::thread parsing_thread;
 	static epro::thread client_thread;
 	static epro::condition_variable cv;
+	// FASE 76b: when DuelClient::TournamentReconnectTick() (called every
+	// frame from Game::MainLoop, see game.cpp) last fired a StartClient()
+	// retry. Armed from HandleSTOCPacketLanAsync (the async parser thread)
+	// and read/written from the main thread thereafter — same
+	// cross-thread, no-dedicated-lock pattern already accepted for
+	// try_needed/temp_ip/temp_port above, not a new category of risk.
+	static std::chrono::steady_clock::time_point last_reconnect_attempt;
 public:
 	static RNG::mt19937 rnd;
 	static epro::Address temp_ip;
@@ -75,6 +83,16 @@ public:
 	// before connecting (StartClient()'s CTOS_PLAYER_INFO sends whatever
 	// ebNickName holds).
 	static void JoinFromDeepLink(const std::string& uri);
+	// FASE 76b, design/server-duelli.md §13.6 punto 5: called every frame
+	// from Game::MainLoop while mainGame->dInfo.isAwaitingReconnect is
+	// true. Cheap when there is nothing to do (gframe/tournament_mode.h's
+	// ReconnectAttemptDue is a plain comparison), same "every frame is
+	// fine" discipline as RefreshOnlineGate(). Reuses StartClient() itself
+	// — same JOIN_GAME (gameid 0) path JoinFromDeepLink() already drives,
+	// with the same host/port/password/name it never discarded
+	// (dInfo.secret, already set and untouched since the original join —
+	// nothing here is written to disk, the process never stopped running).
+	static void TournamentReconnectTick();
 	static bool StartClient(const epro::Address& ip, uint16_t port, uint32_t gameid = 0, bool create_game = true);
 	static void ConnectTimeout(evutil_socket_t fd, short events, void* arg);
 	static void StopClient(bool is_exiting = false);
