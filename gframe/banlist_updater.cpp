@@ -107,7 +107,9 @@ void BanlistUpdater::CheckTask() {
 	   !Fetch(base_url + "banlist.json.sig", signature)) {
 		// An unreachable endpoint is a normal Tuesday (§3, §5): keep the
 		// active list, raise no alarm at the player. Nothing is written to
-		// disk on a failed fetch.
+		// disk on a failed fetch. Fetch() itself already logged which URL
+		// and why (FASE 80, D-69) — this branch stays silent towards the
+		// player by design, only the log gets the detail.
 		failed = true;
 		return;
 	}
@@ -143,6 +145,12 @@ void BanlistUpdater::CheckTask() {
 
 	if(!AtomicWrite(JoinPath(STAGED_FOLDER, PAYLOAD_NAME), document) ||
 	   !AtomicWrite(JoinPath(STAGED_FOLDER, SIGNATURE_NAME), signature)) {
+		// Verified in memory but the write to .staged/ failed (disk full,
+		// permissions, path gone): the active list is untouched, but this is
+		// the one disk-write failure in the whole fetch path that had no
+		// trace at all before FASE 80 (D-69).
+		ErrorLog("Banlist update verified but failed to write to {}, keeping the active list",
+				 Utils::ToUTF8IfNeeded(STAGED_FOLDER));
 		failed = true;
 		return;
 	}
@@ -229,8 +237,10 @@ bool BanlistUpdater::PromoteStaged() {
 	// crash at any point leaves staged intact" true by construction: nothing
 	// here mutates or moves the staged pair, only reads it, until the
 	// explicit delete at the very end.
-	if(!AtomicWrite(active_payload_path, document) || !AtomicWrite(active_signature_path, signature))
+	if(!AtomicWrite(active_payload_path, document) || !AtomicWrite(active_signature_path, signature)) {
+		ErrorLog("Banlist promotion failed: could not write the active pair to disk, staged copy left in place");
 		return false;
+	}
 
 	// Re-verify the pair that is now active from a fresh read of the bytes
 	// actually on disk — not a reuse of the verification a moment ago on the
@@ -238,11 +248,15 @@ bool BanlistUpdater::PromoteStaged() {
 	// crash-safety argument: staged is deleted only once it passes.
 	std::string active_document, active_signature;
 	if(!ReadFileToString(active_payload_path, active_document) ||
-	   !ReadFileToString(active_signature_path, active_signature))
+	   !ReadFileToString(active_signature_path, active_signature)) {
+		ErrorLog("Banlist promotion failed: could not read back the active pair just written, staged copy left in place");
 		return false;
+	}
 	banlist::Payload reverified;
-	if(banlist::VerifyAndParse(active_document, active_signature, reverified, error) != banlist::VerifyStatus::Ok)
+	if(banlist::VerifyAndParse(active_document, active_signature, reverified, error) != banlist::VerifyStatus::Ok) {
+		ErrorLog("Banlist promotion failed: active pair did not re-verify after write, staged copy left in place: {}", error);
 		return false;
+	}
 
 	Utils::FileDelete(staged_payload_path);
 	Utils::FileDelete(staged_signature_path);
@@ -360,14 +374,25 @@ bool BanlistUpdater::Fetch(const std::string& url, std::string& out) {
 	ApplyCurlCertificateConfig(curl_handle, gGameConfig->ssl_certificate_path,
 								Utils::FileExists(Utils::ToPathString(gGameConfig->ssl_certificate_path)));
 	auto res = curl_easy_perform(curl_handle);
+	long http_code = 0;
+	curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &http_code);
 	curl_easy_cleanup(curl_handle);
 	if(buffer.too_large) {
+		ErrorLog("Banlist fetch rejected: {} exceeded the size cap", url);
 		out.clear();
 		return false;
 	}
 	if(res != CURLE_OK) {
-		if(gGameConfig->logDownloadErrors)
-			ErrorLog("Banlist fetch curl error: ({}) {} ({})", res, curl_easy_strerror(res), error_buffer);
+		// Unconditional, unlike the general "log download errors" setting
+		// (opt-in, default off — meant for noisy per-asset downloads such as
+		// card images). This is a once-per-session check whose silence left
+		// a failed update undiagnosable (FASE 80, D-69): the url is always
+		// named, since the same failure here can come from either of the two
+		// files CheckTask fetches (payload or signature).
+		if(res == CURLE_HTTP_RETURNED_ERROR)
+			ErrorLog("Banlist fetch failed: {} returned HTTP {}", url, http_code);
+		else
+			ErrorLog("Banlist fetch failed: {} ({}) {} ({})", url, res, curl_easy_strerror(res), error_buffer);
 		out.clear();
 		return false;
 	}
