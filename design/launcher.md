@@ -572,6 +572,130 @@ stato di questa fase. Il ramo Windows e' verificato solo dalla CI
 (`build-windows` success): nessuna esecuzione su un Windows vero, stesso
 limite gia' registrato per FASE 75 (P-39).
 
+## Stato dell'implementazione (FASE 76b)
+
+**Scritto il 2026-10-07 (Sonnet).** D251, design/server-duelli.md §13.6
+punto 5. Worktree separato `~/Progetti/edopro-fase-76b`, ramo `fase-76b`
+creato da `fase-75b` (invariato), pushato su `origin/fase-76b`. Il
+worktree principale (`EdoproForkGSY/edopro_custom`, restato su `fase-75b`)
+non e' stato toccato, come richiesto. Il server della FASE 76a era ancora
+in lavorazione da un'altra sessione (worktree
+`~/Progetti/multirole-fedelex-76`, ramo `fase-76`) mentre questa fase
+procedeva: letto, mai modificato — vedi sotto per cosa quella lettura ha
+confermato.
+
+**Cosa implementato, tutto dietro `dInfo.isTournamentRoom`** (fuori torneo
+nessun ramo nuovo entra mai, byte per byte come oggi):
+
+- `gframe/tournament_mode.h/.cpp`: quattro funzioni pure nuove —
+  `ReconnectShouldActivate` (una caduta apre l'overlay invece della
+  pulizia di oggi solo se `isTournamentRoom && isInDuel`),
+  `ReconnectAttemptDue` (cadenza dei tentativi, 2000ms — scelta
+  dell'implementazione, non un numero che D251 ha deciso),
+  `ReconnectGivesUp` (qualunque `JOINERROR` esplicito su un tentativo di
+  rientro significa arrendersi: la stessa identica `CTOS_JOIN_GAME` e'
+  gia' stata rifiutata una volta), `ReconnectBlocksInput` (il punto unico
+  da cui dipende il blocco di tastiera e mouse). 10 nuovi test in
+  `tests/tournament_mode_tests.cpp` (33 totali nel file, 0 fallimenti).
+- `gframe/duelclient.cpp`, `HandleSTOCPacketLanAsync`'s
+  `INTERNAL_HANDLE_CONNECTION_END`: una caduta mid-duello/mid-match in
+  torneo non tocca piu' `dField`, `lp`, `isInDuel` o il ricevitore eventi
+  — apre solo l'overlay bloccante (`wReconnecting`, nuova finestra in
+  `game.h`/`game.cpp`, stesso stampo di `wQuery` ma senza bottoni) e arma
+  `DuelClient::last_reconnect_attempt`.
+- `DuelClient::TournamentReconnectTick()`, chiamata ogni frame da
+  `Game::MainLoop` mentre `isAwaitingReconnect` e' vero (stesso schema
+  gia' in uso per `DuelClient::try_needed`, poche righe sopra nello
+  stesso loop): ritenta `StartClient()` con host/porta/password/nome
+  **mai scritti su disco** — restano in memoria in `dInfo.secret`/
+  `ebNickName` dal `JoinFromDeepLink` originale (FASE 75), perche' il
+  processo non si e' mai fermato: e' solo la rete che e' caduta. Stesso
+  meccanismo che `JoinFromDiscord` usa gia' per lo stesso scopo.
+- Il segnale di rientro riuscito e' `STOC_CATCHUP(false)`: **e' lo stesso
+  meccanismo gia' usato per uno spettatore che si unisce a meta' duello**
+  (`isCatchingUp`, usato in tutto `duelclient.cpp` da prima di questa
+  fase), non uno nuovo — verificato leggendo
+  `src/Multirole/Room/State/Dueling.cpp` della FASE 76a
+  (`~/Progetti/multirole-fedelex-76`, commit `5f7cd93`): il server
+  incornicia il replay della cache per-posto in
+  `MakeCatchUp(true)/(false)` esattamente come gia' fa per il percorso
+  spettatore nella stessa funzione. La posizione del giocatore
+  (`selftype`/`dInfo.player_type`) non ha bisogno di un nuovo
+  `STOC_TYPE_CHANGE` dal server (che infatti il codice letto non manda
+  mai durante un `Event::Reconnect`): non viene mai azzerata da una
+  caduta ne' da `StartClient()`, quindi al rientro vale ancora quella di
+  prima del drop — **punto di risalita del brief risolto per
+  costruzione**, non aggirato (stesso stile di FASE 75 coi suoi due
+  rischi).
+- `ReplayPrompt()`/`ERROR_TYPE::JOINERROR`: un `JOINERROR` esplicito
+  ricevuto mentre si attende un rientro chiude per davvero il duello
+  (sysstring 1398, "Non e' stato possibile rientrare: il tavolo non e'
+  piu' disponibile per te"), eseguendo solo ora la pulizia rimandata alla
+  caduta — `ReplayPrompt()` prende `gMutex` da solo, quindi nel nuovo ramo
+  gira PRIMA del `lock_guard`, mai dentro (un errore di questo tipo
+  sarebbe stato un deadlock silenzioso al primo utilizzo, trovato leggendo
+  il codice prima di scriverlo, non in fase di test).
+- `ConnectTimeout`: un tentativo di rientro il cui connect scade (5s,
+  nessuna risposta) non deve piu' mostrare la pulizia da lobby (sysstring
+  1400) ne' abbandonare il match in corso — resta in attesa del prossimo
+  tick. Trovato leggendo il codice per capire ogni percorso che un
+  tentativo di `StartClient()` puo' imboccare, non durante la scrittura:
+  senza questa guardia, un semplice timeout di rete durante UN tentativo
+  di rientro avrebbe chiuso la partita al posto di aspettare il
+  prossimo giro.
+- `gframe/event_handler.cpp`, `ClientField::OnEvent`: un'unica guardia in
+  testa (`tournament_mode::ReconnectBlocksInput`) inghiotte ogni evento di
+  tastiera e mouse mentre si rientra — e' il ricevitore eventi unico per
+  tutta la durata di un duello (`STOC_DUEL_START` lo imposta), quindi una
+  guardia sola copre click sulle carte, bottoni e scorciatoie.
+- `strings/fedelex.conf`: due sysstring nuove (1397, 1398), in **italiano**
+  a differenza di 1395/1396 (inglese, FASE 75b) — questa volta il testo
+  e' quotato alla lettera nel brief e nel documento di design, non una
+  scelta libera di traduzione, e coerente con le stringhe di chat che il
+  server della FASE 76a manda gia' in italiano per lo stesso evento
+  (`I18N.cpp`, `CLIENT_ROOM_FEDELEX_DISCONNECTED`/`RECONNECTED`).
+
+**Build e test.** `./premake5 --file=tests/premake5.lua gmake2 && make -C
+tests/build config=release && ./bin/banlist_tests` → verde,
+`tournament_mode_tests: 33 checks, 0 failures` (gli altri 2 fallimenti
+preesistenti di `banlist_tests` sono una fixture mancante,
+`runtime/repositories/lflists/OCG.lflist.conf`, non versionata — non
+toccati da questa fase). Build Linux completa pulita da zero (rimosso
+`obj/x64/Release/ygoprodll` e ricompilato):
+`./premake5 gmake2 --no-core=true --sound=sfml --no-joystick=true
+--irrlicht-root=../irrlicht-custom && make -C build config=release_x64
+ygoprodll fedelex-launcher` → nessun warning nuovo (confrontati i file
+toccati uno per uno: ogni warning rimasto e' la stessa deprecazione
+preesistente di `fmt::sprintf` gia' nota dalle fasi precedenti, nessuno
+sulle righe aggiunte qui). `python3 banlist/scripts/controlla_documenti.py`
+dalla radice del vault: verde (75 asserzioni) — verifica solo lo stato del
+worktree principale (`fase-75b`), non ancora di questo ramo, perche'
+nessuna asserzione nuova e' stata aggiunta in questa fase.
+
+**CI del fork sul ramo `fase-76b`**: verde, run
+[37610570993](https://github.com/SeraphinFosfato/edopro-genesys-fedelex/actions/runs/37610570993)
+— `Test (banlist_tests)` success, `Manifesto artefatti (D218)` success,
+`build-windows` success, `Build Linux (client)` skipped (stesso pattern
+delle fasi precedenti, non una regressione).
+
+**Resta non verificato, honestamente**: nessun rientro reale contro il
+server della FASE 76a (worktree `~/Progetti/multirole-fedelex-76`,
+ancora senza un cancello dal vivo passato quando questa fase e' arrivata
+qui — nessun container di prova gia' acceso, costruirne uno avrebbe
+superato lo scope di una fase client, niente `DISPLAY` reale consentito
+per un client grafico comunque). Verificato invece, con la stessa onesta'
+di FASE 75/75b: lettura diretta del sorgente server (non supposizione) per
+capire cosa manda davvero al rientro, lettura del meccanismo client
+esistente (`isCatchingUp`) che gia' fa lo stesso lavoro per uno spettatore,
+compilazione pulita, suite di test verde. **Un caso limite dichiarato, non
+risolto**: se il tentativo di rientro arriva mentre la finestra lato
+server e' GIA' scaduta per una corsa (il server allora fa cadere il
+client su `SetupAsSpectator`, stesso `STOC_CATCHUP` usato per un successo
+vero — letto in `Dueling.cpp`), il client qui smette silenziosamente di
+aspettare e mostra il duello come spettatore, senza un messaggio dedicato
+che distingua questo caso da un rientro riuscito. E' un caso limite di una
+corsa, non il percorso principale: P-42 in `SOSPESI.md` lo tiene aperto.
+
 ---
 
 ## 1. Il problema, in una riga
