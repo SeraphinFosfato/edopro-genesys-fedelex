@@ -70,6 +70,55 @@ int ZoneMenuFlags(bool isTournamentRoom, bool pileNonEmpty, int flagsOutsideTour
 // exactly as visible as it is today, D252's own carve-out.
 bool EffectYNIsConcealed(bool isTournamentRoom, bool inChainResolution);
 
+// FASE 76b, design/server-duelli.md §13.6 punto 5: once a tournament-room
+// connection drops mid-duel (duel proper, side deck, rock-paper-scissors —
+// every state the server's own reconnect window covers, §13.6 punto 2), the
+// client opens a blocking overlay and tries to rejoin on its own instead of
+// ending the duel the way a drop does today. The four functions below are
+// every yes/no DECISION that flow needs; gframe/duelclient.cpp (the
+// connection-lost handler, the per-frame retry tick in Game::MainLoop, the
+// STOC_CATCHUP and JOINERROR handlers, and ClientField::OnEvent) only calls
+// these and acts — same split as the rest of this file.
+
+// Does a connection loss, right now, open the blocking overlay instead of
+// today's "duel ended" cleanup? False outside a tournament room, and false
+// for a loss that happens anywhere other than mid-duel/mid-match (the lobby,
+// deck building outside a duel, a replay...) — those keep doing exactly what
+// they do today. "isInDuel" is the same flag gframe/duelclient.cpp already
+// uses to tell the two apart (DuelInfo::isInDuel stays true across side
+// decking and rock-paper-scissors between games of a match, only going
+// false at true DUEL_END or at today's disconnect cleanup).
+bool ReconnectShouldActivate(bool isTournamentRoom, bool isInDuel);
+
+// Is it time for gframe/duelclient.cpp's per-frame tick to fire another
+// StartClient() attempt? A plain cadence gate on the caller's own clock —
+// nothing here reads real time. `intervalMs` is an implementation choice
+// (FASE 76b picks 2000 in duelclient.cpp), not a number D251 or the server
+// decided: same footing as FASE 64's 1500ms startup probe (CLAUDE.md §6.6,
+// "i valori che si decidono guardando il risultato... li decide chi
+// implementa, con mano libera dentro il criterio").
+bool ReconnectAttemptDue(uint32_t msSinceLastAttempt, uint32_t intervalMs);
+
+// Does an explicit rejection of a reconnect ATTEMPT mean giving up for
+// good, rather than waiting for the next tick to try again? Always true:
+// every STOC_ERROR_MSG/JOINERROR the server can send (JERR_REFUSED/
+// JERR_PASSWORD/JERR_UNABLE) means the exact same CTOS_JOIN_GAME — same
+// password, same name, gframe/duelclient.cpp never varies it between
+// attempts — was just rejected, and repeating an unchanged request against
+// an unchanged table can only repeat the same answer. A named function
+// (not an inlined "true" at the call site) so this policy lives in one
+// place: if a future server version ever needs a transient-vs-final
+// distinction among JoinError variants, only this function's body and its
+// test change, not every call site.
+bool ReconnectGivesUp(bool receivedExplicitJoinError);
+
+// Should this input event (any keyboard or mouse event, whatever widget it
+// would otherwise reach) be swallowed outright? True exactly while a
+// tournament-room reconnect is in progress — design/server-duelli.md §13.6
+// punto 5 is explicit that the overlay is blocking, not advisory ("NON
+// chiudere il simulatore", "nessun altro comando accettato").
+bool ReconnectBlocksInput(bool isAwaitingReconnect);
+
 }
 
 #endif //TOURNAMENT_MODE_H

@@ -156,6 +156,64 @@ void test_tournament_effectyn_is_not_concealed_during_resolution() {
 		 "D252 point 4's own carve-out: 'durante la risoluzione... resta com'e' oggi' -- a sub-choice mid-resolution keeps naming the card");
 }
 
+// --- ReconnectShouldActivate (FASE 76b, §13.6 punto 5) ---------------
+
+void test_outside_tournament_reconnect_never_activates() {
+	check(!ReconnectShouldActivate(false, true),
+		 "outside a tournament room, a connection loss mid-duel must keep doing exactly what it does today (cancello 'fuori dal torneo nulla cambia')");
+}
+
+void test_tournament_reconnect_activates_mid_duel() {
+	check(ReconnectShouldActivate(true, true),
+		 "in a tournament room, a connection loss while isInDuel opens the blocking overlay instead of ending the duel");
+}
+
+void test_tournament_reconnect_does_not_activate_outside_duel() {
+	check(!ReconnectShouldActivate(true, false),
+		 "a tournament room's lobby/pre-duel connection loss is not covered by the reconnect window (§13.6 punto 2 starts only 'dopo l'inizio del primo duello') -- today's cleanup still applies");
+}
+
+// --- ReconnectAttemptDue ----------------------------------------------
+
+void test_reconnect_attempt_not_due_before_interval() {
+	check(!ReconnectAttemptDue(1999, 2000),
+		 "one millisecond short of the interval is not yet due");
+}
+
+void test_reconnect_attempt_due_exactly_at_interval() {
+	check(ReconnectAttemptDue(2000, 2000),
+		 "exactly at the interval, due (so a caller ticking every frame never waits a whole extra frame past the boundary)");
+}
+
+void test_reconnect_attempt_due_well_past_interval() {
+	check(ReconnectAttemptDue(50000, 2000),
+		 "a long gap since the last attempt (e.g. the main thread was itself stalled) is still simply 'due', never a missed/skipped state");
+}
+
+// --- ReconnectGivesUp ---------------------------------------------------
+
+void test_reconnect_no_error_does_not_give_up() {
+	check(!ReconnectGivesUp(false),
+		 "no explicit JOINERROR yet -- keep retrying, not given up");
+}
+
+void test_reconnect_explicit_join_error_gives_up() {
+	check(ReconnectGivesUp(true),
+		 "any explicit JOINERROR on a reconnect attempt means the identical CTOS_JOIN_GAME was just rejected -- give up for good, don't loop");
+}
+
+// --- ReconnectBlocksInput -----------------------------------------------
+
+void test_reconnect_inactive_does_not_block_input() {
+	check(!ReconnectBlocksInput(false),
+		 "not awaiting a reconnect -- input flows normally, same as any other moment outside this feature");
+}
+
+void test_reconnect_active_blocks_input() {
+	check(ReconnectBlocksInput(true),
+		 "design/server-duelli.md §13.6 punto 5: 'nessun altro comando accettato' while the overlay is up");
+}
+
 }
 
 int RunTournamentModeTests() {
@@ -184,6 +242,20 @@ int RunTournamentModeTests() {
 	test_outside_tournament_effectyn_is_never_concealed();
 	test_tournament_effectyn_is_concealed_outside_resolution();
 	test_tournament_effectyn_is_not_concealed_during_resolution();
+
+	test_outside_tournament_reconnect_never_activates();
+	test_tournament_reconnect_activates_mid_duel();
+	test_tournament_reconnect_does_not_activate_outside_duel();
+
+	test_reconnect_attempt_not_due_before_interval();
+	test_reconnect_attempt_due_exactly_at_interval();
+	test_reconnect_attempt_due_well_past_interval();
+
+	test_reconnect_no_error_does_not_give_up();
+	test_reconnect_explicit_join_error_gives_up();
+
+	test_reconnect_inactive_does_not_block_input();
+	test_reconnect_active_blocks_input();
 
 	std::printf("tournament_mode_tests: %d checks, %d failures\n", checks, failures);
 	return failures == 0 ? 0 : 1;

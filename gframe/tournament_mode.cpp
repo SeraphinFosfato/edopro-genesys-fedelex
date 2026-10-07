@@ -28,4 +28,20 @@ bool EffectYNIsConcealed(bool isTournamentRoom, bool inChainResolution) {
 	return isTournamentRoom && !inChainResolution;
 }
 
+bool ReconnectShouldActivate(bool isTournamentRoom, bool isInDuel) {
+	return isTournamentRoom && isInDuel;
+}
+
+bool ReconnectAttemptDue(uint32_t msSinceLastAttempt, uint32_t intervalMs) {
+	return msSinceLastAttempt >= intervalMs;
+}
+
+bool ReconnectGivesUp(bool receivedExplicitJoinError) {
+	return receivedExplicitJoinError;
+}
+
+bool ReconnectBlocksInput(bool isAwaitingReconnect) {
+	return isAwaitingReconnect;
+}
+
 }
