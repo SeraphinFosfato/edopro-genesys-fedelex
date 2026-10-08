@@ -167,6 +167,9 @@ jobs:
       - name: Verifica che il core non sia collegato dentro
         shell: pwsh
         run: python tools/release/verify_core_not_linked.py bin/release/ygoprodll.exe
+      - name: Verifica LARGEADDRESSAWARE
+        shell: pwsh
+        run: python -c "import struct,sys; d=open('bin/release/ygoprodll.exe','rb').read(); o=struct.unpack_from('<I',d,0x3c)[0]; c=struct.unpack_from('<H',d,o+22)[0]; print('Characteristics=%#x' % c); sys.exit(0 if c & 0x20 else 1)"
       - name: Il launcher esiste
         shell: pwsh
         run: if (-not (Test-Path bin/release/fedelex-launcher.exe)) { throw "fedelex-launcher.exe non prodotto" }
