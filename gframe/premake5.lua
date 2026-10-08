@@ -28,6 +28,16 @@ local ygopro_config=function(static_core)
 		enablewarnings "pedantic"
 	filter {}
 
+	-- 32-bit Windows client: 4 GB of address space on 64-bit Windows instead of 2 GB.
+	-- A deferral, not a cure for memory use.
+	filter { "system:windows", "platforms:Win32", "action:vs*" }
+		linkoptions { "/LARGEADDRESSAWARE" }
+	filter { "system:windows", "platforms:Win32", "action:not vs*" }
+		linkoptions { "-Wl,--large-address-aware" }
+	filter { "system:windows" }
+		links { "psapi" }
+	filter {}
+
 	filter {'files:**.rc', 'action:not vs*'}
 		buildmessage '%{file.relpath}'
 		buildoutputs { '%{cfg.objdir}/%{file.basename}_rc.o' }

@@ -21,6 +21,7 @@
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
+#include <psapi.h> // GetProcessMemoryInfo
 #endif //EDOPRO_WINDOWS
 
 #if EDOPRO_LINUX_KERNEL || EDOPRO_APPLE
@@ -110,6 +111,10 @@ void NameThread(const char* name, const wchar_t* wname) {
 // produced a wrong diagnosis on 2026-09-27. Every exit below logs its own
 // reason to error.log; this function never guesses at *why* the process
 // crashed, only at why the dump could not be written.
+// Loaded when the handler is installed, not inside the crash: with the address
+// space exhausted a LoadLibrary at crash time fails with error 8.
+static HMODULE preloadedDbgHelp = nullptr;
+
 LONG WINAPI crashDumpHandler(EXCEPTION_POINTERS* pExceptionInfo) {
 	using MiniDumpWriteDump_t = BOOL(WINAPI*) (HANDLE hProcess, DWORD ProcessId, HANDLE hFile, MINIDUMP_TYPE DumpType,
 											   PMINIDUMP_EXCEPTION_INFORMATION ExceptionParam,
@@ -118,6 +123,19 @@ LONG WINAPI crashDumpHandler(EXCEPTION_POINTERS* pExceptionInfo) {
 											   );
 	//This popup only says a dump is being attempted: 5 of the 6 exits below
 	//don't produce a file, so promising one here would be a lie in most crashes.
+	{
+		//Memory first, before anything that allocates: a value near 2 GB
+		//(4 GB with large-address-aware) points at memory exhaustion.
+		PROCESS_MEMORY_COUNTERS pmc{};
+		MEMORYSTATUSEX mem{};
+		mem.dwLength = sizeof(mem);
+		if(GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)) && GlobalMemoryStatusEx(&mem)) {
+			ygo::ErrorLog("Crash memory: PagefileUsage={} MB, PeakWorkingSet={} MB, AvailVirtual={} MB",
+						  (unsigned long long)(pmc.PagefileUsage >> 20), (unsigned long long)(pmc.PeakWorkingSetSize >> 20),
+						  (unsigned long long)(mem.ullAvailVirtual >> 20));
+		} else
+			ygo::ErrorLog("Crash memory: could not read counters, GetLastError={}", (unsigned long)GetLastError());
+	}
 	ygo::GUIUtils::ShowErrorWindow("Crash", "The program crashed, trying to write a crash dump...");
 
 	auto dumpDir = epro::path_string{ EPRO_TEXT("./crashdumps") };
@@ -143,7 +161,7 @@ LONG WINAPI crashDumpHandler(EXCEPTION_POINTERS* pExceptionInfo) {
 	MINIDUMP_EXCEPTION_INFORMATION ExInfo{ GetCurrentThreadId(), pExceptionInfo, FALSE };
 
 	/* Load the dbghelp.dll library and functions */
-	auto* dbgHelpDLL = LoadLibrary(EPRO_TEXT("dbghelp.dll"));
+	auto* dbgHelpDLL = preloadedDbgHelp ? preloadedDbgHelp : LoadLibrary(EPRO_TEXT("dbghelp.dll"));
 	if(dbgHelpDLL == nullptr) {
 		ygo::ErrorLog("Crash dump: LoadLibrary(\"dbghelp.dll\") failed, GetLastError={}", (unsigned long)GetLastError());
 		return EXCEPTION_CONTINUE_SEARCH;
@@ -153,7 +171,6 @@ LONG WINAPI crashDumpHandler(EXCEPTION_POINTERS* pExceptionInfo) {
 
 	if(miniDumpWriteDumpFn == nullptr) {
 		ygo::ErrorLog("Crash dump: dbghelp.dll does not export MiniDumpWriteDump (too old), GetLastError={}", (unsigned long)GetLastError());
-		FreeLibrary(dbgHelpDLL);
 		return EXCEPTION_CONTINUE_SEARCH;
 	}
 
@@ -180,7 +197,6 @@ LONG WINAPI crashDumpHandler(EXCEPTION_POINTERS* pExceptionInfo) {
 	if(dumpFile == INVALID_HANDLE_VALUE) {
 		ygo::ErrorLog("Crash dump: could not open \"{}\" for writing, GetLastError={}",
 					  ygo::Utils::ToUTF8IfNeeded(dumpPath), (unsigned long)GetLastError());
-		FreeLibrary(dbgHelpDLL);
 		return EXCEPTION_CONTINUE_SEARCH;
 	}
 
@@ -193,7 +209,6 @@ LONG WINAPI crashDumpHandler(EXCEPTION_POINTERS* pExceptionInfo) {
 	}
 
 	CloseHandle(dumpFile);
-	FreeLibrary(dbgHelpDLL);
 
 	return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -235,6 +250,7 @@ namespace ygo {
 
 	void Utils::SetupCrashDumpLogging() {
 #if EDOPRO_WINDOWS
+		preloadedDbgHelp = LoadLibrary(EPRO_TEXT("dbghelp.dll"));
 		SetUnhandledExceptionFilter(crashDumpHandler);
 #endif
 	}
