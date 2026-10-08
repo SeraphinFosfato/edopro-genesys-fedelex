@@ -206,6 +206,12 @@ jobs:
         shell: pwsh
         run: python tools/release/verify_core_not_linked.py bin/release/ygoprodll.exe
 
+      # FASE 81: il bit IMAGE_FILE_LARGE_ADDRESS_AWARE (0x20) del campo
+      # Characteristics del PE dev'essere acceso nell'eseguibile prodotto.
+      - name: Verifica LARGEADDRESSAWARE
+        shell: pwsh
+        run: python -c "import struct,sys; d=open('bin/release/ygoprodll.exe','rb').read(); o=struct.unpack_from('<I',d,0x3c)[0]; c=struct.unpack_from('<H',d,o+22)[0]; print('Characteristics=%#x' % c); sys.exit(0 if c & 0x20 else 1)"
+
       # D178: il percorso e' quello che premake produce davvero (bin/release/),
       # non bin/x86/release/ — che era scritto qui e nello script e non
       # corrispondeva a niente, perche' non ci si era mai arrivati.
