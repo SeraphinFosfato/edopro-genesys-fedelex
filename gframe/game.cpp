@@ -461,6 +461,19 @@ void Game::Initialize() {
 	defaultStrings.emplace_back(btnYes, 1213);
 	btnNo = env->addButton(Scale(200, 105, 250, 130), wQuery, BUTTON_NO, gDataManager->GetSysString(1214).data());
 	defaultStrings.emplace_back(btnNo, 1214);
+	// FASE 76b, design/server-duelli.md §13.6 punto 5: the blocking
+	// "reconnecting" overlay for a tournament room. No buttons -- the
+	// whole point is that the player has nothing to click; gframe/
+	// tournament_mode.h's ReconnectBlocksInput is what actually swallows
+	// input (ClientField::OnEvent), this window is only the visible half
+	// of the same decision.
+	wReconnecting = env->addWindow(Scale(490, 200, 840, 340), false, L"");
+	wReconnecting->getCloseButton()->setVisible(false);
+	wReconnecting->setDraggable(false);
+	wReconnecting->setVisible(false);
+	stReconnecting = irr::gui::CGUICustomText::addCustomText(L"", false, env, wReconnecting, -1, Scale(10, 20, 340, 120));
+	stReconnecting->setWordWrap(true);
+	stReconnecting->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
 	//options (310)
 	wOptions = env->addWindow(Scale(490, 200, 840, 340), false, L"");
 	wOptions->getCloseButton()->setVisible(false);
@@ -2532,6 +2545,13 @@ bool Game::MainLoop() {
 			DuelClient::try_needed = false;
 			DuelClient::StartClient(DuelClient::temp_ip, DuelClient::temp_port, dInfo.secret.game_id, false);
 		}
+		// FASE 76b, design/server-duelli.md §13.6 punto 5: cheap when
+		// there's nothing to do (gated on the flag, and
+		// TournamentReconnectTick() itself is a plain comparison when no
+		// attempt is due), same "every frame is fine" discipline as
+		// RefreshOnlineGate() above.
+		if(dInfo.isAwaitingReconnect)
+			DuelClient::TournamentReconnectTick();
 		{
 			std::lock_guard<epro::mutex> lk(popupCheck);
 			if(queued_msg.size()) {
@@ -4254,6 +4274,7 @@ void Game::OnResize() {
 	wFTSelect->setRelativePosition(ResizeWin(550, 240, 780, 340));
 	SetMessageWindow();
 	wQuery->setRelativePosition(ResizeWin(490, 200, 840, 340));
+	wReconnecting->setRelativePosition(ResizeWin(490, 200, 840, 340));
 	wOptions->setRelativePosition(ResizeWinFromCenter(0, 0, wOptions->getRelativePosition().getWidth(), wOptions->getRelativePosition().getHeight(), 135));
 	wPosSelect->setRelativePosition(ResizeWin(340, 200, 935, 410));
 	wCardSelect->setRelativePosition(ResizeWin(320, 100, 1000, 400));

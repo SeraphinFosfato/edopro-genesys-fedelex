@@ -31,6 +31,10 @@
 #include "fmt.h"
 #include "localtime.h"
 #include "room_list_notice.h"
+#include "server_lobby.h"
+#include "deep_link.h"
+#include "tournament_mode.h"
+#include "logging.h"
 
 #define DEFAULT_DUEL_RULE 5
 namespace ygo {
@@ -70,6 +74,13 @@ epro::Address DuelClient::temp_ip{};
 uint16_t DuelClient::temp_port = 0;
 uint16_t DuelClient::temp_ver = 0;
 bool DuelClient::try_needed = false;
+// FASE 76b: zero-valued steady_clock::time_point, i.e. "infinitely long
+// ago" — the first tick after a drop is always immediately due, since
+// ReconnectAttemptDue(elapsed, interval) sees an elapsed time far past any
+// real interval. HandleSTOCPacketLanAsync re-arms it to "now" the instant
+// the overlay opens, so in practice the very first retry still waits one
+// full interval, same cadence as every later one.
+std::chrono::steady_clock::time_point DuelClient::last_reconnect_attempt{};
 
 void DuelClient::JoinFromDiscord() {
 	const auto& secret = mainGame->dInfo.secret;
@@ -93,6 +104,95 @@ void DuelClient::JoinFromDiscord() {
 	HIDE_AND_CHECK(mainGame->wFileSave);
 	mainGame->device->setEventReceiver(&mainGame->menuHandler);
 #undef HIDE_AND_CHECK
+}
+
+void DuelClient::JoinFromDeepLink(const std::string& uri) {
+	// Same early-out as OnJoin()/JoinFromDiscord() in discord_wrapper.cpp:
+	// a link that arrives while we are already doing something (siding, in
+	// a duel, in a lobby, watching a replay, already preparing a host) is
+	// silently ignored rather than tearing any of that down — this can only
+	// happen at process startup today (gframe.cpp's CheckArguments() calls
+	// this exactly once, before MainLoop() has run a single frame), but the
+	// guard costs nothing and keeps this function safe to call from
+	// anywhere later without re-deriving the condition.
+	if((mainGame->is_building && mainGame->is_siding) || mainGame->dInfo.isInDuel ||
+	   mainGame->dInfo.isInLobby || mainGame->dInfo.isReplay || mainGame->wHostPrepare->isVisible())
+		return;
+	deep_link::TableLink link;
+	auto error = deep_link::ParseTableLink(uri, link);
+	if(error != deep_link::ParseError::Ok) {
+		ErrorLog("Link fedelex:// scartato ({}).", deep_link::ToString(error));
+		mainGame->PopupMessage(L"Il link ricevuto non e' valido: non e' stato possibile entrare nel tavolo.");
+		return;
+	}
+	auto host = epro::Host::resolve(epro::stringview(link.host), link.port);
+	// design/server-duelli.md §7: "un link non puo' far entrare il client
+	// in un server sconosciuto" — the same rule discord_wrapper.cpp's
+	// OnJoin() already applies to a Discord secret, reused here rather than
+	// reinvented. Rejects outright: unlike the Discord path (sys string
+	// 1468, "do you still want to connect?"), there is no override — a
+	// fedelex:// link is something a stranger could craft and send, a
+	// Discord invite is something a friend already chose to share.
+	if(!ServerLobby::IsKnownHost(host)) {
+		ErrorLog("Link fedelex:// verso un server non elencato: {}:{}.", epro::format_address(host.address), host.port);
+		mainGame->PopupMessage(L"Questo link punta a un server non tra quelli conosciuti dal client: ignorato.");
+		return;
+	}
+	mainGame->isHostingOnline = true;
+	mainGame->dInfo.secret.pass = link.pass;
+	// The permit's own name (design/server-duelli.md §4.1): StartClient()'s
+	// CTOS_PLAYER_INFO always sends whatever ebNickName currently holds, so
+	// setting it here is the only hook needed for the server to see the
+	// name the permit expects, with no change to the wire protocol.
+	mainGame->ebNickName->setText(link.nome.data());
+	if(!StartClient(host.address, host.port, /*gameid=*/0, /*create_game=*/false))
+		return;
+	// StartClient() above unconditionally resets isTournamentRoom to false
+	// (same place it resets isCatchingUp/checkRematch) — set it true only
+	// AFTER a successful connection attempt, same ordering JoinFromDiscord()
+	// uses for isHostingOnline.
+	mainGame->dInfo.isTournamentRoom = true;
+#define HIDE_AND_CHECK(obj) do {if(obj->isVisible()) mainGame->HideElement(obj);} while(0)
+	if(mainGame->is_building)
+		mainGame->deckBuilder.Terminate(false);
+	HIDE_AND_CHECK(mainGame->wMainMenu);
+	HIDE_AND_CHECK(mainGame->wLanWindow);
+	HIDE_AND_CHECK(mainGame->wCreateHost);
+	HIDE_AND_CHECK(mainGame->wReplay);
+	HIDE_AND_CHECK(mainGame->wSinglePlay);
+	HIDE_AND_CHECK(mainGame->wDeckEdit);
+	HIDE_AND_CHECK(mainGame->wRules);
+	HIDE_AND_CHECK(mainGame->wRoomListPlaceholder);
+	HIDE_AND_CHECK(mainGame->wCardImg);
+	HIDE_AND_CHECK(mainGame->wInfos);
+	HIDE_AND_CHECK(mainGame->btnLeaveGame);
+	HIDE_AND_CHECK(mainGame->wFileSave);
+	mainGame->device->setEventReceiver(&mainGame->menuHandler);
+#undef HIDE_AND_CHECK
+}
+
+void DuelClient::TournamentReconnectTick() {
+	// A retry is already in flight, or the OLD connection's network thread
+	// hasn't finished tearing down yet (ClientThread() joins parsing_thread
+	// and only then zeroes connect_state) — StartClient() itself would
+	// refuse to start a second one anyway (its very first check), but
+	// bailing here also skips touching last_reconnect_attempt on a tick
+	// that could not have attempted anything.
+	if(connect_state)
+		return;
+	static constexpr uint32_t kReconnectIntervalMs = 2000;
+	const auto now = std::chrono::steady_clock::now();
+	const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_reconnect_attempt).count();
+	if(!tournament_mode::ReconnectAttemptDue(elapsedMs < 0 ? 0 : static_cast<uint32_t>(elapsedMs), kReconnectIntervalMs))
+		return;
+	last_reconnect_attempt = now;
+	StartClient(mainGame->dInfo.secret.host.address, mainGame->dInfo.secret.host.port, /*gameid=*/0, /*create_game=*/false);
+	// StartClient() unconditionally resets both flags (same place it
+	// resets isCatchingUp) so they can never leak into a connection this
+	// function didn't ask for — restore them immediately after, same
+	// ordering JoinFromDeepLink() already uses for isTournamentRoom.
+	mainGame->dInfo.isTournamentRoom = true;
+	mainGame->dInfo.isAwaitingReconnect = true;
 }
 
 bool DuelClient::StartClient(const epro::Address& ip, uint16_t port, uint32_t gameid, bool create_game) {
@@ -140,6 +240,19 @@ bool DuelClient::StartClient(const epro::Address& ip, uint16_t port, uint32_t ga
 	mainGame->dInfo.secret.host.address = ip;
 	mainGame->dInfo.isCatchingUp = false;
 	mainGame->dInfo.checkRematch = false;
+	// FASE 75: reset on EVERY connection attempt, never just the deep-link
+	// one, so the flag can never leak from a tournament room into whatever
+	// is connected to next — JoinFromDeepLink() is the only place that sets
+	// it back to true, and only after this call returns successfully.
+	mainGame->dInfo.isTournamentRoom = false;
+	// FASE 76b: same reasoning, same ordering — DuelClient::
+	// TournamentReconnectTick() is the only place that sets this back to
+	// true, and only after THIS call returns. Without this reset, an
+	// uninitialized DuelInfo::isAwaitingReconnect (the struct has no
+	// constructor) could read as garbage-true on a process's very first
+	// connection and have ClientField::OnEvent swallow every input in an
+	// ordinary, non-tournament duel.
+	mainGame->dInfo.isAwaitingReconnect = false;
 	mainGame->frameSignal.SetNoWait(true);
 	if(client_thread.joinable())
 		client_thread.join();
@@ -152,6 +265,17 @@ bool DuelClient::StartClient(const epro::Address& ip, uint16_t port, uint32_t ga
 void DuelClient::ConnectTimeout([[maybe_unused]] evutil_socket_t fd, [[maybe_unused]] short events, [[maybe_unused]] void* arg) {
 	if(connect_state & 0x7)
 		return;
+	if(mainGame->dInfo.isAwaitingReconnect) {
+		// FASE 76b: this reconnect ATTEMPT's own TCP connect simply timed
+		// out (still no network) -- "not yet due", not "given up". The
+		// overlay stays up and the duel session stays exactly as it is;
+		// the next Game::MainLoop tick (DuelClient::TournamentReconnectTick)
+		// retries once its interval is due. Never the lobby-ish cleanup
+		// below (wLanWindow/wRoomListPlaceholder, sysstring 1400), which
+		// would wrongly abandon a match still in progress mid-duel.
+		event_base_loopbreak(client_base);
+		return;
+	}
 	if(!is_closing) {
 		temp_ver = 0;
 		std::lock_guard<epro::mutex> lock(mainGame->gMutex);
@@ -422,6 +546,25 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 				else mainGame->PopupMessage(gDataManager->GetSysString(1402));
 				if(mainGame->OnlineGateClosed())
 					mainGame->ShowOnlineGateWarning();
+			} else if(tournament_mode::ReconnectShouldActivate(mainGame->dInfo.isTournamentRoom, mainGame->dInfo.isInDuel)) {
+				// FASE 76b, design/server-duelli.md §13.6 punto 5: a
+				// tournament-room connection loss mid-duel does NOT end the
+				// duel the way the plain `else` below does. Nothing here
+				// touches dField, lp, isInDuel, the event receiver, or any
+				// other duel-in-progress state — the last known board stays
+				// on screen, under the overlay. DuelClient::
+				// TournamentReconnectTick(), called every frame from
+				// Game::MainLoop while isAwaitingReconnect is true, is what
+				// tries StartClient() again; a successful rejoin's
+				// STOC_CATCHUP(false) (case STOC_CATCHUP below) is what
+				// clears this and hides the overlay — same catch-up signal
+				// already relied on for a spectator joining mid-duel, not a
+				// new mechanism.
+				std::lock_guard<epro::mutex> lock(mainGame->gMutex);
+				mainGame->dInfo.isAwaitingReconnect = true;
+				mainGame->stReconnecting->setText(gDataManager->GetSysString(1397).data());
+				mainGame->wReconnecting->setVisible(true);
+				DuelClient::last_reconnect_attempt = std::chrono::steady_clock::now();
 			} else {
 				gSoundManager->StopSounds();
 				if(mainGame->dInfo.isStarted) {
@@ -475,6 +618,54 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 		case ERROR_TYPE::JOINERROR: {
 			auto pkt = BufferIO::getStruct<JoinError>(pdata, len);
 			temp_ver = 0;
+			if(mainGame->dInfo.isAwaitingReconnect && tournament_mode::ReconnectGivesUp(true)) {
+				// FASE 76b, design/server-duelli.md §13.6 punto 5: "un
+				// messaggio chiaro se il server risponde che il tavolo per
+				// lui e' chiuso" — any JoinError variant on a reconnect
+				// ATTEMPT is exactly that (gframe/tournament_mode.h's
+				// ReconnectGivesUp: the identical CTOS_JOIN_GAME, same
+				// password and name, was just refused). This finishes, now,
+				// the cleanup the connection-loss handler deliberately
+				// deferred (HandleSTOCPacketLanAsync's
+				// INTERNAL_HANDLE_CONNECTION_END, ReconnectShouldActivate
+				// branch) instead of falling into the generic isHostingOnline
+				// branch below, which assumes a pre-duel lobby, not a match
+				// in progress. ReplayPrompt() takes mainGame->gMutex itself —
+				// must run BEFORE this function's own lock below, same
+				// ordering the non-tournament mid-duel cleanup already uses.
+				gSoundManager->StopSounds();
+				if(mainGame->dInfo.isStarted)
+					ReplayPrompt(true);
+				std::lock_guard<epro::mutex> lock(mainGame->gMutex);
+				mainGame->dInfo.isAwaitingReconnect = false;
+				mainGame->wReconnecting->setVisible(false);
+				mainGame->PopupMessage(gDataManager->GetSysString(1398));
+				mainGame->btnCreateHost->setEnabled(mainGame->IsGameDataReady());
+				mainGame->btnJoinHost->setEnabled(true);
+				mainGame->btnJoinCancel->setEnabled(true);
+				mainGame->stTip->setVisible(false);
+				mainGame->stHintMsg->setVisible(false);
+				mainGame->dInfo.checkRematch = false;
+				mainGame->dInfo.isInDuel = false;
+				mainGame->dInfo.isStarted = false;
+				mainGame->dField.Clear();
+				mainGame->is_building = false;
+				mainGame->device->setEventReceiver(&mainGame->menuHandler);
+				mainGame->wChat->setVisible(false);
+				if(mainGame->OnlineGateClosed()) {
+					mainGame->ShowElement(mainGame->wMainMenu);
+				} else if(mainGame->isHostingOnline) {
+					mainGame->ShowElement(mainGame->wRoomListPlaceholder);
+				} else {
+					mainGame->ShowElement(mainGame->wLanWindow);
+				}
+				mainGame->SetMessageWindow();
+				if(mainGame->OnlineGateClosed())
+					mainGame->ShowOnlineGateWarning();
+				connect_state |= 0x100;
+				event_base_loopbreak(client_base);
+				break;
+			}
 			std::lock_guard<epro::mutex> lock(mainGame->gMutex);
 			if(mainGame->isHostingOnline) {
 #define HIDE_AND_CHECK(obj) if(obj->isVisible()) mainGame->HideElement(obj);
@@ -1274,6 +1465,16 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 		if(!mainGame->dInfo.isCatchingUp) {
 			std::lock_guard<epro::mutex> lock(mainGame->gMutex);
 			mainGame->dField.RefreshAllCards();
+			// FASE 76b, design/server-duelli.md §13.6 punto 5: "caught up
+			// to live" is also "successfully reconnected" for a tournament
+			// room awaiting one — the server only ever frames a reconnect's
+			// replayed cache in MakeCatchUp(true)/(false) (same as the
+			// spectator-joining-mid-duel path this signal already serves),
+			// so there is no separate "you're back" message to listen for.
+			if(mainGame->dInfo.isAwaitingReconnect) {
+				mainGame->dInfo.isAwaitingReconnect = false;
+				mainGame->wReconnecting->setVisible(false);
+			}
 		}
 		break;
 	}
@@ -1829,12 +2030,20 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				mainGame->dField.conti_act = true;
 			} else {
 				pcard->cmdFlag |= COMMAND_ACTIVATE;
-				if (pcard->location == LOCATION_GRAVE)
-					mainGame->dField.grave_act[pcard->controler] = true;
-				else if (pcard->location == LOCATION_REMOVED)
-					mainGame->dField.remove_act[pcard->controler] = true;
-				else if (pcard->location == LOCATION_EXTRA)
-					mainGame->dField.extra_act[pcard->controler] = true;
+				// FASE 75b/D252 point 2: cmdFlag is untouched (clicking the
+				// card directly still works, see event_handler.cpp's
+				// LOCATION_GRAVE/REMOVED/EXTRA single-card branch) -- only
+				// the ambient glow this pile would otherwise draw
+				// (drawing.cpp's DrawMisc, dField.*_act) is suppressed, the
+				// same split FASE 75 already used for is_selectable.
+				if(!mainGame->dInfo.isTournamentRoom) {
+					if (pcard->location == LOCATION_GRAVE)
+						mainGame->dField.grave_act[pcard->controler] = true;
+					else if (pcard->location == LOCATION_REMOVED)
+						mainGame->dField.remove_act[pcard->controler] = true;
+					else if (pcard->location == LOCATION_EXTRA)
+						mainGame->dField.extra_act[pcard->controler] = true;
+				}
 			}
 		}
 		mainGame->dField.attackable_cards.clear();
@@ -1894,26 +2103,32 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			pcard = mainGame->dField.GetCard(con, loc, seq);
 			mainGame->dField.spsummonable_cards.push_back(pcard);
 			pcard->cmdFlag |= COMMAND_SPSUMMON;
-			switch(pcard->location) {
-			case LOCATION_DECK:
+			// FASE 75b/D252 point 2: same split as the ACTIVATE loops below
+			// -- cmdFlag (the click still works) vs the *_act glow (the
+			// pile/pendulum zone must not announce it from a distance).
+			if(pcard->location == LOCATION_DECK)
 				pcard->SetCode(code);
-				mainGame->dField.deck_act[pcard->controler] = true;
-				break;
-			case LOCATION_GRAVE:
-				mainGame->dField.grave_act[pcard->controler] = true;
-				break;
-			case LOCATION_REMOVED:
-				mainGame->dField.remove_act[pcard->controler] = true;
-				break;
-			case LOCATION_EXTRA:
-				mainGame->dField.extra_act[pcard->controler] = true;
-				break;
-			case LOCATION_SZONE: {
-				if((pcard->type & TYPE_PENDULUM) && !pcard->equipTarget && pcard->sequence == mainGame->dInfo.GetPzoneIndex(0))
-					mainGame->dField.pzone_act[pcard->controler] = true;
-				break;
-			}
-			default: break;
+			if(!mainGame->dInfo.isTournamentRoom) {
+				switch(pcard->location) {
+				case LOCATION_DECK:
+					mainGame->dField.deck_act[pcard->controler] = true;
+					break;
+				case LOCATION_GRAVE:
+					mainGame->dField.grave_act[pcard->controler] = true;
+					break;
+				case LOCATION_REMOVED:
+					mainGame->dField.remove_act[pcard->controler] = true;
+					break;
+				case LOCATION_EXTRA:
+					mainGame->dField.extra_act[pcard->controler] = true;
+					break;
+				case LOCATION_SZONE: {
+					if((pcard->type & TYPE_PENDULUM) && !pcard->equipTarget && pcard->sequence == mainGame->dInfo.GetPzoneIndex(0))
+						mainGame->dField.pzone_act[pcard->controler] = true;
+					break;
+				}
+				default: break;
+				}
 			}
 		}
 		mainGame->dField.reposable_cards.clear();
@@ -1986,12 +2201,16 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				mainGame->dField.conti_act = true;
 			} else {
 				pcard->cmdFlag |= COMMAND_ACTIVATE;
-				if (pcard->location == LOCATION_GRAVE)
-					mainGame->dField.grave_act[pcard->controler] = true;
-				else if (pcard->location == LOCATION_REMOVED)
-					mainGame->dField.remove_act[pcard->controler] = true;
-				else if (pcard->location == LOCATION_EXTRA)
-					mainGame->dField.extra_act[pcard->controler] = true;
+				// FASE 75b/D252 point 2: see the identical split in
+				// MSG_SELECT_BATTLECMD above.
+				if(!mainGame->dInfo.isTournamentRoom) {
+					if (pcard->location == LOCATION_GRAVE)
+						mainGame->dField.grave_act[pcard->controler] = true;
+					else if (pcard->location == LOCATION_REMOVED)
+						mainGame->dField.remove_act[pcard->controler] = true;
+					else if (pcard->location == LOCATION_EXTRA)
+						mainGame->dField.extra_act[pcard->controler] = true;
+				}
 			}
 		}
 		std::lock_guard<epro::mutex> lock(mainGame->gMutex);
@@ -2020,26 +2239,52 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		CoreUtils::loc_info info = CoreUtils::ReadLocInfo(pbuf, mainGame->dInfo.compat_mode);
 		info.controler = mainGame->LocalPlayer(info.controler);
 		uint64_t desc = CompatRead<uint32_t, uint64_t>(pbuf);
+		// FASE 75b/D252 point 4: concealed outside chain resolution in a
+		// tournament room; during resolution (between MSG_CHAIN_SOLVING and
+		// MSG_CHAIN_SOLVED, dField.in_chain_resolution) this is unchanged,
+		// D252's own carve-out.
+		const bool concealed = tournament_mode::EffectYNIsConcealed(mainGame->dInfo.isTournamentRoom, mainGame->dField.in_chain_resolution);
 		std::wstring text;
-		if(desc == 0) {
-			text = epro::format(L"{}\n{}", event_string,
-							   epro::sprintf(gDataManager->GetSysString(200), gDataManager->GetName(code), gDataManager->FormatLocation(info.location, info.sequence)));
-		} else if(desc == 221) {
-			text = epro::format(L"{}\n{}\n{}", event_string,
-							   epro::sprintf(gDataManager->GetSysString(221), gDataManager->GetName(code), gDataManager->FormatLocation(info.location, info.sequence)),
-							   gDataManager->GetSysString(223));
-		} else {
-			text = epro::sprintf(gDataManager->GetDesc(desc, mainGame->dInfo.compat_mode), gDataManager->GetName(code));
+		if(!concealed) {
+			if(desc == 0) {
+				text = epro::format(L"{}\n{}", event_string,
+								   epro::sprintf(gDataManager->GetSysString(200), gDataManager->GetName(code), gDataManager->FormatLocation(info.location, info.sequence)));
+			} else if(desc == 221) {
+				text = epro::format(L"{}\n{}\n{}", event_string,
+								   epro::sprintf(gDataManager->GetSysString(221), gDataManager->GetName(code), gDataManager->FormatLocation(info.location, info.sequence)),
+								   gDataManager->GetSysString(223));
+			} else {
+				text = epro::sprintf(gDataManager->GetDesc(desc, mainGame->dInfo.compat_mode), gDataManager->GetName(code));
+			}
 		}
 		std::lock_guard<epro::mutex> lock(mainGame->gMutex);
 		ClientCard* pcard = mainGame->dField.GetCard(info.controler, info.location, info.sequence);
 		if (pcard->code != code)
 			pcard->SetCode(code);
-		if(info.location != LOCATION_DECK) {
-			pcard->is_highlighting = true;
-			mainGame->dField.highlighting_card = pcard;
+		// Defensive reset: effectyn_pending_card is never one of the
+		// vectors ClearChainSelect()/ClearCommandFlag() sweep (see
+		// client_field.h's comment), so nothing else clears a stray
+		// pointer left over from an earlier, differently-resolved prompt.
+		mainGame->dField.ResolveEffectYNPause();
+		if(concealed) {
+			// Never event_string, never the card's name/location, never
+			// is_highlighting: that is exactly what point 4 withholds
+			// until the player finds and clicks this card themselves.
+			// cmdFlag is the only mark left on it -- the same bit a direct
+			// field click already checks (event_handler.cpp's
+			// LOCATION_HAND/MZONE/SZONE branch) and the one the new
+			// MSG_SELECT_EFFECTYN branch there checks for a pile card
+			// reached through "Guarda".
+			pcard->cmdFlag |= COMMAND_ACTIVATE;
+			mainGame->dField.effectyn_pending_card = pcard;
+			mainGame->stQMessage->setText(gDataManager->GetSysString(1395).data());
+		} else {
+			if(info.location != LOCATION_DECK) {
+				pcard->is_highlighting = true;
+				mainGame->dField.highlighting_card = pcard;
+			}
+			mainGame->stQMessage->setText(text.data());
 		}
-		mainGame->stQMessage->setText(text.data());
 		mainGame->PopupElement(mainGame->wQuery);
 		return false;
 	}
@@ -2257,23 +2502,60 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 					pcard->cmdFlag |= COMMAND_RESET;
 				else
 					pcard->cmdFlag |= COMMAND_ACTIVATE;
+				// FASE 75b/D252 point 2: cmdFlag above is untouched (a
+				// direct click still works); only the pile's ambient glow
+				// is suppressed in tournament, same split as
+				// MSG_SELECT_BATTLECMD/IDLECMD above.
 				if(pcard->location == LOCATION_DECK) {
 					pcard->SetCode(code);
-					mainGame->dField.deck_act[pcard->controler] = true;
-				} else if(info.location == LOCATION_GRAVE)
-					mainGame->dField.grave_act[pcard->controler] = true;
-				else if(info.location == LOCATION_REMOVED)
-					mainGame->dField.remove_act[pcard->controler] = true;
-				else if(info.location == LOCATION_EXTRA)
-					mainGame->dField.extra_act[pcard->controler] = true;
-				else if(info.location == LOCATION_OVERLAY)
+					if(!mainGame->dInfo.isTournamentRoom)
+						mainGame->dField.deck_act[pcard->controler] = true;
+				} else if(info.location == LOCATION_GRAVE) {
+					if(!mainGame->dInfo.isTournamentRoom)
+						mainGame->dField.grave_act[pcard->controler] = true;
+				} else if(info.location == LOCATION_REMOVED) {
+					if(!mainGame->dInfo.isTournamentRoom)
+						mainGame->dField.remove_act[pcard->controler] = true;
+				} else if(info.location == LOCATION_EXTRA) {
+					if(!mainGame->dInfo.isTournamentRoom)
+						mainGame->dField.extra_act[pcard->controler] = true;
+				} else if(info.location == LOCATION_OVERLAY)
 					panelmode = true;
 			}
+		}
+		// FASE 75/D251, cancello 4 ("nessun indicatore delle carte
+		// attivabili... per gli effetti facoltativi" in a tournament
+		// room): clear the outline-driving flag set in the loop above,
+		// AFTER panelmode is known (set inside that same loop — see the
+		// comment on the `if(panelmode)` branch below for why panel-based
+		// activations are excluded). drawing.cpp only reads is_selectable
+		// to decide whether to draw the highlight outline
+		// (DUELFIELD_SELECTABLE_CARD_OUTLINE_VAL); event_handler.cpp's
+		// MSG_SELECT_CHAIN click handling builds its context menu from
+		// cmdFlag alone (ShowMenu(clicked_card->cmdFlag, ...)), never from
+		// is_selectable — so clearing it here only removes the visual
+		// highlight, it does not also remove the player's ability to
+		// click the card and activate it. conti_cards (EFFECT_CLIENT_MODE_RESOLVE,
+		// a mandatory resolution, D251's own "effetti obbligatori in
+		// risoluzione" example) never had is_selectable set to begin with,
+		// so they are unaffected by construction, not by an extra check
+		// here.
+		if(mainGame->dInfo.isTournamentRoom && !mainGame->dField.chain_forced && !panelmode) {
+			for(auto& ac : mainGame->dField.activatable_cards)
+				ac->is_selectable = false;
 		}
 		const auto ignore_chain = mainGame->btnChainIgnore->isPressed();
 		const auto always_chain = mainGame->btnChainAlways->isPressed();
 		const auto chain_when_avail = mainGame->btnChainWhenAvail->isPressed();
-		if(!select_trigger && !mainGame->dField.chain_forced && (ignore_chain || ((count == 0 || specount == 0) && !always_chain)) && (count == 0 || !chain_when_avail)) {
+		// FASE 75b/D252 point 1: ygo::tournament_mode::ChainAutoPasses is
+		// the exact pre-FASE-75b predicate, gated so it is always false in
+		// tournament (chain_forced aside) — see gframe/tournament_mode.h
+		// and tests/tournament_mode_tests.cpp for why each of
+		// select_trigger/count/specount/the three chain buttons stopped
+		// mattering there: every one of them was a way an empty chain
+		// window looked different from a full one.
+		if(tournament_mode::ChainAutoPasses(mainGame->dInfo.isTournamentRoom, mainGame->dField.chain_forced, select_trigger,
+				count, specount, ignore_chain, always_chain, chain_when_avail)) {
 			SetResponseI(-1);
 			mainGame->dField.ClearChainSelect();
 			if(mainGame->tabSettings.chkNoChainDelay->isChecked() && !ignore_chain) {
@@ -2283,7 +2565,11 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			DuelClient::SendResponse();
 			return true;
 		}
-		if(mainGame->tabSettings.chkAutoChainOrder->isChecked() && mainGame->dField.chain_forced && !(always_chain || chain_when_avail)) {
+		// FASE 75b/D252 point 5: ygo::tournament_mode::AutoChainOrderApplies
+		// turns this off in tournament -- a forced chain's order is always
+		// chosen by the player there, never auto-picked.
+		if(tournament_mode::AutoChainOrderApplies(mainGame->dInfo.isTournamentRoom, mainGame->dField.chain_forced,
+				mainGame->tabSettings.chkAutoChainOrder->isChecked()) && !(always_chain || chain_when_avail)) {
 			SetResponseI(0);
 			mainGame->dField.ClearChainSelect();
 			DuelClient::SendResponse();
@@ -2295,7 +2581,24 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		else
 			mainGame->stHintMsg->setText(gDataManager->GetSysString(556).data());
 		mainGame->stHintMsg->setVisible(true);
-		if(panelmode) {
+		mainGame->dField.pending_panel_reveal = panelmode;
+		if(mainGame->dInfo.isTournamentRoom && !mainGame->dField.chain_forced) {
+			// FASE 75b/D252 point 1 (and point 2 for the materials
+			// sub-case): ask the SAME generic question first, no matter
+			// whether the candidates are on-field cards or Xyz materials
+			// (panelmode) -- unlike the FASE 75 code this replaces,
+			// panelmode no longer bypasses the question in tournament.
+			// BUTTON_YES (event_handler.cpp) reads pending_panel_reveal,
+			// set just above, to decide whether "Si'" opens the plain
+			// pause or the full-materials "Guarda" panel. Never event_string:
+			// that would be the card name the whole point is to withhold.
+			mainGame->stQMessage->setText(gDataManager->GetSysString(1395).data());
+			mainGame->PopupElement(mainGame->wQuery);
+		} else if(panelmode) {
+			// Outside tournament (or a forced chain, in or out of it):
+			// unchanged from before FASE 75b. A deck/GY/banished/Xyz-material
+			// activation has no on-field card to click at all --
+			// ShowChainCard()'s panel IS the only way to select one.
 			mainGame->dField.list_command = COMMAND_ACTIVATE;
 			mainGame->dField.selectable_cards = mainGame->dField.activatable_cards;
 			std::sort(mainGame->dField.selectable_cards.begin(), mainGame->dField.selectable_cards.end());
@@ -3516,6 +3819,11 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 	case MSG_CHAIN_SOLVING: {
 		const auto ct = BufferIO::Read<uint8_t>(pbuf);
 		auto lock = LockIf();
+		// FASE 75b/D252 point 4: mirrors ocgcore's own core.chain_solving
+		// window (processor.cpp's Processors::SolveChain step 1 sets it,
+		// step 5 clears it before MSG_CHAIN_SOLVED is sent) -- the carve-out
+		// for a MSG_SELECT_EFFECTYN asked "durante la risoluzione".
+		mainGame->dField.in_chain_resolution = true;
 		if(!mainGame->dInfo.isCatchingUp) {
 			if(mainGame->dField.last_chain)
 				mainGame->WaitFrameSignal(11, lock);
@@ -3533,6 +3841,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 	}
 	case MSG_CHAIN_SOLVED: {
 		/*const auto ct = BufferIO::Read<uint8_t>(pbuf);*/
+		mainGame->dField.in_chain_resolution = false;
 		return true;
 	}
 	case MSG_CHAIN_END: {

@@ -544,6 +544,27 @@ do_install() {
 		update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
 	fi
 
+	# FASE 75 (design/decisioni.md D251, PHASES.md "il link del tavolo"):
+	# il voce di menu dichiara MimeType=x-scheme-handler/fedelex (vedi
+	# il .desktop.in), ma senza questa riga resta solo "candidata" — serve
+	# xdg-mime per farla diventare il gestore di DEFAULT dello schema,
+	# altrimenti xdg-open fedelex://... chiede all'utente quale
+	# applicazione usare (o non trova nessuno) anche a desktop appena
+	# installato. Non bloccante: xdg-mime manca su alcuni sistemi minimi
+	# (lo stesso spirito di update-desktop-database sopra), si avvisa e si
+	# prosegue.
+	if command -v xdg-mime >/dev/null 2>&1; then
+		if XDG_DATA_HOME="$XDG_DATA_HOME" xdg-mime default "$APP_ID.desktop" x-scheme-handler/fedelex 2>/dev/null; then
+			log "Schema fedelex:// registrato come predefinito (xdg-mime)."
+		else
+			warn "xdg-mime non e' riuscito a registrare lo schema fedelex:// come predefinito."
+			warn "I link dei tavoli di torneo potrebbero non aprire il client automaticamente."
+		fi
+	else
+		warn "xdg-mime non trovato: lo schema fedelex:// non e' stato registrato."
+		warn "I link dei tavoli di torneo potrebbero non aprire il client automaticamente."
+	fi
+
 	log ""
 	log "Installazione completata."
 	log "  Programma:    $PROGRAM_DIR"

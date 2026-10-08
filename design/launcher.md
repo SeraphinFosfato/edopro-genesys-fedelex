@@ -345,6 +345,359 @@ doppia (Linux e Windows) e viene dopo.
 
 ---
 
+## Stato dell'implementazione (FASE 75)
+
+**Aggiornato il 2026-10-05.** Link `fedelex://tavolo?host=&port=&pass=&nome=`
+per entrare in una stanza di torneo con un clic, e "modalita' torneo"
+(indicatori di attivazione opzionale nascosti) per le stanze aperte cosi'.
+
+- **Cancello 1 — parsing e validazione del link, testati.**
+  `gframe/deep_link.h/.cpp` (nuovo, zero dipendenze oltre
+  `BufferIO::DecodeUTF8`): interpreta la query string, rifiuta porta fuori
+  range, host vuoto, campi oltre 19 code unit (limite reale imposto da
+  `BufferIO::EncodeUTF16` su un buffer `[20]`, non 20 — troncare in
+  silenzio avrebbe fatto entrare un nome diverso da quello del link).
+  `tests/deep_link_tests.cpp`: 14 funzioni, 21 verifiche. Verificato con
+  `./premake5 --file=tests/premake5.lua gmake2 && make -C tests/build
+  config=release && ./bin/banlist_tests` → verde, incluso
+  `deep_link_tests: 21 checks, 0 failures`.
+- **Cancello 2 — ingresso alla stanza, server sconosciuti rifiutati.**
+  `DuelClient::JoinFromDeepLink` (`gframe/duelclient.cpp`, accanto a
+  `JoinFromDiscord` di cui riusa il pattern) chiama
+  `ServerLobby::IsKnownHost` prima di connettersi e mostra un popup invece
+  di procedere in silenzio se l'host non e' elencato. **Non verificato con
+  un server reale**: non esiste un Multirole locale ne' remoto gia'
+  pronto con una lista di host nota da falsificare in questa sessione, e
+  costruirne uno per una sola prova avrebbe superato lo scope. Verificato
+  invece: (a) le 21 verifiche di `deep_link_tests.cpp` sulla sola analisi
+  del link; (b) lettura del punto di chiamata — `IsKnownHost` e' lo stesso
+  controllo gia' in produzione per `JoinFromDiscord`, non una funzione
+  nuova scritta per l'occasione; (c) build completa (sotto). Il
+  round-trip vero resta da provare a mano, in `SOSPESI.md` del vault.
+- **Cancello 3 — registrazione dello schema, END-TO-END su Linux.**
+  `tools/release/installer/fedelex-edopro.desktop.in` dichiara
+  `MimeType=x-scheme-handler/fedelex` e passa `%u` a `Exec`; `install.sh`
+  registra lo schema con `xdg-mime default` dopo l'`update-desktop-database`
+  gia' esistente. Provato per intero in una HOME finta
+  (scratchpad, mai `~/.local/share/fedelex-edopro` ne' `~/.local/opt/edopro`):
+  installazione → `xdg-mime query default x-scheme-handler/fedelex` risolve
+  il `.desktop` → `xdg-open 'fedelex://tavolo?...'` con un simulatore finto
+  (script che registra i suoi argv) al posto del binario vero → il finto
+  simulatore riceve `-from-launcher -C <data_dir> -deep-link
+  fedelex://tavolo?host=...&port=...&pass=...&nome=...`, lo stesso URI
+  passato in ingresso. Primo tentativo con `DISPLAY` svuotato ha dato
+  `xdg-open: no method available`: diagnosticato leggendo
+  `/usr/bin/xdg-open` — `open_generic_xdg_x_scheme_handler` (la ricerca
+  per `x-scheme-handler/<schema>`) gira solo dentro `if has_display`, e
+  `has_display()` e' un controllo di stringa su `$DISPLAY`/`$WAYLAND_DISPLAY`,
+  mai una connessione vera al server grafico. Rifatto con `DISPLAY=:99`
+  (valore finto, nessun display reale dietro, nessuna finestra apribile):
+  la ricerca per schema si attiva e il comando riesce. Nessuna finestra
+  reale aperta in nessun tentativo. Ramo Windows (`HKCU\Software\Classes\
+  fedelex`) scritto e letto con attenzione ma **mai compilato ne' eseguito**:
+  nessun toolchain Windows qui, stesso limite gia' registrato per FASE 67.
+- **Cancello 4 — niente simulatore singolo, lock provato.**
+  `SingleInstanceLock` (flock POSIX / `CreateFileW` esclusivo Windows,
+  `gframe/single_instance_lock.h/.cpp`): provato in sandbox tenendo il lock
+  aperto a mano mentre il launcher tentava un secondo avvio con un link —
+  il launcher ha rifiutato di spawnare, scritto
+  `deep-link: un simulatore e' gia' aperto...` nel suo log e non ha aperto
+  nessun processo nuovo (verificato sul log delle invocazioni del
+  simulatore finto: una sola riga, non due). Rilasciato il lock e ripetuto:
+  il launcher ha spawnato normalmente, inoltrando `-deep-link`.
+  **Scelta deliberata**: e' una sonda puntuale (apre, controlla, chiude),
+  non un servizio in ascolto — nessun socket, nessuna porta, nessun
+  processo che resta vivo oltre la vita della sonda. Non e' il punto di
+  risalita "serve qualcosa in ascolto sulla macchina": non serve niente di
+  nuovo che resti attivo.
+- **Cancello 5 — modalita' torneo, verificata a codice e a compilazione,
+  non a duello vero.** In `MSG_SELECT_CHAIN`
+  (`gframe/duelclient.cpp`), quando `dInfo.isTournamentRoom` e' vero e la
+  chain non e' forzata: le carte attivabili perdono `is_selectable` (il
+  solo indicatore visivo, `gframe/drawing.cpp`) ma **non** il `cmdFlag` che
+  pilota il menu contestuale (`event_handler.cpp`'s `ShowMenu()`) — il
+  click per attivare resta identico a una stanza normale. La domanda
+  opzionale (popup `wQuery` Si/No) e' sostituita dal pulsante
+  Annulla/Fine gia' esistente (`ShowCancelOrFinishButton`), mai nascosta
+  senza alternativa. Build completa verificata: `./premake5 gmake2
+  --no-core=true --sound=sfml --no-joystick=true
+  --irrlicht-root=../irrlicht-custom && make -C build config=release_x64
+  ygoprodll fedelex-launcher -j$(nproc)` → nessun warning nuovo (solo il
+  deprecato preesistente di `CURLOPT_PROGRESSFUNCTION`, gia' noto da FASE
+  67). **Non verificato con un duello reale** (due client, una mano con
+  carte attivabili, confronto visivo stanza-link vs stanza-normale): serve
+  un server Multirole raggiungibile e due istanze grafiche del simulatore,
+  fuori scope sicuro per questa sessione (niente DISPLAY reale, niente
+  Multirole gia' pronto con una lista host adatta). In
+  `SOSPESI.md` del vault, come prova a mano.
+  **Scope deliberatamente non coperto**: `MSG_SELECT_EFFECTYN` (nessuna
+  alternativa di click, solo il Si/No del popup) e il `panelmode`
+  (attivazioni da mazzo/cimitero/bandito/materiale Xyz: nessun click sul
+  campo possibile per queste zone). Nasconderne l'indicatore avrebbe
+  bloccato un'attivazione voluta — la stessa guardia del punto di risalita
+  del brief, applicata qui come scelta di scope invece che come problema
+  da risolvere.
+- **Cancello 6 — documenti.** `python3 banlist/scripts/controlla_documenti.py`
+  dalla radice del vault: 0 NO.
+- **Cancello 7 — commit per nome, nessun push.** Un file o un gruppo
+  coerente per commit, mai `git add -A`. Nessun push, nessun tag, nessuna
+  release.
+
+**Punti di risalita del brief: nessuno incontrato come blocco.** Il rischio
+"nascondere le domande facoltative impedisce un'attivazione voluta" e'
+stato evitato per costruzione (si nasconde solo `is_selectable`, mai
+`cmdFlag`) invece di essere incontrato e aggirato. Il rischio "serve
+qualcosa in ascolto sulla macchina" non si e' posto: `SingleInstanceLock`
+e' una sonda, non un servizio.
+
+**Resta non verificato, honestamente**: il round-trip reale di ingresso a
+una stanza (cancello 2), la differenza visiva osservata in un duello vero
+fra stanza-link e stanza-normale (cancello 4 del brief, qui numerato 5), e
+l'intero ramo Windows (compilazione e registro). Tutti e tre richiedono
+infrastruttura (un server Multirole con lista host nota, due client grafici,
+un toolchain Windows) non disponibile o non sicura da allestire in questa
+sessione — non sono stati aggirati ne' dati per scontati.
+
+## Stato dell'implementazione (FASE 75b)
+
+**Aggiornato il 2026-10-06.** D252 (`design/decisioni.md`,
+`design/server-duelli.md` §13.5): FASE 75 nascondeva solo l'evidenziazione
+delle carte attivabili (`is_selectable`); l'utente ha chiarito che anche il
+fatto stesso che una domanda compaia o non compaia, e i pannelli che
+elencano solo le carte attivabili, sono un indizio. Ramo `fase-75b`, creato
+da `fase-75` (rimasto a `9d9299288`, invariato), 7 commit, pushato su
+`origin/fase-75b`. Nessuna PR, nessun merge: questa sezione descrive uno
+stato non ancora unito a `master`.
+
+- **Cancello 1 — funzione pura e test.** `gframe/tournament_mode.h/.cpp`
+  (nuovo, zero dipendenze gframe/irrlicht/rete, stesso schema di
+  `deep_link.h`): quattro funzioni, una per decisione — `ChainAutoPasses`
+  (punto 1: mai la risposta automatica a una catena opzionale in torneo),
+  `AutoChainOrderApplies` (punto 5: l'ordine automatico di catena non si
+  applica mai in torneo), `ZoneMenuFlags` (punti 2/3: una zona non vuota
+  offre solo "Guarda", mai "Attiva"/"Evoca speciale" a livello di zona),
+  `EffectYNIsConcealed` (punto 4: `MSG_SELECT_EFFECTYN` e' nascosto fuori
+  dalla risoluzione di un'altra catena, non durante). `tests/
+  tournament_mode_tests.cpp`: 23 verifiche, ognuna o fissa
+  `isTournamentRoom == false` e controlla che il risultato sia la formula
+  esatta di prima di FASE 75b, o fissa `== true` e controlla la regola di
+  D252. Verde: `./bin/banlist_tests` → `tournament_mode_tests: 23 checks,
+  0 failures`.
+- **Cancello 2 — testo unico, verificato con `grep`.** Ogni punto dove il
+  client scrive il testo del popup di catena o di `MSG_SELECT_EFFECTYN`
+  e' stato letto a mano:
+  - `duelclient.cpp`, `MSG_SELECT_CHAIN`: in torneo e non forzata,
+    `stQMessage` prende sempre e solo la sysstring 1395 ("Vuoi attivare un
+    effetto?"), mai `event_string` ne' il testo che varia per
+    count/select_trigger/effetto scatenante — lo stesso ramo vale anche
+    per `panelmode` (materiali Xyz), che FASE 75 escludeva esplicitamente
+    (vedi sopra, cancello 5: "scope deliberatamente non coperto").
+  - `duelclient.cpp`, `MSG_SELECT_EFFECTYN`: `concealed` e' calcolato
+    PRIMA di costruire qualunque stringa — se vero, il ramo che chiama
+    `GetName(code)`/`FormatLocation(...)` non viene eseguito affatto (non
+    e' nascosto a schermo: non viene costruito), e si usa la stessa
+    sysstring 1395; `is_highlighting`/`highlighting_card` restano
+    entrambi intatti (mai assegnati).
+  - `event_handler.cpp`: `ShowCancelOrFinishButton` ha un nuovo `case 3`
+    con la sysstring 1396 ("Non attivo niente"), condiviso dalla pausa di
+    catena e da quella di `EFFECTYN` — nessun testo diverso fra le due.
+  - Le uniche stringhe non toccate in quel momento sono `stHintMsg`
+    (sysstring 550/556, "Select the effect you want to activate"/"...to
+    resolve"): preesistenti, identiche in torneo e fuori, mai
+    card-specific — non sono un indizio nuovo.
+  - Le due sysstring nuove (1395/1396) sono in `strings/fedelex.conf`
+    (non in `runtime/`, che e' gitignored e non versionato — vedi il
+    commento nel file stesso), codici 1393-1399 verificati vuoti
+    nell'intervallo upstream 1392→1400 prima di scegliere i numeri.
+- **Cancello 3 — build.** Linux locale: `./premake5 gmake2 --no-core=true
+  --sound=sfml --no-joystick=true --irrlicht-root=../irrlicht-custom &&
+  make -C build config=release_x64 ygoprodll` → verde, nessun warning
+  nuovo. Suite dei test: `make -C tests/build config=debug banlist_tests`
+  da zero → verde, tutte le suite (`banlist_tests`, `tournament_mode_tests`
+  incluso). CI del fork sul ramo `fase-75b`, **due run, entrambe verdi
+  dopo il push finale**: `build-windows` success, `Test (banlist_tests)`
+  success (fa girare anche `tournament_mode_tests` su una macchina pulita,
+  non solo in locale), `Manifesto artefatti (D218)` success, `Build Linux
+  (client)` skipped — stesso comportamento gia' osservato su `fase-75`,
+  non una regressione di questo ramo.
+- **Cancello 4 — nessuna attivazione persa, percorso di clic per ogni
+  zona.** In torneo, durante la pausa (dopo "Si'" alla domanda generica,
+  o per `MSG_SELECT_EFFECTYN` fuori dalla risoluzione):
+
+  | Zona | Percorso di clic |
+  |---|---|
+  | Mano | Clic diretto sulla carta (`LOCATION_HAND`) → `ShowMenu(cmdFlag)` apre il menu con "Attiva" se il bit c'e' — identico a fuori torneo, mai filtrato prima |
+  | Campo (mostri/magie-trappole) | Clic diretto sulla carta (`LOCATION_MZONE`/`LOCATION_SZONE`) → stesso `ShowMenu(cmdFlag)` |
+  | Cimitero | Clic sulla zona → `ZoneMenuFlags` forza il menu a solo "Guarda" (`COMMAND_LIST`) → "Guarda" apre la lista **completa e non filtrata** del cimitero → clic sulla carta nella lista: se ha un `cmdFlag` si apre lo stesso `ShowMenu(cmdFlag)` di un clic diretto sul campo; se non ne ha, nessuna reazione (silenzioso, non un indizio: ogni altra carta della stessa lista e' altrettanto silenziosa se non ha niente) |
+  | Banditi (removed) | Stesso percorso del cimitero, `LOCATION_REMOVED` |
+  | Deck | Stesso percorso, `LOCATION_DECK` (gia' limitato a "Guarda" anche in `isSingleMode`, qui lo e' sempre in torneo) |
+  | Extra deck (fase principale, es. evocazione speciale) | Stesso percorso, `LOCATION_EXTRA`; il clic su una carta della lista con `cmdFlag` apre `ShowMenu`, da cui "Evoca speciale" segue lo stesso `BUTTON_CMD_SPSUMMON` di un clic diretto sul campo |
+  | Materiali Xyz (catena) | "Si'" alla domanda generica, quando i candidati erano materiali (`panelmode`): si apre un pannello "Guarda" con **tutti** i materiali di ogni mostro Xyz candidato (non solo quello attivabile — stessa regola delle zone sopra), `ShowChainCard()`. Clic su un materiale che e' davvero nella lista attivabile: risolve subito (una sola opzione) o apre la scelta delle descrizioni (`ShowSelectOption`, piu' opzioni). Clic su un materiale presente nel pannello ma non attivabile: nessuna reazione (corretto il 2026-10-06 un vettore vuoto non controllato in questo ramo, vedi sotto) |
+
+  Nessuna delle sette non ha un percorso: la tabella e' la prova richiesta
+  dal brief, non solo la sua descrizione.
+- **Un difetto trovato rileggendo il codice per questo cancello, non
+  durante la scrittura.** Il pannello materiali Xyz in torneo mostra il
+  set COMPLETO di materiali (`all_materials`), non il sottinsieme
+  attivabile come fa `selectable_cards` fuori torneo (dove coincide sempre
+  con `activatable_cards`). Cliccare un materiale presente nel pannello ma
+  non nella lista attivabile lasciava `select_options` vuoto, e il ramo
+  `else` di quel blocco in `event_handler.cpp` leggeva `select_options[0]`
+  senza controllare la dimensione — un vettore vuoto letto in lettura,
+  mai esercitato prima perche' irraggiungibile fuori da questo percorso
+  nuovo. Commit `bed066bc6`, stessa famiglia del controllo gia' messo in
+  `BUTTON_CMD_ACTIVATE`/`BUTTON_CMD_RESET` per un caso analogo (clic da
+  "Guarda" su una carta senza niente da offrire).
+
+**Punti di risalita del brief: nessuno incontrato come blocco.** In
+particolare "la vista 'Guarda' di una zona non puo' offrire comandi sulla
+singola carta senza riscrivere il meccanismo dei menu" e' stato evitato per
+costruzione: il clic su una carta nella lista richiama lo stesso
+`ShowMenu(cmdFlag)` di un clic diretto sul campo (`clicked_card`,
+`list_command = 0`), non un meccanismo parallelo. "Distinguere 'durante la
+risoluzione' richiede uno stato che il client non ha in modo affidabile" e'
+stato risolto leggendo `ocgcore/processor.cpp` (`Processors::SolveChain`):
+`core.chain_solving` e' vero esattamente fra l'invio di `MSG_CHAIN_SOLVING`
+e quello di `MSG_CHAIN_SOLVED`, quindi uno specchio booleano lato client
+(`ClientField::in_chain_resolution`, impostato in quei due punti) e' una
+misura, non un'ipotesi.
+
+**Resta non verificato, honestamente**: nessun duello reale giocato in una
+stanza di torneo (niente DISPLAY, niente Multirole con mano di prova in
+questa sessione) — la tabella del cancello 4 e' letta dal codice, non vista
+a schermo. Il ritmo della domanda ripetuta a ogni finestra (se risponde
+"No" decine di volte per turno sia vivibile) non e' misurabile da codice
+per definizione: resta in P-40 di `SOSPESI.md` del vault, aggiornata con lo
+stato di questa fase. Il ramo Windows e' verificato solo dalla CI
+(`build-windows` success): nessuna esecuzione su un Windows vero, stesso
+limite gia' registrato per FASE 75 (P-39).
+
+## Stato dell'implementazione (FASE 76b)
+
+**Scritto il 2026-10-07 (Sonnet).** D251, design/server-duelli.md §13.6
+punto 5. Worktree separato `~/Progetti/edopro-fase-76b`, ramo `fase-76b`
+creato da `fase-75b` (invariato), pushato su `origin/fase-76b`. Il
+worktree principale (`EdoproForkGSY/edopro_custom`, restato su `fase-75b`)
+non e' stato toccato, come richiesto. Il server della FASE 76a era ancora
+in lavorazione da un'altra sessione (worktree
+`~/Progetti/multirole-fedelex-76`, ramo `fase-76`) mentre questa fase
+procedeva: letto, mai modificato — vedi sotto per cosa quella lettura ha
+confermato.
+
+**Cosa implementato, tutto dietro `dInfo.isTournamentRoom`** (fuori torneo
+nessun ramo nuovo entra mai, byte per byte come oggi):
+
+- `gframe/tournament_mode.h/.cpp`: quattro funzioni pure nuove —
+  `ReconnectShouldActivate` (una caduta apre l'overlay invece della
+  pulizia di oggi solo se `isTournamentRoom && isInDuel`),
+  `ReconnectAttemptDue` (cadenza dei tentativi, 2000ms — scelta
+  dell'implementazione, non un numero che D251 ha deciso),
+  `ReconnectGivesUp` (qualunque `JOINERROR` esplicito su un tentativo di
+  rientro significa arrendersi: la stessa identica `CTOS_JOIN_GAME` e'
+  gia' stata rifiutata una volta), `ReconnectBlocksInput` (il punto unico
+  da cui dipende il blocco di tastiera e mouse). 10 nuovi test in
+  `tests/tournament_mode_tests.cpp` (33 totali nel file, 0 fallimenti).
+- `gframe/duelclient.cpp`, `HandleSTOCPacketLanAsync`'s
+  `INTERNAL_HANDLE_CONNECTION_END`: una caduta mid-duello/mid-match in
+  torneo non tocca piu' `dField`, `lp`, `isInDuel` o il ricevitore eventi
+  — apre solo l'overlay bloccante (`wReconnecting`, nuova finestra in
+  `game.h`/`game.cpp`, stesso stampo di `wQuery` ma senza bottoni) e arma
+  `DuelClient::last_reconnect_attempt`.
+- `DuelClient::TournamentReconnectTick()`, chiamata ogni frame da
+  `Game::MainLoop` mentre `isAwaitingReconnect` e' vero (stesso schema
+  gia' in uso per `DuelClient::try_needed`, poche righe sopra nello
+  stesso loop): ritenta `StartClient()` con host/porta/password/nome
+  **mai scritti su disco** — restano in memoria in `dInfo.secret`/
+  `ebNickName` dal `JoinFromDeepLink` originale (FASE 75), perche' il
+  processo non si e' mai fermato: e' solo la rete che e' caduta. Stesso
+  meccanismo che `JoinFromDiscord` usa gia' per lo stesso scopo.
+- Il segnale di rientro riuscito e' `STOC_CATCHUP(false)`: **e' lo stesso
+  meccanismo gia' usato per uno spettatore che si unisce a meta' duello**
+  (`isCatchingUp`, usato in tutto `duelclient.cpp` da prima di questa
+  fase), non uno nuovo — verificato leggendo
+  `src/Multirole/Room/State/Dueling.cpp` della FASE 76a
+  (`~/Progetti/multirole-fedelex-76`, commit `5f7cd93`): il server
+  incornicia il replay della cache per-posto in
+  `MakeCatchUp(true)/(false)` esattamente come gia' fa per il percorso
+  spettatore nella stessa funzione. La posizione del giocatore
+  (`selftype`/`dInfo.player_type`) non ha bisogno di un nuovo
+  `STOC_TYPE_CHANGE` dal server (che infatti il codice letto non manda
+  mai durante un `Event::Reconnect`): non viene mai azzerata da una
+  caduta ne' da `StartClient()`, quindi al rientro vale ancora quella di
+  prima del drop — **punto di risalita del brief risolto per
+  costruzione**, non aggirato (stesso stile di FASE 75 coi suoi due
+  rischi).
+- `ReplayPrompt()`/`ERROR_TYPE::JOINERROR`: un `JOINERROR` esplicito
+  ricevuto mentre si attende un rientro chiude per davvero il duello
+  (sysstring 1398, "Non e' stato possibile rientrare: il tavolo non e'
+  piu' disponibile per te"), eseguendo solo ora la pulizia rimandata alla
+  caduta — `ReplayPrompt()` prende `gMutex` da solo, quindi nel nuovo ramo
+  gira PRIMA del `lock_guard`, mai dentro (un errore di questo tipo
+  sarebbe stato un deadlock silenzioso al primo utilizzo, trovato leggendo
+  il codice prima di scriverlo, non in fase di test).
+- `ConnectTimeout`: un tentativo di rientro il cui connect scade (5s,
+  nessuna risposta) non deve piu' mostrare la pulizia da lobby (sysstring
+  1400) ne' abbandonare il match in corso — resta in attesa del prossimo
+  tick. Trovato leggendo il codice per capire ogni percorso che un
+  tentativo di `StartClient()` puo' imboccare, non durante la scrittura:
+  senza questa guardia, un semplice timeout di rete durante UN tentativo
+  di rientro avrebbe chiuso la partita al posto di aspettare il
+  prossimo giro.
+- `gframe/event_handler.cpp`, `ClientField::OnEvent`: un'unica guardia in
+  testa (`tournament_mode::ReconnectBlocksInput`) inghiotte ogni evento di
+  tastiera e mouse mentre si rientra — e' il ricevitore eventi unico per
+  tutta la durata di un duello (`STOC_DUEL_START` lo imposta), quindi una
+  guardia sola copre click sulle carte, bottoni e scorciatoie.
+- `strings/fedelex.conf`: due sysstring nuove (1397, 1398), in **italiano**
+  a differenza di 1395/1396 (inglese, FASE 75b) — questa volta il testo
+  e' quotato alla lettera nel brief e nel documento di design, non una
+  scelta libera di traduzione, e coerente con le stringhe di chat che il
+  server della FASE 76a manda gia' in italiano per lo stesso evento
+  (`I18N.cpp`, `CLIENT_ROOM_FEDELEX_DISCONNECTED`/`RECONNECTED`).
+
+**Build e test.** `./premake5 --file=tests/premake5.lua gmake2 && make -C
+tests/build config=release && ./bin/banlist_tests` → verde,
+`tournament_mode_tests: 33 checks, 0 failures` (gli altri 2 fallimenti
+preesistenti di `banlist_tests` sono una fixture mancante,
+`runtime/repositories/lflists/OCG.lflist.conf`, non versionata — non
+toccati da questa fase). Build Linux completa pulita da zero (rimosso
+`obj/x64/Release/ygoprodll` e ricompilato):
+`./premake5 gmake2 --no-core=true --sound=sfml --no-joystick=true
+--irrlicht-root=../irrlicht-custom && make -C build config=release_x64
+ygoprodll fedelex-launcher` → nessun warning nuovo (confrontati i file
+toccati uno per uno: ogni warning rimasto e' la stessa deprecazione
+preesistente di `fmt::sprintf` gia' nota dalle fasi precedenti, nessuno
+sulle righe aggiunte qui). `python3 banlist/scripts/controlla_documenti.py`
+dalla radice del vault: verde (75 asserzioni) — verifica solo lo stato del
+worktree principale (`fase-75b`), non ancora di questo ramo, perche'
+nessuna asserzione nuova e' stata aggiunta in questa fase.
+
+**CI del fork sul ramo `fase-76b`**: verde, run
+[37610570993](https://github.com/SeraphinFosfato/edopro-genesys-fedelex/actions/runs/37610570993)
+— `Test (banlist_tests)` success, `Manifesto artefatti (D218)` success,
+`build-windows` success, `Build Linux (client)` skipped (stesso pattern
+delle fasi precedenti, non una regressione).
+
+**Resta non verificato, honestamente**: nessun rientro reale contro il
+server della FASE 76a (worktree `~/Progetti/multirole-fedelex-76`,
+ancora senza un cancello dal vivo passato quando questa fase e' arrivata
+qui — nessun container di prova gia' acceso, costruirne uno avrebbe
+superato lo scope di una fase client, niente `DISPLAY` reale consentito
+per un client grafico comunque). Verificato invece, con la stessa onesta'
+di FASE 75/75b: lettura diretta del sorgente server (non supposizione) per
+capire cosa manda davvero al rientro, lettura del meccanismo client
+esistente (`isCatchingUp`) che gia' fa lo stesso lavoro per uno spettatore,
+compilazione pulita, suite di test verde. **Un caso limite dichiarato, non
+risolto**: se il tentativo di rientro arriva mentre la finestra lato
+server e' GIA' scaduta per una corsa (il server allora fa cadere il
+client su `SetupAsSpectator`, stesso `STOC_CATCHUP` usato per un successo
+vero — letto in `Dueling.cpp`), il client qui smette silenziosamente di
+aspettare e mostra il duello come spettatore, senza un messaggio dedicato
+che distingua questo caso da un rientro riuscito. E' un caso limite di una
+corsa, non il percorso principale: P-42 in `SOSPESI.md` lo tiene aperto.
+
+---
+
 ## 1. Il problema, in una riga
 
 L'aggiornatore attuale vive **dentro** il client: il codice che esegue
