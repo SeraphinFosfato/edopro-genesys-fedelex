@@ -769,8 +769,9 @@ socket.
   riaprono la connessione allo stesso modo. Lo spettatore entra dal link come
   ogni altro giocatore. Invariati: ospitare in LAN, ingresso per IP, replay, IA,
   Discord.
-- **Voce nostra** in `tools/release/installer/installer-data/configs.json`:
-  `Fedelex`, `fedelex-duelli.quoll-ruffe.ts.net`, porta 443, `tls: true`.
+- **Voce nostra**: `Fedelex`, `fedelex-duelli.quoll-ruffe.ts.net`, porta 443, `tls: true`.
+  Scritta in `installer-data/configs.json` dalla 83; **dalla 83c vive nell'eseguibile**
+  (vedi "83c" sotto), perche' l'aggiornamento non consegna `configs.json`.
 
 **Cancelli.**
 
@@ -825,6 +826,52 @@ Una revisione in sola lettura (sorgente di libevent 2.1.12) ha chiesto sette cor
   corrisponde per nome e resta in chiaro (vedi SOSPESI se Opus decide di chiuderlo).
 - **Chiusura.** `WriteToServer` si conta in `client_writers` e controlla `client_open`; `ClientThread` chiude il cancello e aspetta i writer
   prima di liberare `client_bev`.
+
+### 83c: il server Fedelex arriva con l'eseguibile, non con `configs.json` (2026-10-10)
+
+**Il difetto.** L'aggiornamento automatico consegna soltanto l'eseguibile (`ygoprodll`, role `simulator`) e
+`fedelex.conf` (role `strings`): sono i soli role che il client conosce (`gframe/update_verify.cpp`). La voce
+"Fedelex" stava solo in `installer-data/configs.json`, che l'aggiornamento non porta mai. Chi si aggiornava
+aveva quindi l'eseguibile capace di TLS ma nessun server TLS in lista: un link `fedelex://` verso il nome pubblico
+non trovava `FindTlsServer` e partiva **in chiaro** verso un indirizzo che parla solo TLS, che lo scarta. Giocare
+voleva dire reinstallare a mano. (Letto sul manifesto pubblicato il 2026-10-10: `launcher_files` ha solo
+`ygoprodll`/`ygoprodll.exe` con role `simulator` e `fedelex.conf` con role `strings`.)
+
+**La forma.** Il server e' **compilato nell'eseguibile**, che e' l'unica cosa che l'aggiornamento porta a tutti.
+- `gframe/server_tls.cpp`: `kBuiltinTlsServers`, una lista costante, oggi una voce (nome `Fedelex`, indirizzo
+  `fedelex-duelli.quoll-ruffe.ts.net`, porta 443).
+  <!-- verifica: grep -qF '{ "Fedelex", "fedelex-duelli.quoll-ruffe.ts.net", 443 }' EdoproForkGSY/edopro_custom/gframe/server_tls.cpp -->
+- `ShouldAddBuiltinTlsServer(voce, gia_caricati)`: funzione pura (nessun irrlicht), la decisione "aggiungi / non aggiungere".
+  Non aggiunge solo se esiste gia' una voce **TLS** che corrisponde per nome e porta (`TlsServerMatches`: maiuscole e punto
+  finale ignorati). Una voce in chiaro con lo stesso nome non conta; lo stesso nome su un'altra porta e' un altro servizio.
+- `Game::LoadServers()` (`gframe/game.cpp`) la chiama **dopo** aver letto `user_configs` e `configs`, quindi una voce
+  scritta a mano per lo stesso nome e porta vince e non si ritrova un doppione. Come ogni server TLS, non entra nel menu a
+  tendina della lobby.
+  <!-- verifica: grep -qF 'server_tls::ShouldAddBuiltinTlsServer(builtin, configured)' EdoproForkGSY/edopro_custom/gframe/game.cpp -->
+- La voce **esce** da `installer-data/configs.json`: una fonte sola, il codice. Il meccanismo generico `"tls": true` in
+  `configs.json` resta com'e' per chi vuole aggiungere altri server cifrati.
+  <!-- verifica(NON): grep -q 'fedelex-duelli' EdoproForkGSY/edopro_custom/tools/release/installer/installer-data/configs.json -->
+
+**`LoadServers()` e' chiamata una volta sola** (`Game::Initialize`). Se lo fosse piu' di una volta, la voce incorporata
+della prima chiamata sarebbe gia' in `ServerLobby::serversVector` e la seconda non la raddoppierebbe: il controllo guarda
+il vettore, non solo i file di configurazione.
+
+**Cancelli.**
+- **1 (funzioni pure)**: 4 funzioni di test nuove in `tests/server_tls_tests.cpp` (la lista contiene esattamente la voce
+  sopra; aggiunge su lista vuota, senza TLS, con una voce in chiaro dello stesso nome, con un altro server TLS; non
+  aggiunge se c'e' gia' la stessa voce TLS, anche con maiuscole diverse o punto finale; aggiunge se lo stesso nome e' su
+  un'altra porta). Rosso prima (stub che non aggiunge nulla: `server_tls_tests: 47 checks, 6 failures`), verde dopo
+  (`50 checks, 0 failures`). I due FAIL su `OCG.lflist.conf` assente in locale non contano.
+- **2 (build Linux)**: `tools/release/build_linux.sh release` pulita da zero, compila e linka, nessun avviso nuovo.
+- **3 (prova sull'artefatto)**: `strings bin/x64/release/ygoprodll | grep fedelex-duelli` stampa
+  `fedelex-duelli.quoll-ruffe.ts.net`; lo stesso comando sul `ygoprodll` costruito dal ramo `fase-83` (prima della 83c)
+  non stampa nulla, quindi la prova distingue. Non e' una `<!-- verifica -->`: il binario non sta nel repo.
+- **4 (CI)**: vedi lo Stato della FASE 83c in PHASES.md (id della run e job per job).
+
+**Non verificato.** `Game::LoadServers()` e' stata solo compilata, mai eseguita (niente `DISPLAY`, irrlicht): la decisione
+e' provata dalla funzione pura, il collegamento in `LoadServers` dalla compilazione. Nessun client aggiornato davvero da
+una release vera: la 83c non e' ancora in nessuna release.
+
 ## 1. Il problema, in una riga
 
 L'aggiornatore attuale vive **dentro** il client: il codice che esegue
