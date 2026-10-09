@@ -52,6 +52,8 @@ std::atomic<bool> DuelClient::answered{ false };
 event_base* DuelClient::client_base = nullptr;
 bufferevent* DuelClient::client_bev = nullptr;
 bufferevent* DuelClient::client_tls_raw = nullptr;
+std::atomic<bool> DuelClient::client_open{ false };
+std::atomic<int> DuelClient::client_writers{ 0 };
 bool DuelClient::client_is_tls = false;
 std::string DuelClient::temp_tls_name;
 bool DuelClient::is_closing = false;
@@ -278,6 +280,7 @@ bool DuelClient::StartClient(const epro::Address& ip, uint16_t port, uint32_t ga
 			return false;
 		}
 	}
+	client_open = true;
 	connect_state = 0x1;
 	rnd.seed(time(0));
 	if(!create_game) {
@@ -495,6 +498,11 @@ void DuelClient::ClientThread() {
 	cv.notify_one();
 	to_analyze_mutex.unlock();
 	parsing_thread.join();
+	// No WriteToServer() may be using client_bev (or its raw socket's lock)
+	// while it is freed: close the gate, then wait out the writers inside.
+	client_open = false;
+	while(client_writers.load() != 0)
+		epro::this_thread::sleep_for(std::chrono::milliseconds(1));
 	bufferevent_free(client_bev);
 	event_base_free(client_base);
 	connect_state = 0;

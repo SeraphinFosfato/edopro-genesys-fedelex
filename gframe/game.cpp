@@ -2609,7 +2609,7 @@ bool Game::MainLoop() {
 					// own "Surrender" button uses (CTOS_SURRENDER over the
 					// network, event_handler.cpp) — a safe no-op when there
 					// is no live connection to surrender to
-					// (DuelClient::SendPacketToServer's own client_bev
+					// (DuelClient::SendPacketToServer's own client_open
 					// guard), so this needs no separate "is this a real
 					// online duel" check of its own.
 					if(dInfo.isInDuel)

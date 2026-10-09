@@ -48,6 +48,14 @@ private:
 	// of its own). Null for a plain connection.
 	static bufferevent* client_tls_raw;
 	static bool client_is_tls;
+	// WriteToServer()'s gate against ClientThread() freeing client_bev under
+	// it. client_open is true from a successful StartClient() until the
+	// connection is being torn down; client_writers counts the writers inside
+	// WriteToServer(). The closer clears client_open, then waits for
+	// client_writers to reach 0, and only then frees (both seq_cst: a writer
+	// that saw "open" is counted before the closer looks).
+	static std::atomic<bool> client_open;
+	static std::atomic<int> client_writers;
 	// The popup for a connection that never got established (sys string 1400,
 	// or, for a TLS connection, one sentence covering network/certificate/name
 	// — the reason itself is in the log, written by gframe/tls_client.cpp).
@@ -150,13 +158,17 @@ public:
 	// filter is unlocked and the raw socket's lock is what keeps the writer
 	// and the event loop from touching the TLS session at the same time.
 	static void WriteToServer(const void* data, size_t len) {
-		auto* lock_bev = client_tls_raw ? client_tls_raw : client_bev;
-		bufferevent_lock(lock_bev);
-		bufferevent_write(client_bev, data, len);
-		bufferevent_unlock(lock_bev);
+		client_writers.fetch_add(1);
+		if(client_open.load()) {
+			auto* lock_bev = client_tls_raw ? client_tls_raw : client_bev;
+			bufferevent_lock(lock_bev);
+			bufferevent_write(client_bev, data, len);
+			bufferevent_unlock(lock_bev);
+		}
+		client_writers.fetch_sub(1);
 	}
 	static void SendPacketToServer(uint8_t proto) {
-		if(!client_bev)
+		if(!client_open)
 			return;
 		const auto res = [proto] {
 			const uint16_t message_size = sizeof(proto);
@@ -169,7 +181,7 @@ public:
 	}
 	template<typename ST>
 	static void SendPacketToServer(uint8_t proto, const ST& st) {
-		if(!client_bev)
+		if(!client_open)
 			return;
 		const auto res = [proto, &st] {
 			static constexpr uint16_t message_size = sizeof(proto) + sizeof(st);
@@ -182,7 +194,7 @@ public:
 		WriteToServer(res.data(), res.size());
 	}
 	static void SendBufferToServer(uint8_t proto, void* buffer, size_t len) {
-		if(!client_bev)
+		if(!client_open)
 			return;
 		const auto res = [proto, buffer, len] {
 			const uint16_t message_size = static_cast<uint16_t>(1 + len);
