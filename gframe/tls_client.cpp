@@ -360,7 +360,11 @@ bufferevent* NewClient(event_base* base, const sockaddr* addr, int addrlen, cons
 	SSL_set_bio(t->ssl, rbio, wbio); // the SSL owns both from here
 	if(auto* ip = a2i_IPADDRESS(options.hostname.c_str())) {
 		ASN1_OCTET_STRING_free(ip);
-		X509_VERIFY_PARAM_set1_ip_asc(SSL_get0_param(t->ssl), options.hostname.c_str()); // no SNI for a literal
+		// no SNI for a literal; and never a connection whose identity check was not armed
+		if(X509_VERIFY_PARAM_set1_ip_asc(SSL_get0_param(t->ssl), options.hostname.c_str()) != 1) {
+			Log(t.get(), "TLS: indirizzo del server non valido: '" + options.hostname + "'");
+			return nullptr;
+		}
 	} else {
 		SSL_set_tlsext_host_name(t->ssl, options.hostname.c_str());
 		SSL_set_hostflags(t->ssl, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
