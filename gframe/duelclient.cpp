@@ -34,6 +34,8 @@
 #include "server_lobby.h"
 #include "deep_link.h"
 #include "tournament_mode.h"
+#include "tls_client.h"
+#include "server_tls.h"
 #include "logging.h"
 
 #define DEFAULT_DUEL_RULE 5
@@ -49,6 +51,11 @@ bool DuelClient::is_local_host = false;
 std::atomic<bool> DuelClient::answered{ false };
 event_base* DuelClient::client_base = nullptr;
 bufferevent* DuelClient::client_bev = nullptr;
+bufferevent* DuelClient::client_tls_raw = nullptr;
+std::atomic<bool> DuelClient::client_open{ false };
+std::atomic<int> DuelClient::client_writers{ 0 };
+bool DuelClient::client_is_tls = false;
+std::string DuelClient::temp_tls_name;
 bool DuelClient::is_closing = false;
 uint64_t DuelClient::select_hint = 0;
 std::wstring DuelClient::event_string;
@@ -125,7 +132,6 @@ void DuelClient::JoinFromDeepLink(const std::string& uri) {
 		mainGame->PopupMessage(L"Il link ricevuto non e' valido: non e' stato possibile entrare nel tavolo.");
 		return;
 	}
-	auto host = epro::Host::resolve(epro::stringview(link.host), link.port);
 	// design/server-duelli.md §7: "un link non puo' far entrare il client
 	// in un server sconosciuto" — the same rule discord_wrapper.cpp's
 	// OnJoin() already applies to a Discord secret, reused here rather than
@@ -133,9 +139,28 @@ void DuelClient::JoinFromDeepLink(const std::string& uri) {
 	// 1468, "do you still want to connect?"), there is no override — a
 	// fedelex:// link is something a stranger could craft and send, a
 	// Discord invite is something a friend already chose to share.
-	if(!ServerLobby::IsKnownHost(host)) {
-		ErrorLog("Link fedelex:// verso un server non elencato: {}:{}.", epro::format_address(host.address), host.port);
-		mainGame->PopupMessage(L"Questo link punta a un server non tra quelli conosciuti dal client: ignorato.");
+	//
+	// FASE 83: a server that declares `tls` is recognised by the NAME in the
+	// link and then connected to, encrypted, under the name from OUR list
+	// (never the link's spelling); for the others the comparison stays the
+	// resolved address, as before.
+	std::string tls_name;
+	epro::Host host;
+	try {
+		if(const auto* tls_server = ServerLobby::FindTlsServer(link.host, link.port)) {
+			tls_name = tls_server->address;
+			host = epro::Host::resolve(epro::stringview(tls_name), link.port);
+		} else {
+			host = epro::Host::resolve(epro::stringview(link.host), link.port);
+			if(!ServerLobby::IsKnownHost(host)) {
+				ErrorLog("Link fedelex:// verso un server non elencato: {}:{}.", epro::format_address(host.address), host.port);
+				mainGame->PopupMessage(L"Questo link punta a un server non tra quelli conosciuti dal client: ignorato.");
+				return;
+			}
+		}
+	} catch(const std::exception& e) {
+		ErrorLog("Link fedelex:// : impossibile risolvere il server '{}': {}.", link.host, e.what());
+		mainGame->PopupMessage(L"Impossibile raggiungere il server del link: controlla la connessione e riprova.");
 		return;
 	}
 	mainGame->isHostingOnline = true;
@@ -145,7 +170,7 @@ void DuelClient::JoinFromDeepLink(const std::string& uri) {
 	// setting it here is the only hook needed for the server to see the
 	// name the permit expects, with no change to the wire protocol.
 	mainGame->ebNickName->setText(link.nome.data());
-	if(!StartClient(host.address, host.port, /*gameid=*/0, /*create_game=*/false))
+	if(!StartClient(host.address, host.port, /*gameid=*/0, /*create_game=*/false, tls_name))
 		return;
 	// StartClient() above unconditionally resets isTournamentRoom to false
 	// (same place it resets isCatchingUp/checkRematch) — set it true only
@@ -186,7 +211,9 @@ void DuelClient::TournamentReconnectTick() {
 	if(!tournament_mode::ReconnectAttemptDue(elapsedMs < 0 ? 0 : static_cast<uint32_t>(elapsedMs), kReconnectIntervalMs))
 		return;
 	last_reconnect_attempt = now;
-	StartClient(mainGame->dInfo.secret.host.address, mainGame->dInfo.secret.host.port, /*gameid=*/0, /*create_game=*/false);
+	// FASE 83: rejoin the same way the original join was made (encrypted or
+	// not); StartClient() copies the name before it overwrites temp_tls_name.
+	StartClient(mainGame->dInfo.secret.host.address, mainGame->dInfo.secret.host.port, /*gameid=*/0, /*create_game=*/false, temp_tls_name);
 	// StartClient() unconditionally resets both flags (same place it
 	// resets isCatchingUp) so they can never leak into a connection this
 	// function didn't ask for — restore them immediately after, same
@@ -195,7 +222,7 @@ void DuelClient::TournamentReconnectTick() {
 	mainGame->dInfo.isAwaitingReconnect = true;
 }
 
-bool DuelClient::StartClient(const epro::Address& ip, uint16_t port, uint32_t gameid, bool create_game) {
+bool DuelClient::StartClient(const epro::Address& ip, uint16_t port, uint32_t gameid, bool create_game, const std::string& tls_name) {
 	if(connect_state)
 		return false;
 	client_base = event_base_new();
@@ -215,19 +242,45 @@ bool DuelClient::StartClient(const epro::Address& ip, uint16_t port, uint32_t ga
 		sin6.sin6_port = htons(port);
 	} else
 		return false;
-	client_bev = bufferevent_socket_new(client_base, -1, BEV_OPT_CLOSE_ON_FREE | BEV_OPT_THREADSAFE);
-	bufferevent_setcb(client_bev, ClientRead, nullptr, ClientEvent, (void*)create_game);
-	bufferevent_enable(client_bev, EV_READ);
+	const int sin_len = ip.family == ip.INET ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
 	temp_ip = ip;
 	temp_port = port;
-	if(bufferevent_socket_connect(client_bev, reinterpret_cast<sockaddr*>(&sin),
-								  ip.family == ip.INET ? sizeof(sockaddr_in) : sizeof(sockaddr_in6)) < 0) {
-		bufferevent_free(client_bev);
-		event_base_free(client_base);
-		client_bev = 0;
-		client_base = 0;
-		return false;
+	temp_tls_name = tls_name;
+	client_is_tls = !tls_name.empty();
+	client_tls_raw = nullptr;
+	if(client_is_tls) {
+		// FASE 83 (gframe/tls_client.h): the same bufferevent contract as the
+		// plain branch below, except CONNECTED only arrives once the TLS
+		// handshake is done and the certificate has been verified for
+		// tls_name. The reason for any failure goes to the log (line by line,
+		// from the module); the popup says only that the encrypted
+		// connection did not work (ConnectFailedMessage()).
+		tls::Options options;
+		options.hostname = tls_name;
+		if(!gGameConfig->ssl_certificate_path.empty() && Utils::FileExists(Utils::ToPathString(gGameConfig->ssl_certificate_path)))
+			options.ca_file = gGameConfig->ssl_certificate_path;
+		options.log = [](const std::string& line) { ErrorLog("{}", line); };
+		client_bev = tls::NewClient(client_base, reinterpret_cast<sockaddr*>(&sin), sin_len, options,
+									ClientRead, ClientEvent, (void*)create_game, &client_tls_raw);
+		if(!client_bev) {
+			event_base_free(client_base);
+			client_base = 0;
+			client_tls_raw = nullptr;
+			return false;
+		}
+	} else {
+		client_bev = bufferevent_socket_new(client_base, -1, BEV_OPT_CLOSE_ON_FREE | BEV_OPT_THREADSAFE);
+		bufferevent_setcb(client_bev, ClientRead, nullptr, ClientEvent, (void*)create_game);
+		bufferevent_enable(client_bev, EV_READ);
+		if(bufferevent_socket_connect(client_bev, reinterpret_cast<sockaddr*>(&sin), sin_len) < 0) {
+			bufferevent_free(client_bev);
+			event_base_free(client_base);
+			client_bev = 0;
+			client_base = 0;
+			return false;
+		}
 	}
+	client_open = true;
 	connect_state = 0x1;
 	rnd.seed(time(0));
 	if(!create_game) {
@@ -262,6 +315,11 @@ bool DuelClient::StartClient(const epro::Address& ip, uint16_t port, uint32_t ga
 	client_thread = epro::thread(ClientThread);
 	return true;
 }
+epro::wstringview DuelClient::ConnectFailedMessage() {
+	if(client_is_tls)
+		return L"Connessione cifrata al server non riuscita. Il motivo e' nel file di log.";
+	return gDataManager->GetSysString(1400);
+}
 void DuelClient::ConnectTimeout([[maybe_unused]] evutil_socket_t fd, [[maybe_unused]] short events, [[maybe_unused]] void* arg) {
 	if(connect_state & 0x7)
 		return;
@@ -289,7 +347,7 @@ void DuelClient::ConnectTimeout([[maybe_unused]] evutil_socket_t fd, [[maybe_unu
 			if(!mainGame->wLanWindow->isVisible())
 				mainGame->ShowElement(mainGame->wLanWindow);
 		}
-		mainGame->PopupMessage(gDataManager->GetSysString(1400));
+		mainGame->PopupMessage(ConnectFailedMessage());
 	}
 	event_base_loopbreak(client_base);
 }
@@ -440,10 +498,16 @@ void DuelClient::ClientThread() {
 	cv.notify_one();
 	to_analyze_mutex.unlock();
 	parsing_thread.join();
+	// No WriteToServer() may be using client_bev (or its raw socket's lock)
+	// while it is freed: close the gate, then wait out the writers inside.
+	client_open = false;
+	while(client_writers.load() != 0)
+		epro::this_thread::sleep_for(std::chrono::milliseconds(1));
 	bufferevent_free(client_bev);
 	event_base_free(client_base);
 	connect_state = 0;
 	client_bev = 0;
+	client_tls_raw = nullptr;
 	client_base = 0;
 }
 
@@ -515,7 +579,7 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 				if(!mainGame->wLanWindow->isVisible())
 					mainGame->ShowElement(mainGame->wLanWindow);
 			}
-			mainGame->PopupMessage(gDataManager->GetSysString(1400));
+			mainGame->PopupMessage(ConnectFailedMessage());
 		} else if(connect_state == 0x7) {
 			if(!mainGame->dInfo.isInDuel && !mainGame->is_building) {
 				std::lock_guard<epro::mutex> lock(mainGame->gMutex);

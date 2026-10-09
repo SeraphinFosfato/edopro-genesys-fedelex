@@ -33,6 +33,16 @@
 
 namespace ygo {
 
+// FASE 83b: someone who types the address of a server that declares
+// "tls": true by hand must get the encrypted connection too, under the name
+// from OUR list (as the fedelex:// link does, DuelClient::JoinFromDeepLink):
+// otherwise nickname and password would leave in clear towards a server that
+// only speaks TLS. Empty = not a TLS server, the plain connection as before.
+static std::string TlsNameForTypedHost(uint16_t port) {
+	const auto* server = ServerLobby::FindTlsServer(Utils::ToUTF8IfNeeded(mainGame->ebJoinHost->getText()), port);
+	return server ? server->address : std::string();
+}
+
 static void UpdateDeck() {
 	gGameConfig->lastdeck = mainGame->cbDeckSelect->getItem(mainGame->cbDeckSelect->getSelected());
 	const auto& deck = mainGame->deckBuilder.GetCurrentDeck();
@@ -266,7 +276,7 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 					gGameConfig->lasthost = mainGame->ebJoinHost->getText();
 					gGameConfig->lastport = mainGame->ebJoinPort->getText();
 					mainGame->dInfo.secret.pass = mainGame->ebJoinPass->getText();
-					if(DuelClient::StartClient(parsed.address, parsed.port, 0, false)) {
+					if(DuelClient::StartClient(parsed.address, parsed.port, 0, false, TlsNameForTypedHost(parsed.port))) {
 						mainGame->btnCreateHost->setEnabled(false);
 						mainGame->btnJoinHost->setEnabled(false);
 						mainGame->btnJoinCancel->setEnabled(false);
@@ -849,7 +859,7 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 					gGameConfig->lasthost = mainGame->ebJoinHost->getText();
 					gGameConfig->lastport = mainGame->ebJoinPort->getText();
 					mainGame->dInfo.secret.pass = mainGame->ebJoinPass->getText();
-					if(DuelClient::StartClient(parsed.address, parsed.port, 0, false)) {
+					if(DuelClient::StartClient(parsed.address, parsed.port, 0, false, TlsNameForTypedHost(parsed.port))) {
 						mainGame->btnCreateHost->setEnabled(false);
 						mainGame->btnJoinHost->setEnabled(false);
 						mainGame->btnJoinCancel->setEnabled(false);

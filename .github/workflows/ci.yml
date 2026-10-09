@@ -37,7 +37,7 @@ jobs:
       - name: Installa nlohmann-json
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends nlohmann-json3-dev
+          sudo apt-get install -y --no-install-recommends nlohmann-json3-dev libssl-dev
 
       - name: Installa premake5 pinnato (v5.0.0-beta2)
         run: |

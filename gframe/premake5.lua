@@ -227,6 +227,12 @@ local ygopro_config=function(static_core)
 		filter "system:linux"
 			links { "ssl", "crypto", "z", "jpeg" }
 	end
+	-- FASE 83: gframe/tls_client.cpp talks to OpenSSL directly (the vcpkg
+	-- branch above already links it; a system-library build did not).
+	if not _OPTIONS["vcpkg-root"] then
+		filter "system:linux"
+			links { "ssl", "crypto" }
+	end
 
 	if not os.istarget("windows") then
 		if _OPTIONS["vcpkg-root"] then

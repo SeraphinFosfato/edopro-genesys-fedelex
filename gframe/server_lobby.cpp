@@ -17,6 +17,7 @@
 #include "custom_skin_enum.h"
 #include "game_config.h"
 #include "address.h"
+#include "server_tls.h"
 #include "fmt.h"
 #include "curl.h"
 
@@ -172,7 +173,9 @@ void ServerLobby::GetRoomsThread() {
 	Utils::SetThreadName("RoomlistFetch");
 	auto selected = mainGame->serverChoice->getSelected();
 	if (selected < 0) return;
-	const auto& serverInfo = serversVector[selected];
+	// FASE 83: TLS servers are not in the combo, so its position is no longer
+	// the vector's: the index travels as the item's data (Game::LoadServers).
+	const auto& serverInfo = serversVector[mainGame->serverChoice->getItemData(selected)];
 
 	mainGame->btnLanRefresh2->setEnabled(false);
 	mainGame->serverChoice->setEnabled(false);
@@ -261,8 +264,15 @@ void ServerLobby::GetRoomsThread() {
 }
 bool ServerLobby::IsKnownHost(epro::Host host) {
 	return std::find_if(serversVector.begin(), serversVector.end(), [&](const ServerInfo& konwn_host) {
-		return konwn_host.Resolved() == host;
+		return !konwn_host.tls && konwn_host.Resolved() == host;
 	}) != serversVector.end();
+}
+const ServerInfo* ServerLobby::FindTlsServer(const std::string& name, uint16_t port) {
+	for(const auto& server : serversVector) {
+		if(server.tls && server_tls::TlsServerMatches(server.address, server.duelport, name, port))
+			return &server;
+	}
+	return nullptr;
 }
 void ServerLobby::RefreshRooms() {
 	if(is_refreshing)
@@ -309,7 +319,7 @@ void ServerLobby::JoinServer(bool host) {
 	mainGame->ebNickName->setText(mainGame->ebNickNameOnline->getText());
 	auto selected = mainGame->serverChoice->getSelected();
 	if (selected < 0) return;
-	const auto& serverinfo = serversVector[selected].Resolved();
+	const auto& serverinfo = serversVector[mainGame->serverChoice->getItemData(selected)].Resolved();
 	if(serverinfo.address.family == epro::Address::UNK)
 		return;
 	if(host) {

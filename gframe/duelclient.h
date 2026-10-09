@@ -42,6 +42,24 @@ private:
 	static uint32_t hosted_lflist_hash;
 	static event_base* client_base;
 	static bufferevent* client_bev;
+	// FASE 83 (gframe/tls_client.h): for a TLS connection client_bev is a
+	// filter on top of this raw socket bufferevent, and the raw socket's
+	// lock is the ONE lock everything is serialised on (the filter has none
+	// of its own). Null for a plain connection.
+	static bufferevent* client_tls_raw;
+	static bool client_is_tls;
+	// WriteToServer()'s gate against ClientThread() freeing client_bev under
+	// it. client_open is true from a successful StartClient() until the
+	// connection is being torn down; client_writers counts the writers inside
+	// WriteToServer(). The closer clears client_open, then waits for
+	// client_writers to reach 0, and only then frees (both seq_cst: a writer
+	// that saw "open" is counted before the closer looks).
+	static std::atomic<bool> client_open;
+	static std::atomic<int> client_writers;
+	// The popup for a connection that never got established (sys string 1400,
+	// or, for a TLS connection, one sentence covering network/certificate/name
+	// — the reason itself is in the log, written by gframe/tls_client.cpp).
+	static epro::wstringview ConnectFailedMessage();
 	static bool is_closing;
 	static uint64_t select_hint;
 	static std::wstring event_string;
@@ -65,6 +83,11 @@ public:
 	static epro::Address temp_ip;
 	static uint16_t temp_port;
 	static uint16_t temp_ver;
+	// FASE 83: the name a TLS connection was made for ("" = plain). Kept
+	// next to temp_ip/temp_port because the same code paths that remember
+	// those to connect AGAIN (the version retry in Game::MainLoop, the
+	// tournament rejoin) must reconnect the same way.
+	static std::string temp_tls_name;
 	static bool try_needed;
 	static bool is_local_host;
 	static std::atomic<bool> answered;
@@ -93,7 +116,9 @@ public:
 	// (dInfo.secret, already set and untouched since the original join —
 	// nothing here is written to disk, the process never stopped running).
 	static void TournamentReconnectTick();
-	static bool StartClient(const epro::Address& ip, uint16_t port, uint32_t gameid = 0, bool create_game = true);
+	// `tls_name` non-empty = encrypted connection to that server name (SNI and
+	// certificate check); empty = plain TCP, exactly as before FASE 83.
+	static bool StartClient(const epro::Address& ip, uint16_t port, uint32_t gameid = 0, bool create_game = true, const std::string& tls_name = std::string());
 	static void ConnectTimeout(evutil_socket_t fd, short events, void* arg);
 	static void StopClient(bool is_exiting = false);
 	static void ClientRead(bufferevent* bev, void* ctx);
@@ -129,8 +154,21 @@ public:
 		return SetResponse<int32_t>(respI);
 	}
 	static void SendResponse();
+	// The only way bytes may reach client_bev: on a TLS connection the
+	// filter is unlocked and the raw socket's lock is what keeps the writer
+	// and the event loop from touching the TLS session at the same time.
+	static void WriteToServer(const void* data, size_t len) {
+		client_writers.fetch_add(1);
+		if(client_open.load()) {
+			auto* lock_bev = client_tls_raw ? client_tls_raw : client_bev;
+			bufferevent_lock(lock_bev);
+			bufferevent_write(client_bev, data, len);
+			bufferevent_unlock(lock_bev);
+		}
+		client_writers.fetch_sub(1);
+	}
 	static void SendPacketToServer(uint8_t proto) {
-		if(!client_bev)
+		if(!client_open)
 			return;
 		const auto res = [proto] {
 			const uint16_t message_size = sizeof(proto);
@@ -139,11 +177,11 @@ public:
 			res[2] = proto;
 			return res;
 		}();
-		bufferevent_write(client_bev, res.data(), res.size());
+		WriteToServer(res.data(), res.size());
 	}
 	template<typename ST>
 	static void SendPacketToServer(uint8_t proto, const ST& st) {
-		if(!client_bev)
+		if(!client_open)
 			return;
 		const auto res = [proto, &st] {
 			static constexpr uint16_t message_size = sizeof(proto) + sizeof(st);
@@ -153,10 +191,10 @@ public:
 			memcpy(res.data() + 3, &st, sizeof(st));
 			return res;
 		}();
-		bufferevent_write(client_bev, res.data(), res.size());
+		WriteToServer(res.data(), res.size());
 	}
 	static void SendBufferToServer(uint8_t proto, void* buffer, size_t len) {
-		if(!client_bev)
+		if(!client_open)
 			return;
 		const auto res = [proto, buffer, len] {
 			const uint16_t message_size = static_cast<uint16_t>(1 + len);
@@ -167,7 +205,7 @@ public:
 			memcpy(res.data() + 3, buffer, len);
 			return res;
 		}();
-		bufferevent_write(client_bev, res.data(), res.size());
+		WriteToServer(res.data(), res.size());
 	}
 
 	static void ReplayPrompt(bool need_header = false);
