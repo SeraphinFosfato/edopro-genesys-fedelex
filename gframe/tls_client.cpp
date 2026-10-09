@@ -342,6 +342,7 @@ bufferevent* NewClient(event_base* base, const sockaddr* addr, int addrlen, cons
 		return nullptr;
 	}
 	SSL_CTX_set_min_proto_version(t->sctx, TLS1_2_VERSION);
+	SSL_CTX_set_options(t->sctx, SSL_OP_NO_RENEGOTIATION); // a game connection never renegotiates
 	SSL_CTX_set_verify(t->sctx, SSL_VERIFY_PEER, nullptr);
 	if(!LoadTrust(t.get(), options))
 		return nullptr;
