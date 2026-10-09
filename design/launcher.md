@@ -808,6 +808,23 @@ al primo uso.
 
 ---
 
+
+### 83b: correzioni dalla revisione di sicurezza (2026-10-09)
+
+Una revisione in sola lettura (sorgente di libevent 2.1.12) ha chiesto sette correzioni, tutte fatte, ciascuna in un commit suo.
+- **Eventi differiti.** `gframe/tls_client.cpp` non usa piu' `bufferevent_trigger_event(..., BEV_TRIG_DEFER_CALLBACKS)` sul filtro:
+  CONNECTED/ERROR/EOF si accodano con `event_base_once()` e la callback prende `bufferevent_lock(raw)` prima dell'eventcb dell'utente
+  (un registro dei contesti vivi evita un puntatore a un filtro gia' liberato). L'invariante in `tls_client.h` (tutto sotto il
+  lucchetto del socket grezzo) ora e' completo, riferimenti del filtro compresi. Fine connessione consegnata una volta sola.
+- **Identita'.** `X509_VERIFY_PARAM_set1_ip_asc` controllato (se fallisce, nessuna connessione); `SSL_OP_NO_RENEGOTIATION` sul contesto.
+- **Ancore.** Senza `ca_file`, su ogni piattaforma, oltre all'archivio di sistema si fidano ISRG Root X1 e X2 (`gframe/tls_roots.cpp`, PEM
+  da letsencrypt.org, impronta SHA-256 nel commento e nel test; verificata sul rapporto CCADB di Mozilla, perche' letsencrypt.org non
+  stampa le impronte). Motivo: Windows scarica le radici su richiesta solo con CryptoAPI, non quando OpenSSL legge l'archivio.
+- **Ingresso manuale.** L'indirizzo digitato a mano (`BUTTON_JOIN_HOST`, doppio clic su `LISTBOX_LAN_HOST`) passa da `FindTlsServer(host, porta)`:
+  un server `tls: true` si raggiunge cifrato anche cosi'. NON coperto: l'IP numerico di un server TLS digitato al posto del nome non
+  corrisponde per nome e resta in chiaro (vedi SOSPESI se Opus decide di chiuderlo).
+- **Chiusura.** `WriteToServer` si conta in `client_writers` e controlla `client_open`; `ClientThread` chiude il cancello e aspetta i writer
+  prima di liberare `client_bev`.
 ## 1. Il problema, in una riga
 
 L'aggiornatore attuale vive **dentro** il client: il codice che esegue

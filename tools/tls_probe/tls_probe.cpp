@@ -4,7 +4,7 @@
 // connection did and exits 0 only when the handshake passed AND a reply came
 // back over the encrypted channel.
 //
-//   g++ -std=c++17 -Igframe tools/tls_probe/tls_probe.cpp gframe/tls_client.cpp -levent -levent_pthreads -lssl -lcrypto -o tls_probe
+//   g++ -std=c++17 -Igframe tools/tls_probe/tls_probe.cpp gframe/tls_client.cpp gframe/tls_roots.cpp -levent -levent_pthreads -lssl -lcrypto -o tls_probe
 //   tls_probe <connect-to-address> <port> [--name <hostname>] [--ca <file>] [--edopro]
 //
 // <connect-to-address> is where TCP goes; --name is the hostname the
