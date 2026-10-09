@@ -77,6 +77,18 @@ void test_tls_match_needs_name_and_port() {
 	check(!TlsServerMatches(name, 443, "203.0.113.7", 443), "an address literal must never match a TLS server by name");
 }
 
+// FASE 83b (point 4): what someone types by hand in the "join by address"
+// window must find the TLS server (menu_handler.cpp asks FindTlsServer with
+// exactly the typed text and port), whatever the capitalisation or a root
+// dot; the same name on another port, or a lookalike, must not.
+void test_typed_by_hand_finds_the_tls_server() {
+	const std::string name = "fedelex-duelli.quoll-ruffe.ts.net";
+	check(TlsServerMatches(name, 443, "Fedelex-Duelli.Quoll-Ruffe.TS.net", 443), "a hand-typed name in other capitals must find the TLS server");
+	check(TlsServerMatches(name, 443, name + ".", 443), "a hand-typed name with a root dot must find the TLS server");
+	check(!TlsServerMatches(name, 443, "x" + name, 443), "a lookalike name must not be taken for the TLS server");
+	check(!TlsServerMatches(name, 443, name, 0), "port 0 (nothing typed) must not match");
+}
+
 // FASE 83b (point 7): the roots embedded for Windows machines whose "ROOT"
 // store lacks them. The fingerprints below are written here independently of
 // tls_roots.cpp, from Mozilla's CCADB "Included CA Certificate Report" of
@@ -124,6 +136,7 @@ int RunServerTlsTests() {
 	test_same_name_is_exact_otherwise();
 	test_same_name_empty_never_matches();
 	test_tls_match_needs_name_and_port();
+	test_typed_by_hand_finds_the_tls_server();
 	test_bundled_roots_are_the_published_ones();
 
 	std::printf("server_tls_tests: %d checks, %d failures\n", checks, failures);
