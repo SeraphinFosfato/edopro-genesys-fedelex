@@ -698,6 +698,116 @@ corsa, non il percorso principale: P-42 in `SOSPESI.md` lo tiene aperto.
 
 ---
 
+## Stato dell'implementazione (FASE 83)
+
+**Scritto il 2026-10-09 (Sonnet).** Worktree separato
+`EdoproForkGSY/edopro-fase-83`, ramo `fase-83` creato da `master`
+(`1a262c4bc`), pushato su `origin/fase-83`. Il worktree principale non e'
+stato toccato; niente merge, niente tag.
+
+La connessione di gioco ai server che lo dichiarano e' **cifrata (TLS)**.
+Questo cambia due cose dette sopra: il controllo "server noto" del link
+`fedelex://` (FASE 75, cancello 2) e il modo in cui `DuelClient` apre il
+socket.
+
+- **Campo `"tls": true`** nelle voci di `servers[]` di `configs.json`
+  (`gframe/server_tls.h`, `ParseTlsField`). Assente o `false` = comportamento
+  di prima, byte per byte (le voci di Project Ignis non sono cambiate). Un
+  valore che non sia un booleano **scarta la voce** con una riga nel log:
+  leggere `"tls": "true"` come "in chiaro" manderebbe in chiaro le password
+  dei posti a un server che l'operatore voleva cifrato. Una voce TLS non
+  richiede `roomaddress`/`roomlistport` e **non compare nell'elenco stanze**
+  (si entra solo dal link): non e' nel menu a tendina, ma occupa comunque il
+  suo posto in `ServerLobby::serversVector`, e il menu porta l'indice vero
+  come dato della voce (`getItemData`) invece di contare le posizioni.
+- **L'identita' di un server TLS e' il suo nome.** `ServerLobby::FindTlsServer`
+  confronta nome e porta del link con le voci TLS (senza distinguere maiuscole,
+  ignorando un solo punto finale; `TlsServerMatches`). `JoinFromDeepLink`
+  connette poi **col nome della nostra lista**, mai con quello scritto nel
+  link. `ServerLobby::IsKnownHost` (indirizzo risolto) resta il confronto per
+  tutti gli altri e ora **salta** le voci TLS: un indirizzo non prova niente per
+  un server cifrato, e un invito Discord verso l'IP di un server TLS resta
+  "sconosciuto" (sys string 1468) invece di passare.
+- **Come si cifra: un filtro libevent con OpenSSL** (`gframe/tls_client.h/.cpp`,
+  `bufferevent_filter_new` + memory BIO), non `bufferevent_openssl_socket_new`.
+  Motivo verificato: la cache vcpkg MinGW di edo9300 contiene `libevent`,
+  `libevent_core`, `libevent_extra` e nessun `libevent_openssl` ne'
+  `event2/bufferevent_ssl.h` (`ls .../installed/x86-mingw-static/lib`); ricompilare
+  libevent sarebbe stata una dipendenza nuova. La cache VS2022 che usa la CI
+  non e' stata scaricata a mano: il filtro non dipende da quella scelta. Un
+  unico percorso per Linux e Windows. OpenSSL c'era gia' (curl); su Linux a
+  sistema `gframe/premake5.lua` ora linka `ssl` e `crypto` (prima solo il ramo
+  vcpkg).
+- **Verifica obbligatoria, senza interruttore**: `SSL_VERIFY_PEER`, SNI = nome,
+  nome controllato sul certificato (`SSL_set1_host`; per un indirizzo letterale
+  `set1_ip_asc`, senza SNI), TLS 1.2 minimo. Nessun `verify=none`, nemmeno come
+  opzione. **Archivio dei certificati**: se esiste il `cacert.pem` esplicito
+  (`ssl_certificate_path`) si fida **solo** di quello, la stessa priorita' dei
+  curl handle (`gframe/curl.h`); su Windows legge l'archivio di sistema "ROOT"
+  (`CertOpenSystemStoreW`, D249 punto 1, quello che curl raggiunge con
+  `CURLSSLOPT_NATIVE_CA`); altrove i percorsi predefiniti di OpenSSL (che
+  rispettano `SSL_CERT_FILE`/`SSL_CERT_DIR`) piu' le posizioni delle
+  distribuzioni piu' comuni, perche' un `libssl` impacchettato porta i percorsi
+  della distribuzione che l'ha compilato.
+- **`CONNECTED` arriva solo a handshake finito e certificato verificato**; ogni
+  guasto (rete, handshake, certificato, nome) e' `BEV_EVENT_ERROR` e il motivo e'
+  gia' nel log, una riga ("certificato non accettato per '<nome>':
+  self-signed certificate", "hostname mismatch", "unable to get local issuer
+  certificate", "connessione di rete non riuscita: Connection refused",
+  "wrong version number" se la porta non parla TLS). L'utente vede «Connessione
+  cifrata al server non riuscita. Il motivo e' nel file di log.»
+  (`DuelClient::ConnectFailedMessage`), per tutte le cause.
+- **Un solo lucchetto.** Il filtro e' creato **senza** `BEV_OPT_THREADSAFE`:
+  con due lucchetti libevent li prenderebbe in ordine opposto (il ciclo di
+  eventi: socket poi filtro; chi scrive: filtro poi socket). Tutto si
+  serializza sul lucchetto del socket grezzo, e ogni scrittura verso il server
+  passa da `DuelClient::WriteToServer` (anche le tre `SendPacketToServer`).
+- **Rientro e nuovo tentativo di versione.** `StartClient(..., tls_name)`
+  ricorda il nome in `DuelClient::temp_tls_name`, accanto a `temp_ip`/
+  `temp_port`: `TournamentReconnectTick` (FASE 76b, passa da `StartClient`, non
+  serve un altro percorso) e il nuovo tentativo `try_needed` di `Game::MainLoop`
+  riaprono la connessione allo stesso modo. Lo spettatore entra dal link come
+  ogni altro giocatore. Invariati: ospitare in LAN, ingresso per IP, replay, IA,
+  Discord.
+- **Voce nostra** in `tools/release/installer/installer-data/configs.json`:
+  `Fedelex`, `fedelex-duelli.quoll-ruffe.ts.net`, porta 443, `tls: true`.
+
+**Cancelli.**
+
+- **Cancello 1 (funzioni pure)**: `tests/server_tls_tests.cpp`, 7 funzioni, 20
+  verifiche (campo assente/vero/falso/non booleano, nome senza maiuscole e
+  punto finale, nomi "quasi uguali" rifiutati, vuoto mai uguale, nome+porta,
+  indirizzo letterale mai uguale a un nome). Verde in locale e nel job
+  "Test (banlist_tests)" della CI sul ramo.
+- **Cancello 2 (build)**: `tools/release/build_linux.sh release` pulita da zero,
+  nessun avviso nuovo; `ygoprodll` linka `libssl`/`libcrypto`.
+  Windows: job `build-windows` della CI sul ramo (run 37985433053, commit
+  `2c868568b`), verde in tutti i passi: MSVC compila e collega
+  `tls_client.cpp` con l'OpenSSL della cache vcpkg.
+- **Cancello 3 (client contro server TLS di prova)**: `tools/tls_probe/tls_probe.cpp`
+  usa `tls::NewClient`, la stessa funzione che `DuelClient::StartClient` chiama
+  per un server TLS (non un `DuelClient` intero: legge `mainGame` e irrlicht).
+  Contro `openssl s_server` su 127.0.0.1, con `HOME` finto e `env -i`:
+  certificato autofirmato -> **rifiutato** ("self-signed certificate");
+  certificato di una CA di prova offerta solo a quel processo (`SSL_CERT_FILE` o
+  `--ca`, nessun archivio di sistema toccato) -> **accettato**, e un'andata e
+  ritorno cifrato riesce; certificato valido per un altro nome -> **rifiutato**
+  ("hostname mismatch"); stessa CA non offerta -> **rifiutato**; server in chiaro
+  sulla porta -> rifiutato ("wrong version number"); porta chiusa -> errore di
+  rete nel log. Gli stessi casi sotto AddressSanitizer + UBSan: puliti.
+- **Cancello 4 (nome pubblico)**: vedi la nota in PHASES.md FASE 83, perche' la
+  rotta provata non e' una rotta pubblica.
+
+**Non verificato.** Windows e' stato solo compilato, mai eseguito (nessuna
+macchina Windows qui): l'archivio "ROOT" non e' mai stato letto davvero. Nessun
+duello completo con il client grafico (niente `DISPLAY`): `DuelClient` intero
+non e' mai stato istanziato con un server TLS. Il timeout di connessione di 5 s
+(`ConnectTimeout`) copre ora anche l'handshake: non e' stato cambiato (sarebbe
+un numero nuovo da decidere) e la FASE 72b ne aveva visto uno scadere dopo 8 s
+al primo uso.
+
+---
+
 ## 1. Il problema, in una riga
 
 L'aggiornatore attuale vive **dentro** il client: il codice che esegue
