@@ -34,6 +34,7 @@ struct Ctx {
 	bool done{ false };   // handshake finished and certificate verified
 	bool failed{ false }; // fatal: everything after this is discarded
 	bool eof{ false };    // the peer closed the TLS session cleanly
+	bool ended{ false };  // ERROR or EOF has reached the user, or is queued for it (failed implies ended)
 	short pending{ 0 };   // events queued by Defer(), not yet given to the user
 };
 
@@ -158,6 +159,14 @@ void DeferredEvent(evutil_socket_t, short, void* arg) {
 // FILTER's lock, which does not exist, while the writer thread does the same
 // on the same filter under the raw lock (tls_client.h, Threading).
 void Defer(Ctx* t, short what) {
+	if(what & (BEV_EVENT_ERROR | BEV_EVENT_EOF)) {
+		if(t->ended)
+			what &= ~(BEV_EVENT_ERROR | BEV_EVENT_EOF);
+		else
+			t->ended = true;
+	}
+	if(!what)
+		return;
 	t->pending |= what;
 	const timeval now{ 0, 0 };
 	event_base_once(bufferevent_get_base(t->raw), -1, EV_TIMEOUT, DeferredEvent, t, &now);
@@ -279,6 +288,13 @@ void ReadTrampoline(bufferevent* bev, void* ctx) {
 
 void EventTrampoline(bufferevent* bev, short what, void* ctx) {
 	auto* t = static_cast<Ctx*>(ctx);
+	// The end of the connection reaches the user once: after Fail() (or an
+	// EOF already queued) the socket's own ERROR/EOF is only an echo of it.
+	if(what & (BEV_EVENT_ERROR | BEV_EVENT_EOF)) {
+		if(t->ended)
+			return;
+		t->ended = true;
+	}
 	if(what & BEV_EVENT_CONNECTED) {
 		if(!t->done) {
 			// Only the TCP connection is up: this is the moment to send the
