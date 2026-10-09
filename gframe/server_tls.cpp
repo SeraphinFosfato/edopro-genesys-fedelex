@@ -38,4 +38,18 @@ bool TlsServerMatches(const std::string& configured_name, uint16_t configured_po
 	return configured_port == link_port && SameServerName(configured_name, link_name);
 }
 
+const BuiltinTlsServer kBuiltinTlsServers[] = {
+	{ "Fedelex", "fedelex-duelli.quoll-ruffe.ts.net", 443 },
+};
+const size_t kBuiltinTlsServerCount = sizeof(kBuiltinTlsServers) / sizeof(kBuiltinTlsServers[0]);
+
+bool ShouldAddBuiltinTlsServer(const BuiltinTlsServer& builtin,
+							   const std::vector<ConfiguredServer>& configured) {
+	for(const auto& server : configured) {
+		if(server.tls && TlsServerMatches(server.address, server.duelport, builtin.address, builtin.duelport))
+			return false;
+	}
+	return true;
+}
+
 }

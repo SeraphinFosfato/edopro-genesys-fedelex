@@ -3403,6 +3403,26 @@ void Game::LoadServers() {
 			}
 		}
 	}
+	// FASE 83c: the TLS servers compiled into the executable, added after
+	// configs/user_configs so a hand-written entry for the same name and port
+	// wins and is not doubled (server_tls.h). The auto-update never delivers
+	// configs.json, so this is the only way they reach an updated client.
+	// Like every TLS server, they take no slot in the lobby combo.
+	std::vector<server_tls::ConfiguredServer> configured;
+	for(const auto& server : ServerLobby::serversVector)
+		configured.push_back({ server.address, server.duelport, server.tls });
+	for(size_t i = 0; i < server_tls::kBuiltinTlsServerCount; i++) {
+		const auto& builtin = server_tls::kBuiltinTlsServers[i];
+		if(!server_tls::ShouldAddBuiltinTlsServer(builtin, configured))
+			continue;
+		ServerInfo tmp_server{};
+		tmp_server.name = BufferIO::DecodeUTF8(builtin.name);
+		tmp_server.address = builtin.address;
+		tmp_server.duelport = builtin.duelport;
+		tmp_server.tls = true;
+		configured.push_back({ tmp_server.address, tmp_server.duelport, true });
+		ServerLobby::serversVector.push_back(std::move(tmp_server));
+	}
 }
 void Game::ShowCardInfo(uint32_t code, bool resize, imgType type) {
 	static auto prevtype = imgType::ART;

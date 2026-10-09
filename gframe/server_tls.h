@@ -12,8 +12,10 @@
 // server I meant" for an encrypted connection is the certificate verified
 // against that very name (gframe/tls_client.h), not an IP list.
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 #include <nlohmann/json_fwd.hpp>
 
 namespace ygo::server_tls {
@@ -40,6 +42,36 @@ bool SameServerName(const std::string& a, const std::string& b);
 // same name on another port is a different service.
 bool TlsServerMatches(const std::string& configured_name, uint16_t configured_port,
 					  const std::string& link_name, uint16_t link_port);
+
+// FASE 83c: TLS servers compiled into the executable. The auto-update ships
+// only the executable and fedelex.conf, never configs.json, so a server that
+// lives only in configs.json never reaches anyone who updated instead of
+// reinstalling. Game::LoadServers() adds each of these after reading
+// configs/user_configs (unless ShouldAddBuiltinTlsServer says no).
+struct BuiltinTlsServer {
+	const char* name;    // UTF-8, as shown
+	const char* address; // DNS name: also the identity the certificate is checked against
+	uint16_t duelport;
+};
+
+extern const BuiltinTlsServer kBuiltinTlsServers[];
+extern const size_t kBuiltinTlsServerCount;
+
+// The part of an already-loaded server that decides "same service": no
+// ServerInfo, so this stays free of irrlicht/net headers.
+struct ConfiguredServer {
+	std::string address;
+	uint16_t duelport;
+	bool tls;
+};
+
+// False when `configured` already holds a TLS server for `builtin`, matched
+// like a link is (TlsServerMatches: name AND port, case and root dot
+// ignored): whoever wrote it by hand must not get a duplicate. A plain
+// (non-TLS) entry with the same name does NOT count, it would send the game
+// in clear to a name that only speaks TLS.
+bool ShouldAddBuiltinTlsServer(const BuiltinTlsServer& builtin,
+							   const std::vector<ConfiguredServer>& configured);
 
 }
 
