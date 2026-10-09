@@ -126,6 +126,52 @@ void test_bundled_roots_are_the_published_ones() {
 	}
 }
 
+// FASE 83c: the server compiled into the executable. The auto-update ships
+// only the executable and fedelex.conf, so a server that lives only in
+// installer-data/configs.json never reaches whoever updated instead of
+// reinstalling. Written here independently of server_tls.cpp.
+void test_builtin_list_is_exactly_fedelex() {
+	check(kBuiltinTlsServerCount == 1, "exactly one TLS server is compiled in");
+	if(kBuiltinTlsServerCount < 1)
+		return;
+	const auto& b = kBuiltinTlsServers[0];
+	check(std::string(b.name) == "Fedelex", "the compiled-in server is named Fedelex");
+	check(std::string(b.address) == "fedelex-duelli.quoll-ruffe.ts.net", "its address is the public name, not an IP");
+	check(b.duelport == 443, "its duel port is 443");
+}
+
+// The merge is tested on its own fixture, not on kBuiltinTlsServers[0], so a
+// change to the compiled-in list is caught by the test above and not twice.
+const BuiltinTlsServer kFedelex = { "Fedelex", "fedelex-duelli.quoll-ruffe.ts.net", 443 };
+
+void test_builtin_is_added_when_absent() {
+	const auto& b = kFedelex;
+	check(ShouldAddBuiltinTlsServer(b, {}), "an empty list gets the builtin server");
+	const std::vector<ConfiguredServer> ignis = {
+		{ "eu.projectignis.org", 7912, false },
+		{ "us.projectignis.org", 7911, false },
+		{ "ignis-duel.ygopro.cn", 44444, false },
+	};
+	check(ShouldAddBuiltinTlsServer(b, ignis), "a list without any TLS server gets the builtin server");
+	// A plain entry on the same name and port is NOT the TLS service: it
+	// would send the game in clear to a name that only speaks TLS.
+	check(ShouldAddBuiltinTlsServer(b, { { b.address, b.duelport, false } }), "a plain entry with the same name and port does not stand in for the TLS one");
+	check(ShouldAddBuiltinTlsServer(b, { { "other.example.org", 443, true } }), "another TLS server does not stand in for it");
+}
+
+void test_builtin_is_not_duplicated() {
+	const auto& b = kFedelex;
+	check(!ShouldAddBuiltinTlsServer(b, { { b.address, b.duelport, true } }), "the same TLS entry already there: no duplicate");
+	check(!ShouldAddBuiltinTlsServer(b, { { "Fedelex-Duelli.Quoll-Ruffe.TS.net", 443, true } }), "same name in other capitals: no duplicate");
+	check(!ShouldAddBuiltinTlsServer(b, { { "fedelex-duelli.quoll-ruffe.ts.net.", 443, true } }), "same name with a root dot: no duplicate");
+	check(!ShouldAddBuiltinTlsServer(b, { { "eu.projectignis.org", 7912, false }, { b.address, b.duelport, true } }), "found among others: no duplicate");
+}
+
+void test_builtin_added_when_same_name_other_port() {
+	const auto& b = kFedelex;
+	check(ShouldAddBuiltinTlsServer(b, { { b.address, 7911, true } }), "the same name on another port is another service: add");
+}
+
 }
 
 int RunServerTlsTests() {
@@ -138,6 +184,10 @@ int RunServerTlsTests() {
 	test_tls_match_needs_name_and_port();
 	test_typed_by_hand_finds_the_tls_server();
 	test_bundled_roots_are_the_published_ones();
+	test_builtin_list_is_exactly_fedelex();
+	test_builtin_is_added_when_absent();
+	test_builtin_is_not_duplicated();
+	test_builtin_added_when_same_name_other_port();
 
 	std::printf("server_tls_tests: %d checks, %d failures\n", checks, failures);
 	return failures == 0 ? 0 : 1;
