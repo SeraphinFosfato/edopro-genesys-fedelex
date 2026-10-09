@@ -1,4 +1,5 @@
 #include "tls_client.h"
+#include "tls_roots.h"
 // Windows: the platform headers must come before OpenSSL's (wincrypt.h
 // macros clash with X509_NAME and friends; openssl/ossl_typ.h undoes them).
 #ifdef _WIN32
@@ -11,7 +12,10 @@
 #include <memory>
 #include <mutex>
 #include <unordered_set>
+#include <cstdio>
 #include <openssl/err.h>
+#include <openssl/evp.h>
+#include <openssl/pem.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
@@ -88,6 +92,37 @@ bool FileExists(const char* path) {
 }
 #endif
 
+// The embedded roots of tls_roots.h, added next to whatever the platform
+// store holds. A copy whose fingerprint is not the pinned one is refused, so a
+// corrupted source file cannot turn into a different trust anchor. Returns
+// how many were added.
+int AddBundledRoots(const Ctx* t) {
+	auto* xs = SSL_CTX_get_cert_store(t->sctx);
+	int added = 0;
+	for(size_t i = 0; i < kBundledRootCount; ++i) {
+		const auto& root = kBundledRoots[i];
+		BIO* bio = BIO_new_mem_buf(root.pem, -1);
+		X509* x = bio ? PEM_read_bio_X509(bio, nullptr, nullptr, nullptr) : nullptr;
+		BIO_free(bio);
+		unsigned char md[EVP_MAX_MD_SIZE];
+		unsigned int md_len = 0;
+		std::string hex;
+		if(x && X509_digest(x, EVP_sha256(), md, &md_len) == 1) {
+			for(unsigned int j = 0; j < md_len; ++j) {
+				char byte[3];
+				std::snprintf(byte, sizeof(byte), "%02x", md[j]);
+				hex += byte;
+			}
+		}
+		if(hex == root.sha256 && X509_STORE_add_cert(xs, x) == 1)
+			++added;
+		else
+			Log(t, std::string("TLS: radice incorporata '") + root.name + "' non caricata: " + DrainErrors());
+		X509_free(x);
+	}
+	return added;
+}
+
 bool LoadTrust(const Ctx* t, const Options& options) {
 	if(!options.ca_file.empty()) {
 		if(SSL_CTX_load_verify_locations(t->sctx, options.ca_file.c_str(), nullptr) != 1) {
@@ -97,7 +132,8 @@ bool LoadTrust(const Ctx* t, const Options& options) {
 		return true;
 	}
 #ifdef _WIN32
-	if(LoadSystemRoots(t->sctx) == 0) {
+	const int system_roots = LoadSystemRoots(t->sctx);
+	if(AddBundledRoots(t) == 0 && system_roots == 0) {
 		Log(t, "TLS: l'archivio dei certificati radice di Windows e' vuoto o non leggibile");
 		return false;
 	}
@@ -116,6 +152,7 @@ bool LoadTrust(const Ctx* t, const Options& options) {
 	}
 	SSL_CTX_load_verify_locations(t->sctx, nullptr, "/etc/ssl/certs");
 	ERR_clear_error(); // a missing optional location above is not an error
+	AddBundledRoots(t);
 #endif
 	return true;
 }

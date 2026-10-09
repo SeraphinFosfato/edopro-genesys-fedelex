@@ -22,6 +22,11 @@
 //     the explicit cacert.pem the curl handles honour, gframe/curl.h).
 //   - Windows               -> the system "ROOT" store (D249 point 1: the
 //     same store curl is pointed at with CURLSSLOPT_NATIVE_CA).
+//   - without ca_file, on every platform, ISRG Root X1 and X2 are trusted too
+//     (gframe/tls_roots.h): Windows may not have downloaded them yet, and
+//     only CryptoAPI triggers that download, never OpenSSL reading the store.
+//     They add to the store above, never replace it, and the name check is
+//     untouched.
 //   - elsewhere             -> OpenSSL's default paths (which also honour the
 //     SSL_CERT_FILE / SSL_CERT_DIR environment variables) plus the usual
 //     distro locations, so a portable build running on a distro other than

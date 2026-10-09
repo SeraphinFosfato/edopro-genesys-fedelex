@@ -49,9 +49,14 @@ project "banlist_tests"
 		"../gframe/deep_link.cpp",
 		"../gframe/tournament_mode.cpp",
 		"../gframe/server_tls.cpp",
+		"../gframe/tls_roots.cpp",
 		"../gframe/sha256.cpp",
 		"../gframe/tweetnacl/*.c",
 	}
+
+	-- Only server_tls_tests.cpp: the SHA-256 of the embedded TLS roots is
+	-- computed with OpenSSL (libssl-dev on the CI runner, already installed).
+	links { "crypto" }
 
 	filter "action:not vs*"
 		enablewarnings "pedantic"

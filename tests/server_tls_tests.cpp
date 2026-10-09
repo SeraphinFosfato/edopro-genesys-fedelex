@@ -7,7 +7,12 @@
 #include <cstdio>
 #include <string>
 #include <nlohmann/json.hpp>
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <openssl/x509.h>
+#include <openssl/x509v3.h>
 #include "server_tls.h"
+#include "tls_roots.h"
 
 // Called from banlist_tests.cpp's main(), same pattern as every other
 // *_tests.cpp in this directory.
@@ -72,6 +77,43 @@ void test_tls_match_needs_name_and_port() {
 	check(!TlsServerMatches(name, 443, "203.0.113.7", 443), "an address literal must never match a TLS server by name");
 }
 
+// FASE 83b (point 7): the roots embedded for Windows machines whose "ROOT"
+// store lacks them. The fingerprints below are written here independently of
+// tls_roots.cpp, from Mozilla's CCADB "Included CA Certificate Report" of
+// 2026-10-09: if someone edits the PEM, or the hex next to it, this fails.
+void test_bundled_roots_are_the_published_ones() {
+	struct Pinned { const char* cn; const char* sha256; };
+	const Pinned pinned[] = {
+		{ "ISRG Root X1", "96bcec06264976f37460779acf28c5a7cfe8a3c0aae11a8ffcee05c0bddf08c6" },
+		{ "ISRG Root X2", "69729b8e15a86efc177a57afb7171dfc64add28c2fca8cf1507e34453ccb1470" },
+	};
+	check(ygo::tls::kBundledRootCount == 2, "exactly ISRG Root X1 and X2 are embedded");
+	for(size_t i = 0; i < ygo::tls::kBundledRootCount && i < 2; ++i) {
+		const auto& root = ygo::tls::kBundledRoots[i];
+		check(std::string(root.name) == pinned[i].cn, "embedded root names are in the pinned order");
+		BIO* bio = BIO_new_mem_buf(root.pem, -1);
+		X509* x = bio ? PEM_read_bio_X509(bio, nullptr, nullptr, nullptr) : nullptr;
+		BIO_free(bio);
+		check(x != nullptr, "an embedded root must parse as a PEM certificate");
+		if(!x)
+			continue;
+		unsigned char md[EVP_MAX_MD_SIZE];
+		unsigned int len = 0;
+		X509_digest(x, EVP_sha256(), md, &len);
+		std::string hex;
+		for(unsigned int j = 0; j < len; ++j) {
+			char b[3];
+			std::snprintf(b, sizeof(b), "%02x", md[j]);
+			hex += b;
+		}
+		check(hex == pinned[i].sha256, "the DER of an embedded root must hash to the published SHA-256");
+		check(std::string(root.sha256) == pinned[i].sha256, "the fingerprint stored next to the PEM must be the published one");
+		check(X509_check_issued(x, x) == X509_V_OK, "an embedded root must be self-signed (a root, not a leaf)");
+		check(X509_cmp_current_time(X509_get0_notAfter(x)) > 0, "an embedded root must not be expired");
+		X509_free(x);
+	}
+}
+
 }
 
 int RunServerTlsTests() {
@@ -82,6 +124,7 @@ int RunServerTlsTests() {
 	test_same_name_is_exact_otherwise();
 	test_same_name_empty_never_matches();
 	test_tls_match_needs_name_and_port();
+	test_bundled_roots_are_the_published_ones();
 
 	std::printf("server_tls_tests: %d checks, %d failures\n", checks, failures);
 	return failures == 0 ? 0 : 1;
