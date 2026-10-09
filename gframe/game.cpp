@@ -14,6 +14,7 @@
 #include "config.h"
 #include "game.h"
 #include "server_lobby.h"
+#include "server_tls.h"
 #include "sound_manager.h"
 #include "image_manager.h"
 #include "data_manager.h"
@@ -2543,7 +2544,7 @@ bool Game::MainLoop() {
 			CloseDuelWindow();
 		if (DuelClient::try_needed) {
 			DuelClient::try_needed = false;
-			DuelClient::StartClient(DuelClient::temp_ip, DuelClient::temp_port, dInfo.secret.game_id, false);
+			DuelClient::StartClient(DuelClient::temp_ip, DuelClient::temp_port, dInfo.secret.game_id, false, DuelClient::temp_tls_name);
 		}
 		// FASE 76b, design/server-duelli.md §13.6 punto 5: cheap when
 		// there's nothing to do (gated on the flag, and
@@ -3368,8 +3369,17 @@ void Game::LoadServers() {
 					ServerInfo tmp_server{};
 					tmp_server.name = BufferIO::DecodeUTF8(obj.at("name").get_ref<std::string&>());
 					tmp_server.address = obj.at("address").get<std::string>();
-					tmp_server.roomaddress = obj.at("roomaddress").get<std::string>();
-					tmp_server.roomlistport = obj.at("roomlistport").get<uint16_t>();
+					// FASE 83: a non-boolean "tls" rejects the entry (fail closed,
+					// server_tls.h). A TLS server has no room list: only the
+					// others need roomaddress/roomlistport.
+					const auto tlsField = server_tls::ParseTlsField(obj);
+					if(tlsField == server_tls::TlsField::Invalid)
+						throw std::runtime_error("\"tls\" must be true or false");
+					tmp_server.tls = tlsField == server_tls::TlsField::Enabled;
+					if(!tmp_server.tls) {
+						tmp_server.roomaddress = obj.at("roomaddress").get<std::string>();
+						tmp_server.roomlistport = obj.at("roomlistport").get<uint16_t>();
+					}
 					tmp_server.duelport = obj.at("duelport").get<uint16_t>();
 					{
 						auto protocolIt = obj.find("roomlistprotocol");
@@ -3377,9 +3387,14 @@ void Game::LoadServers() {
 							tmp_server.protocol = ServerInfo::GetProtocol(protocolIt->get_ref<std::string&>());
 						}
 					}
-					int i = serverChoice->addItem(tmp_server.name.data());
-					if(gGameConfig->lastServer == tmp_server.name)
-						serverChoice->setSelected(i);
+					// Only servers with a room list are choosable in the lobby; the item
+					// data keeps the index into serversVector (a TLS server takes a
+					// slot there without taking one in the combo).
+					if(!tmp_server.tls) {
+						int i = serverChoice->addItem(tmp_server.name.data(), static_cast<irr::u32>(ServerLobby::serversVector.size()));
+						if(gGameConfig->lastServer == tmp_server.name)
+							serverChoice->setSelected(i);
+					}
 					ServerLobby::serversVector.push_back(std::move(tmp_server));
 				}
 				catch(const std::exception& e) {

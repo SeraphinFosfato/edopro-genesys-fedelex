@@ -72,6 +72,12 @@
 			"roomaddress": "ignis-room.ygopro.cn",
 			"roomlistprotocol": "https",
 			"roomlistport": 443
+		},
+		{
+			"name": "Fedelex",
+			"address": "fedelex-duelli.quoll-ruffe.ts.net",
+			"duelport": 443,
+			"tls": true
 		}
 	]
 }
