@@ -9,6 +9,8 @@
 #include <sys/stat.h>
 #endif
 #include <memory>
+#include <mutex>
+#include <unordered_set>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
@@ -32,7 +34,14 @@ struct Ctx {
 	bool done{ false };   // handshake finished and certificate verified
 	bool failed{ false }; // fatal: everything after this is discarded
 	bool eof{ false };    // the peer closed the TLS session cleanly
+	short pending{ 0 };   // events queued by Defer(), not yet given to the user
 };
+
+// Contexts whose filter is still alive. A queued event holds only a pointer
+// to its context (libevent frees the event itself, never what it points to),
+// so DeferredEvent() asks here before trusting it.
+std::mutex g_live_mutex;
+std::unordered_set<const Ctx*> g_live;
 
 void Log(const Ctx* t, const std::string& line) {
 	if(t->log)
@@ -120,12 +129,46 @@ void FlushToSocket(Ctx* t) {
 		evbuffer_add(out, buf, static_cast<size_t>(n));
 }
 
+// Delivers what Defer() queued, from the event loop, under the raw socket's lock.
+void DeferredEvent(evutil_socket_t, short, void* arg) {
+	auto* t = static_cast<Ctx*>(arg);
+	{
+		std::lock_guard<std::mutex> guard(g_live_mutex);
+		if(g_live.count(t) == 0)
+			return; // the filter was freed while this was queued
+	}
+	bufferevent_lock(t->raw);
+	const short queued = t->pending;
+	t->pending = 0;
+	// CONNECTED first, as libevent's own deferred callbacks would.
+	for(const short part : { static_cast<short>(queued & BEV_EVENT_CONNECTED), static_cast<short>(queued & ~BEV_EVENT_CONNECTED) }) {
+		bufferevent_event_cb current = nullptr;
+		bufferevent_getcb(t->filter, nullptr, nullptr, &current, nullptr);
+		if(part && current) // null once the owner has freed the filter
+			t->user_event(t->filter, part, t->user_arg);
+	}
+	bufferevent_unlock(t->raw);
+}
+
+// Queues `what` for the user's event callback, to run from the loop thread
+// with the raw socket's lock held. Always called with that lock held (from a
+// filter callback), which is what serialises `pending`.
+// NOT bufferevent_trigger_event(..., BEV_TRIG_DEFER_CALLBACKS): libevent's
+// deferred machinery takes and drops references on the filter under the
+// FILTER's lock, which does not exist, while the writer thread does the same
+// on the same filter under the raw lock (tls_client.h, Threading).
+void Defer(Ctx* t, short what) {
+	t->pending |= what;
+	const timeval now{ 0, 0 };
+	event_base_once(bufferevent_get_base(t->raw), -1, EV_TIMEOUT, DeferredEvent, t, &now);
+}
+
 void Fail(Ctx* t, const std::string& why) {
 	if(t->failed)
 		return;
 	t->failed = true;
 	Log(t, why);
-	bufferevent_trigger_event(t->filter, BEV_EVENT_ERROR, BEV_TRIG_DEFER_CALLBACKS);
+	Defer(t, BEV_EVENT_ERROR);
 }
 
 void FailHandshake(Ctx* t) {
@@ -181,7 +224,7 @@ size_t Pump(Ctx* t, evbuffer* plain) {
 		if(e == SSL_ERROR_ZERO_RETURN) {
 			if(!t->eof) {
 				t->eof = true;
-				bufferevent_trigger_event(t->filter, BEV_EVENT_EOF, BEV_TRIG_DEFER_CALLBACKS);
+				Defer(t, BEV_EVENT_EOF);
 			}
 		} else if(e != SSL_ERROR_WANT_READ && e != SSL_ERROR_WANT_WRITE) {
 			Fail(t, "TLS: errore durante la lettura dal server: " + DrainErrors());
@@ -192,7 +235,7 @@ size_t Pump(Ctx* t, evbuffer* plain) {
 	}
 	FlushToSocket(t);
 	if(just_done)
-		bufferevent_trigger_event(t->filter, BEV_EVENT_CONNECTED, BEV_TRIG_DEFER_CALLBACKS);
+		Defer(t, BEV_EVENT_CONNECTED);
 	return produced;
 }
 
@@ -254,6 +297,10 @@ void EventTrampoline(bufferevent* bev, short what, void* ctx) {
 
 void FreeCtx(void* ctx) {
 	auto* t = static_cast<Ctx*>(ctx);
+	{
+		std::lock_guard<std::mutex> guard(g_live_mutex);
+		g_live.erase(t);
+	}
 	if(t->ssl)
 		SSL_free(t->ssl);
 	if(t->sctx)
@@ -319,6 +366,10 @@ bufferevent* NewClient(event_base* base, const sockaddr* addr, int addrlen, cons
 	auto* ctx = t.release(); // the filter owns it now (FreeCtx)
 	ctx->filter = filter;
 	ctx->raw = raw;
+	{
+		std::lock_guard<std::mutex> guard(g_live_mutex);
+		g_live.insert(ctx);
+	}
 	bufferevent_setcb(filter, ReadTrampoline, nullptr, EventTrampoline, ctx);
 	bufferevent_enable(filter, EV_READ);
 	if(bufferevent_socket_connect(raw, addr, addrlen) < 0) {

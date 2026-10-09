@@ -35,6 +35,14 @@
 // the filter, and every writer must hold it too (`*raw_socket` is returned
 // so the caller can bufferevent_lock()/unlock() it around bufferevent_write
 // on the returned bufferevent; DuelClient::WriteToServer does exactly that).
+//
+// That includes libevent's own reference counting of the filter: nothing in
+// this module uses bufferevent_trigger_event(..., BEV_TRIG_DEFER_CALLBACKS) or
+// BEV_OPT_DEFER_CALLBACKS on the filter, because those take and drop
+// references on it under its (nonexistent) lock while a writer thread does
+// the same under the raw lock. Events that must reach the caller later
+// (CONNECTED, ERROR, EOF) are queued with event_base_once() instead, whose
+// callback takes the raw lock before calling the user's eventcb.
 
 #include <string>
 #include <event2/event.h>
