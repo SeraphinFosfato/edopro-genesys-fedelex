@@ -19,8 +19,16 @@
 // Design choices made here, where design/server-duelli.md §7/§13 and
 // PHASES.md FASE 75 left the exact form open ("non e' risalita: come si
 // analizza il link"):
-//   - The scheme is matched literally as "fedelex://tavolo?" — there is
-//     only one route today, so no general-purpose URI routing is built.
+//   - The route is "fedelex://tavolo?" — there is only one route today, so
+//     no general-purpose URI routing is built. FASE 75d: the scheme and the
+//     host ("tavolo") are matched WITHOUT regard to case, one '/' is
+//     tolerated between "tavolo" and '?', and one literal '/' at the very
+//     end of the whole link. Those are the changes an OS or a browser makes
+//     to a custom-scheme URL without altering what it means (on Windows the
+//     link reached the game and was discarded as BadScheme, 2026-10-10).
+//     Values are encodeURIComponent'ed on the generating side, so a literal
+//     '/' can never belong to one. Any other host, scheme or path stays
+//     BadScheme.
 //   - Query values are percent-decoded (RFC 3986 %XX only; a literal '+'
 //     stays a '+', never decoded to a space, since nothing on the
 //     generating side — the bot/app building this link — promises
@@ -50,7 +58,7 @@ struct TableLink {
 
 enum class ParseError {
 	Ok,
-	BadScheme,     // does not start with "fedelex://tavolo?"
+	BadScheme,     // not "fedelex://tavolo" [+ one '/'] + '?' (case-insensitive), see above
 	MissingField,  // host, port, pass or nome absent from the query string
 	EmptyHost,     // host present but empty after decoding
 	BadPort,       // port is not a base-10 integer in [1, 65535]
@@ -65,6 +73,22 @@ const char* ToString(ParseError error);
 // pass/nome) — never a half-filled struct a careless caller could act on
 // by accident.
 ParseError ParseTableLink(const std::string& uri, TableLink& out);
+
+// FASE 75d: what the log says about a link that was discarded — its SHAPE,
+// never its values (the password is in the link). One line:
+//   schema=fedelex route=tavolo/ chiavi=host,port,pass,nome altre=0 lunghezza=96
+// - schema: "fedelex" (as received, case included) if it is ours, "altro" if
+//   not, "(assente)" if there is no "://";
+// - route: the text between "://" and the first '?', as received, only if it
+//   starts with "tavolo" (any case) and is up to 24 letters/digits/"/._-";
+//   else "(illeggibile, N caratteri)", and "(nessun ?)" if there is no '?'.
+//   It is the one stretch of the link that is echoed: a password could sit
+//   there only in a link our generator never writes ("tavolo/<password>?");
+// - chiavi: which of host, port, pass, nome are present (names only);
+// - altre: how many other non-empty '&'-separated pieces there are, counted
+//   and never named (a key with different case lands here);
+// - lunghezza: bytes of the whole link.
+std::string DescribeShape(const std::string& uri);
 
 }
 

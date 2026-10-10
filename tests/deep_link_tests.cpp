@@ -133,6 +133,142 @@ void test_rejected_link_leaves_out_empty() {
 		 "a rejected link must reset `out` to default, never leave a stale struct a careless caller could act on");
 }
 
+
+// FASE 75d. On Windows the link reached the game but was discarded as
+// BadScheme (2026-10-10, build 16). The OS or the browser may rewrite a
+// custom-scheme URL — a '/' after the host, upper/lower case — without
+// changing what it means; these variants must give the same fields as the
+// canonical form. Anything that WOULD change the meaning stays BadScheme.
+const char* const kCanonicalQuery = "host=duelli.example.org&port=443&pass=abc123&nome=Judge";
+
+void check_same_as_canonical(const std::string& link, const char* what) {
+	TableLink out;
+	auto err = ParseTableLink(link, out);
+	check(err == ParseError::Ok, what);
+	check(out.host == "duelli.example.org" && out.port == 443 && out.pass == L"abc123" && out.nome == L"Judge",
+		 what);
+}
+
+void test_harmless_os_variants_give_the_canonical_fields() {
+	const std::string q = kCanonicalQuery;
+	check_same_as_canonical("fedelex://tavolo?" + q, "canonical form");
+	check_same_as_canonical("fedelex://tavolo/?" + q, "a '/' between tavolo and '?' (Windows/browser normalisation)");
+	check_same_as_canonical("FEDELEX://TAVOLO?" + q, "scheme and host in upper case");
+	check_same_as_canonical("Fedelex://Tavolo/?" + q, "scheme and host in mixed case, together with the '/'");
+	check_same_as_canonical("fedelex://tavolo?" + q + "/", "one literal '/' at the very end of the link");
+	check_same_as_canonical("fedelex://tavolo/?" + q + "/", "the '/' after tavolo and the one at the end, together");
+}
+
+void test_variants_that_change_the_meaning_stay_bad_scheme() {
+	const std::string q = std::string("?") + kCanonicalQuery;
+	const char* const rejected[] = {
+		"fedelex://altro",          // another host
+		"fedelex://tavolo/x",       // a path under tavolo
+		"fedelex://tavolo//",       // two slashes, not one
+		"fedelex://tavolox",        // tavolo is not a prefix match
+		"fedelex://tavolo.",        // nor a host with a suffix
+		"fedelex:/tavolo",          // one slash after the scheme
+		"fedelex:tavolo",           // none
+		"fedelex:///tavolo",        // three
+		"http://tavolo",            // another scheme
+		"xfedelex://tavolo",        // scheme with a prefix
+	};
+	for(const char* head : rejected) {
+		TableLink out;
+		auto err = ParseTableLink(std::string(head) + q, out);
+		check(err == ParseError::BadScheme, head);
+		check(out.host.empty() && out.port == 0 && out.pass.empty() && out.nome.empty(),
+			 "a BadScheme variant must leave `out` empty");
+	}
+	TableLink out;
+	// no '?' at all: nothing to read, and "tavolo/" alone is not a table link
+	check(ParseTableLink("fedelex://tavolo", out) == ParseError::BadScheme, "no '?' must be BadScheme");
+	check(ParseTableLink("fedelex://tavolo/", out) == ParseError::BadScheme, "tavolo/ with no '?' must be BadScheme");
+	// two trailing slashes: only ONE is tolerated, the second would become part of the last value
+	check(ParseTableLink("fedelex://tavolo" + q + "//", out) == ParseError::BadScheme,
+		 "two '/' at the end must be BadScheme, never silently kept inside the last value");
+	// a '/' in the middle of a '?'-less route is not a slash before '?'
+	check(ParseTableLink("fedelex://tavolo/x/?" + std::string(kCanonicalQuery), out) == ParseError::BadScheme,
+		 "tavolo/x/ must be BadScheme");
+}
+
+void test_slash_tolerance_does_not_touch_the_values() {
+	// '/' travels percent-encoded inside a value (encodeURIComponent), so the
+	// trailing-'/' rule must not eat the end of a value that merely ENDS
+	// with an encoded slash.
+	TableLink out;
+	auto err = ParseTableLink("fedelex://tavolo/?host=h&port=1&pass=a%2Fb&nome=n%2F", out);
+	check(err == ParseError::Ok, "encoded slashes inside values must parse");
+	check(out.pass == L"a/b" && out.nome == L"n/", "%2F must stay a '/' inside the value, not be stripped");
+}
+
+void test_other_errors_are_unchanged_on_a_variant() {
+	TableLink out;
+	check(ParseTableLink("FEDELEX://tavolo/?host=h&port=1&pass=p", out) == ParseError::MissingField,
+		 "a variant missing nome must still be MissingField");
+	check(ParseTableLink("fedelex://tavolo/?host=h&port=99999&pass=p&nome=n", out) == ParseError::BadPort,
+		 "a variant with a bad port must still be BadPort");
+	check(ParseTableLink("fedelex://tavolo/?host=&port=1&pass=p&nome=n/", out) == ParseError::EmptyHost,
+		 "a variant with an empty host must still be EmptyHost");
+}
+
+// The log line for a discarded link (gframe/duelclient.cpp) is the SHAPE of
+// what arrived, never its values: the password is in the link.
+bool contains(const std::string& haystack, const char* needle) {
+	return haystack.find(needle) != std::string::npos;
+}
+
+void test_shape_of_a_link_has_no_values() {
+	const std::string link = "fedelex://tavolo/?host=duelli.example.org&port=57911&pass=Hunter2xyz&nome=NomeSegreto";
+	const std::string shape = DescribeShape(link);
+	check(shape == "schema=fedelex route=tavolo/ chiavi=host,port,pass,nome altre=0 lunghezza=" + std::to_string(link.size()),
+		 "the shape of a Windows-style link: scheme, route, keys present, length");
+	check(!contains(shape, "Hunter2xyz") && !contains(shape, "NomeSegreto") && !contains(shape, "duelli.example.org") &&
+		  !contains(shape, "57911"),
+		 "the shape must not contain any value (password, name, host, port)");
+}
+
+void test_shape_never_leaks_a_password_whatever_the_form() {
+	// Every malformed form where the password could land somewhere the
+	// shape would print: no scheme, another scheme, no '?', the password
+	// as a key, a piece with no '=', percent-encoded, very long.
+	const char* const links[] = {
+		"host=h&port=1&pass=Hunter2xyz&nome=n",
+		"Hunter2xyz",
+		"Hunter2xyz://tavolo?host=h&pass=Hunter2xyz",
+		"fedelex://tavolo&pass=Hunter2xyz",
+		"fedelex://pass=Hunter2xyz",
+		"fedelex://tavolo#pass=Hunter2xyz",
+		"fedelex://tavolo?Hunter2xyz=1&pass=Hunter2xyz",
+		"fedelex://tavolo?host=h&Hunter2xyz&nome=n",
+		"fedelex://tavolo?host=h&port=1&pass=Hunter%32xyz&nome=n",
+		"fedelex://tavolo/Hunter2xyz/Hunter2xyz/Hunter2xyz/Hunter2xyz?pass=Hunter2xyz",
+		"fedelex://tavolo?pass=Hunter2xyz&pass=Hunter2xyz&pass=Hunter2xyz",
+		"fedelex://tavolo?host=h&port=1&pass=Hunter2xyz&nome=n&x=Hunter2xyz&y=Hunter2xyz",
+		"fedelex://Hunter2xyz?pass=Hunter2xyz",
+		"Hunter2xyz://Hunter2xyz?host=h",
+	};
+	for(const char* link : links) {
+		const std::string shape = DescribeShape(link);
+		check(!contains(shape, "Hunter") && !contains(shape, "xyz"), link);
+	}
+}
+
+void test_shape_of_unreadable_forms() {
+	check(DescribeShape("not-a-link-at-all") == "schema=(assente) route=(nessun ?) chiavi=- altre=0 lunghezza=17",
+		 "no '://' at all: the whole text is neither scheme nor route");
+	check(DescribeShape("http://tavolo?a=1").find("schema=altro") == 0, "a scheme that is not fedelex is only named altro");
+	check(DescribeShape("FEDELEX://x?host=1").find("schema=FEDELEX ") == 0, "the scheme of ours is shown as received, case included");
+	check(DescribeShape("fedelex://tavolo/?host=1&Host=2&port=3&zz=4&=5&q").find("chiavi=host,port altre=4 ") != std::string::npos,
+		 "only the four known keys are named, the others are counted (case differences show up as 'altre')");
+	check(DescribeShape("fedelex://altro?host=1").find("route=(illeggibile, 5 caratteri)") != std::string::npos,
+		 "a route that does not start with tavolo is not echoed, only its length");
+	check(DescribeShape("fedelex://tavolo?").find("route=tavolo chiavi=- altre=0") != std::string::npos, "an empty query has no keys");
+	std::string long_route(100, 'a');
+	check(DescribeShape("fedelex://" + long_route + "?host=1").find("route=(illeggibile, 100 caratteri)") != std::string::npos,
+		 "a long route is not echoed");
+}
+
 }
 
 int RunDeepLinkTests() {
@@ -150,6 +286,13 @@ int RunDeepLinkTests() {
 	test_pass_over_the_limit_is_rejected();
 	test_nome_over_the_limit_is_rejected();
 	test_rejected_link_leaves_out_empty();
+	test_harmless_os_variants_give_the_canonical_fields();
+	test_variants_that_change_the_meaning_stay_bad_scheme();
+	test_slash_tolerance_does_not_touch_the_values();
+	test_other_errors_are_unchanged_on_a_variant();
+	test_shape_of_a_link_has_no_values();
+	test_shape_never_leaks_a_password_whatever_the_form();
+	test_shape_of_unreadable_forms();
 
 	std::printf("deep_link_tests: %d checks, %d failures\n", checks, failures);
 	return failures == 0 ? 0 : 1;

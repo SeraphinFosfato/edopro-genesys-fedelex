@@ -10,7 +10,12 @@ namespace ygo::deep_link {
 
 namespace {
 
-constexpr epro::stringview kPrefix = "fedelex://tavolo?"sv;
+// FASE 75d: matched without regard to case, then an optional single '/',
+// then '?' — see ParseTableLink(). On Windows the link reached the game but
+// was discarded as BadScheme (2026-10-10, build 16), because the exact text
+// "fedelex://tavolo?" is not what the OS / browser always hands over.
+constexpr epro::stringview kHead = "fedelex://tavolo"sv;
+constexpr epro::stringview kRoute = "tavolo"sv; // the tail of kHead, for DescribeShape()
 
 // gframe/network.h: CTOS_JoinGame::pass[20] / CTOS_PlayerInfo::name[20] are
 // uint16_t buffers that BufferIO::EncodeUTF16 null-terminates — the usable
@@ -109,12 +114,92 @@ const char* ToString(ParseError error) {
 	return "Unknown";
 }
 
+// `lower` must already be lower case.
+bool EqualsIgnoreCase(epro::stringview text, epro::stringview lower) {
+	if(text.size() != lower.size())
+		return false;
+	for(size_t i = 0; i < text.size(); ++i) {
+		if(std::tolower(static_cast<unsigned char>(text[i])) != lower[i])
+			return false;
+	}
+	return true;
+}
+
+bool IsRouteChar(char c) {
+	return std::isalnum(static_cast<unsigned char>(c)) || c == '/' || c == '.' || c == '-' || c == '_';
+}
+
+std::string DescribeShape(const std::string& uri) {
+	// Nothing taken from after the first '?' is ever copied into the result
+	// except the four key NAMES this module knows (matched exactly, so they
+	// are our own constants, not input). The scheme is echoed only if it IS
+	// ours, the route only if it starts with "tavolo" and is made of
+	// harmless characters.
+	epro::stringview view(uri);
+	std::string scheme = "(assente)";
+	std::string route = "(nessun ?)";
+	epro::stringview query;
+	const auto sep = view.find("://"sv);
+	if(sep != epro::stringview::npos) {
+		const auto name = view.substr(0, sep);
+		scheme = EqualsIgnoreCase(name, "fedelex"sv) ? std::string(name) : "altro";
+		const auto rest = view.substr(sep + 3);
+		const auto q = rest.find('?');
+		if(q != epro::stringview::npos) {
+			const auto path = rest.substr(0, q);
+			bool printable = path.size() <= 24 && EqualsIgnoreCase(path.substr(0, kRoute.size()), kRoute);
+			for(char c : path)
+				printable = printable && IsRouteChar(c);
+			route = printable ? std::string(path) : "(illeggibile, " + std::to_string(path.size()) + " caratteri)";
+			query = rest.substr(q + 1);
+		}
+	}
+	std::string keys;
+	size_t others = 0;
+	size_t pos = 0;
+	while(pos <= query.size()) {
+		const auto amp = query.find('&', pos);
+		const auto piece = (amp == epro::stringview::npos) ? query.substr(pos) : query.substr(pos, amp - pos);
+		const auto key = piece.substr(0, piece.find('='));
+		bool is_known = false;
+		for(const auto known : { "host"sv, "port"sv, "pass"sv, "nome"sv }) {
+			if(key == known) {
+				keys += (keys.empty() ? "" : ",") + std::string(known);
+				is_known = true;
+			}
+		}
+		if(!is_known && !piece.empty())
+			++others;
+		if(amp == epro::stringview::npos)
+			break;
+		pos = amp + 1;
+	}
+	return "schema=" + scheme + " route=" + route + " chiavi=" + (keys.empty() ? "-" : keys) +
+		" altre=" + std::to_string(others) + " lunghezza=" + std::to_string(uri.size());
+}
+
 ParseError ParseTableLink(const std::string& uri, TableLink& out) {
 	out = TableLink{};
 	epro::stringview view(uri);
-	if(!starts_with(view, kPrefix))
+	// FASE 75d: ONE literal '/' at the very end is tolerated (values are
+	// encodeURIComponent'ed, so a literal '/' cannot belong to one — it can
+	// only have been added after the link was built). A second one would end
+	// up inside the last value, so it is refused instead.
+	if(!view.empty() && view.back() == '/') {
+		view.remove_suffix(1);
+		if(!view.empty() && view.back() == '/')
+			return ParseError::BadScheme;
+	}
+	if(view.size() < kHead.size() || !EqualsIgnoreCase(view.substr(0, kHead.size()), kHead))
 		return ParseError::BadScheme;
-	auto fields = ParseQuery(view.substr(kPrefix.size()));
+	view.remove_prefix(kHead.size());
+	// ...and an optional single '/' between "tavolo" and '?' (the form
+	// Windows and browsers give to a URL with a host and no path).
+	if(!view.empty() && view.front() == '/')
+		view.remove_prefix(1);
+	if(view.empty() || view.front() != '?')
+		return ParseError::BadScheme;
+	auto fields = ParseQuery(view.substr(1));
 
 	auto host_it = fields.find("host");
 	auto port_it = fields.find("port");
