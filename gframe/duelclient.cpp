@@ -119,8 +119,9 @@ void DuelClient::JoinFromDeepLink(const std::string& uri) {
 	// a duel, in a lobby, watching a replay, already preparing a host) is
 	// silently ignored rather than tearing any of that down — this can only
 	// happen at process startup today (gframe.cpp's CheckArguments() calls
-	// this exactly once, before MainLoop() has run a single frame), but the
-	// guard costs nothing and keeps this function safe to call from
+	// this exactly once, before MainLoop() has run a single frame; since
+	// FASE 75c — from FASE 75 to then nothing called this function at all),
+	// but the guard costs nothing and keeps this function safe to call from
 	// anywhere later without re-deriving the condition.
 	if((mainGame->is_building && mainGame->is_siding) || mainGame->dInfo.isInDuel ||
 	   mainGame->dInfo.isInLobby || mainGame->dInfo.isReplay || mainGame->wHostPrepare->isVisible())

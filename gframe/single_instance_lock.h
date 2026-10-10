@@ -19,9 +19,13 @@
 // with another process, never a thing to keep listening.
 //
 // Used in two places:
-//   - gframe/gframe.cpp acquires one for the whole lifetime of the
-//     simulator process (every launch, deep-linked or not — the lock
-//     itself gates nothing there, it only exists to be OBSERVED).
+//   - gframe/gframe.cpp's edopro_main() acquires one for the whole lifetime
+//     of the simulator process (every launch, deep-linked or not — the lock
+//     itself gates nothing there, it only exists to be OBSERVED). On
+//     "./" + kTournamentLockFileName, right after the chdir to the `-C`
+//     directory the launcher passes (= the launcher's data_dir). Since
+//     FASE 75c: FASE 75 wrote this comment, and the launcher's probe, but
+//     the simulator never took the lock, so the probe always found it free.
 //   - launcher/main.cpp, only when it is about to act on a deep link,
 //     tries to acquire a SEPARATE, short-lived instance of this same class
 //     on the identical path: success means no simulator is holding it (ok

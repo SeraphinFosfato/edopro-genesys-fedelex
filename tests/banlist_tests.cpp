@@ -63,6 +63,9 @@ int RunTournamentModeTests();
 // Defined in server_tls_tests.cpp — same reasoning, for FASE 83's `tls`
 // server field and by-name identity of TLS servers.
 int RunServerTlsTests();
+// Defined in single_instance_lock_tests.cpp — same reasoning, for FASE 75c's
+// tournament lock (the simulator's and the launcher's spelling of its path).
+int RunSingleInstanceLockTests();
 
 using namespace ygo;
 
@@ -751,5 +754,6 @@ int main() {
 	const int deep_link_failures = RunDeepLinkTests();
 	const int tournament_mode_failures = RunTournamentModeTests();
 	const int server_tls_failures = RunServerTlsTests();
-	return (failures == 0 && diff_failures == 0 && title_failures == 0 && update_failures == 0 && game_data_ready_failures == 0 && online_gate_failures == 0 && updater_managed_files_failures == 0 && launcher_logic_failures == 0 && deep_link_failures == 0 && tournament_mode_failures == 0 && server_tls_failures == 0) ? 0 : 1;
+	const int single_instance_lock_failures = RunSingleInstanceLockTests();
+	return (failures == 0 && diff_failures == 0 && title_failures == 0 && update_failures == 0 && game_data_ready_failures == 0 && online_gate_failures == 0 && updater_managed_files_failures == 0 && launcher_logic_failures == 0 && deep_link_failures == 0 && tournament_mode_failures == 0 && server_tls_failures == 0 && single_instance_lock_failures == 0) ? 0 : 1;
 }
