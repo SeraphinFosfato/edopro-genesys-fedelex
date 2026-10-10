@@ -405,7 +405,9 @@ per entrare in una stanza di torneo con un clic, e "modalita' torneo"
   nessun processo nuovo (verificato sul log delle invocazioni del
   simulatore finto: una sola riga, non due). Rilasciato il lock e ripetuto:
   il launcher ha spawnato normalmente, inoltrando `-deep-link`.
-  **Scelta deliberata**: e' una sonda puntuale (apre, controlla, chiude),
+  **Quella prova copriva solo il lato launcher** (il lock tenuto a mano da
+  fuori): il simulatore non lo prendeva da nessuna parte, vedi "FASE 75c"
+  sotto. **Scelta deliberata**: e' una sonda puntuale (apre, controlla, chiude),
   non un servizio in ascolto — nessun socket, nessuna porta, nessun
   processo che resta vivo oltre la vita della sonda. Non e' il punto di
   risalita "serve qualcosa in ascolto sulla macchina": non serve niente di
@@ -871,6 +873,69 @@ il vettore, non solo i file di configurazione.
 **Non verificato.** `Game::LoadServers()` e' stata solo compilata, mai eseguita (niente `DISPLAY`, irrlicht): la decisione
 e' provata dalla funzione pura, il collegamento in `LoadServers` dalla compilazione. Nessun client aggiornato davvero da
 una release vera: la 83c non e' ancora in nessuna release.
+
+## Stato dell'implementazione (FASE 75c)
+
+**Aggiornato il 2026-10-10.** Ramo `fase-75c`, da `master` a `e231cde84` (la v0.4.0-alpha). Nessun merge, nessun tag.
+
+**Cosa mancava, e da quando.** Dalla FASE 75 (2026-10-05) il link `fedelex://` non ha mai aperto un tavolo. FASE 75 aveva
+scritto tutti i pezzi tranne i due collegamenti nel simulatore:
+- `-deep-link <url>` era riconosciuto (`gframe/edopro_main.cpp`) e inoltrato dal launcher, ma nessuno leggeva
+  `args[LAUNCH_PARAM::DEEP_LINK]`: `DuelClient::JoinFromDeepLink` non aveva nessun chiamante. Il commento che diceva che
+  `CheckArguments()` la chiamava era falso.
+- Il simulatore non prendeva mai `fedelex-tournament.lock`, quindi la sonda del launcher trovava sempre il lock libero e
+  apriva un secondo simulatore invece di dire "il client e' gia' aperto". Il commento di `single_instance_lock.h` che diceva
+  che `gframe/gframe.cpp` lo teneva per tutta la vita del processo era falso.
+
+Visto sull'artefatto spedito, non dedotto dal sorgente: sul `ygoprodll` di v0.4.0-alpha (scaricato dalla release,
+sha256 `9083f392...e669ee`, mai eseguito) `strings | grep -c fedelex-tournament.lock` da' 0, `objdump -d -C | grep -c
+JoinFromDeepLink` da' 0 (la funzione e' stata scartata dal linker perche' senza chiamanti), e la stringa `deep-link` c'e':
+l'opzione veniva riconosciuta e poi non letta. La prova a mano che FASE 75 rimandava (il link contro un server vero,
+voce P-38 del registro delle cose in sospeso del vault) non era mai stata fatta, ed e' quella che l'avrebbe mostrato.
+
+**La forma.**
+- `CheckArguments()` (`gframe/gframe.cpp`, chiamata una volta sola, nel ramo `firstlaunch`) chiama
+  `DuelClient::JoinFromDeepLink` col testo di `-deep-link`, convertito in UTF-8 (`Utils::ToUTF8IfNeeded`: su Windows
+  l'argomento e' UTF-16). Cade dopo `Game::Initialize()` (i widget e `ServerLobby::serversVector`, che `LoadServers` riempie
+  li' dentro, esistono) e prima del primo fotogramma di `MainLoop()`.
+  <!-- verifica: grep -qF 'ygo::DuelClient::JoinFromDeepLink(ygo::Utils::ToUTF8IfNeeded(args[LAUNCH_PARAM::DEEP_LINK].argument))' EdoproForkGSY/edopro_custom/gframe/gframe.cpp -->
+- `edopro_main()` prende `ygo::SingleInstanceLock` su `"./" + kTournamentLockFileName` subito dopo il `chdir` a `-C`, per
+  tutta la vita del processo, sempre (con o senza link). Se non lo prende (un altro simulatore lo tiene, o la cartella non
+  e' scrivibile) scrive una riga nel log e **parte lo stesso**: il lock esiste per essere osservato dal launcher, non per
+  fermare chi parte. Solo Windows e Linux, gli unici con un launcher.
+  <!-- verifica: grep -qF 'ygo::SingleInstanceLock tournament_lock(std::string("./") + ygo::kTournamentLockFileName);' EdoproForkGSY/edopro_custom/gframe/gframe.cpp -->
+- **Perche' la cartella e' la stessa del launcher.** Il launcher sonda `data_dir + "/" + kTournamentLockFileName` e passa
+  `-C data_dir` al simulatore; il simulatore fa `chdir(-C)` prima di toccare il disco, quindi `"./"` e' `data_dir` — assoluto o
+  relativo che sia, e senza riscrivere il percorso (su Windows senza ricodificarlo: `"./fedelex-tournament.lock"` e' tutto
+  ASCII). Il nome del file e' la stessa costante per entrambi. Provato dal test, non solo letto: vedi cancello 1.
+- Il comportamento "client gia' aperto" resta quello di FASE 75: avviso, nessun secondo simulatore, nessun inoltro del
+  link alla finestra aperta. Non si e' costruito l'inoltro, e il launcher non e' stato toccato.
+- Corretti i commenti che davano il collegamento per fatto: `gframe/duelclient.cpp` (`JoinFromDeepLink`),
+  `gframe/single_instance_lock.h`, `gframe/cli_args.h`.
+
+**Cancelli.**
+- **1 (funzione pura / test)**: il percorso non e' una funzione (e' una concatenazione di due costanti), ma il fatto che
+  conta — che `"./"` + nome dopo il `chdir` e `data_dir` + `"/"` + nome siano lo stesso file — e' un test:
+  `tests/single_instance_lock_tests.cpp`, 12 verifiche (un secondo possessore e' rifiutato; il lock si libera; i due
+  modi di scrivere il percorso si incontrano, con `data_dir` assoluto e relativo; un percorso non creabile da' "non
+  preso" senza crash). Rotto di proposito (`"../"` al posto di `"./"`) fallisce con `1 failures`. Suite: i 2 FAIL
+  su `OCG.lflist.conf` assente in locale restano, tutto il resto verde. Solo POSIX: il ramo Windows non gira sul runner.
+- **2 (build Linux)**: `tools/release/build_linux.sh release` da zero, compila e linka, nessun avviso in `gframe.cpp`.
+- **3 (prova sull'artefatto, senza display)**: sul `ygoprodll` costruito dal ramo, `objdump -d` di `edopro_main` mostra,
+  nell'ordine: `chdir`, la costruzione di `"./"` + `"fedelex-tournament.lock"`, `open(O_CREAT|O_RDWR|O_CLOEXEC, 0644)`,
+  `flock(LOCK_EX|LOCK_NB)`, il ramo di log se fallisce, solo dopo `evthread_use_pthreads` e `DataHandler`; e, dopo
+  `Game::Initialize()`, un controllo del flag `DEEP_LINK` e la chiamata a `DuelClient::JoinFromDeepLink`. La stessa
+  ricerca sul `ygoprodll` costruito dal ramo `fase-83c` (il codice di prima) da' 0 chiamate e 0 stringhe, quindi la prova
+  distingue. Questo prova che le chiamate **sono nel binario, nell'ordine giusto**, non che **eseguendolo** succeda
+  quello che si vuole.
+- **4 (CI)**: vedi lo Stato della FASE 75c in `PHASES.md` del vault (id della run e job per job).
+
+**Non verificato.** Il simulatore non e' mai stato avviato (niente `DISPLAY`, regola della sessione): non si e' visto il
+lock comparire in una cartella dati vera, non si e' visto il link aprire una stanza, e `JoinFromDeepLink` e' stata solo
+letta nelle sue uscite anticipate (a `CheckArguments()` nessuna e' vera: nessuna partita, lobby, replay o `wHostPrepare`
+visibile). Resta da fare a mano: cliccare il link dal bot e vedere il tavolo aprirsi; cliccarlo con il client gia' aperto e
+vedere l'avviso invece di un secondo simulatore. Ramo Windows (`CreateFileW`, UTF-16 per l'argomento) solo compilato dal
+job `build-windows`.
 
 ## 1. Il problema, in una riga
 
