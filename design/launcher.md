@@ -937,6 +937,64 @@ visibile). Resta da fare a mano: cliccare il link dal bot e vedere il tavolo apr
 vedere l'avviso invece di un secondo simulatore. Ramo Windows (`CreateFileW`, UTF-16 per l'argomento) solo compilato dal
 job `build-windows`.
 
+## Stato dell'implementazione (FASE 75d)
+
+**Aggiornato il 2026-10-10.** Ramo `fase-75d`, da `master` a `c2809445a` (la build 16, v0.4.1-alpha). Nessun merge, nessun tag.
+
+**Misurato sul PC Windows del giocatore (build 16, chiave `HKCU\Software\Classes\fedelex` presente).** La pagina
+`tavolo.html` aperta nel browser col frammento `#host=fedelex-duelli.quoll-ruffe.ts.net&port=443&pass=prova&nome=prova`
+avvia il gioco, che mostra "Il link ricevuto non e' valido" e scrive in `error.log` (2026-10-10 15:25:51):
+
+    Link fedelex:// scartato (BadScheme).
+
+`BadScheme` vuol dire che il testo non cominciava **esattamente** con `fedelex://tavolo?`. La forma vera di cio' che e'
+arrivato **non e' nel log** (conteneva la password), quindi la causa **non e' misurata**: il sospetto, non provato, e' che
+Windows o il browser normalizzino il link aggiungendo una `/` dopo l'host (`fedelex://tavolo/?...`) o cambiando le
+maiuscole. Su Linux non succede (lo schema passa da `xdg-open`). Questa modifica non dimostra che sia quella la causa:
+la prossima prova su Windows lo dira', e se il link viene ancora scartato il log dira' con che forma.
+
+**Cosa si accetta adesso** (`ParseTableLink`, `gframe/deep_link.cpp`): oltre a `fedelex://tavolo?`, le varianti che un
+sistema operativo puo' introdurre senza cambiare il significato.
+- schema e host `tavolo` **senza distinzione di maiuscole** (`FEDELEX://TAVOLO?...`);
+- **una** `/` fra `tavolo` e `?` (`fedelex://tavolo/?...`);
+- **una** `/` letterale in coda all'intero link (`...&nome=prova/`).
+I valori sono codificati con `encodeURIComponent`, quindi una `/` letterale non puo' appartenere a un valore: puo' solo
+essere stata aggiunta dopo. Per lo stesso motivo la seconda `/` in coda **non** e' tollerata (finirebbe dentro l'ultimo
+valore, per esempio nella password): `...&nome=prova//` resta `BadScheme`. Le chiavi (`host`, `port`, `pass`, `nome`)
+restano sensibili alle maiuscole. Un host diverso da `tavolo`, uno schema diverso, un percorso (`tavolo/x?`), `tavolo//?`,
+`fedelex:/tavolo?`, `fedelex:tavolo?` restano `BadScheme`. Le regole su campi, porta e lunghezze non sono cambiate, e nemmeno
+gli altri errori (`MissingField`, `EmptyHost`, `BadPort`, `PasswordTooLong`, `NameTooLong`) su una variante.
+<!-- verifica: grep -qF 'constexpr epro::stringview kHead = "fedelex://tavolo"sv;' EdoproForkGSY/edopro_custom/gframe/deep_link.cpp -->
+
+**Cosa scrive il log quando un link viene scartato** (`DuelClient::JoinFromDeepLink`, `gframe/duelclient.cpp`): oltre al
+nome dell'errore, la **forma** del link e mai i valori. Esempio, per il link della prova di sopra se fosse arrivato con la `/`:
+
+    Link fedelex:// scartato (BadScheme): schema=fedelex route=tavolo/ chiavi=host,port,pass,nome altre=0 lunghezza=87.
+
+`DescribeShape` (`gframe/deep_link.cpp`, funzione pura, testata) scrive: lo schema se e' il nostro (con le maiuscole come
+sono arrivate), `altro` se non lo e', `(assente)` se non c'e' `://`; la parte fra `://` e il primo `?` solo se comincia per
+`tavolo` (in qualunque maiuscola) e sono al piu' 24 lettere/cifre/`/._-` (altrimenti `(illeggibile, N caratteri)`, o
+`(nessun ?)`); quali fra `host`, `port`, `pass`, `nome`
+ci sono, **per nome**; quante altre parti separate da `&` ci sono, **contate e mai nominate** (una chiave scritta con altre
+maiuscole finisce li'); la lunghezza in byte. Nessun valore, della password o del nome, nemmeno in parte: il test usa una
+password riconoscibile (`Hunter2xyz`) in quattordici forme malformate (al posto dello schema, come chiave, senza `?`, nel
+frammento, percent-encoded, ripetuta, in un percorso lungo) e verifica che non compaia mai. **Limite noto:** la
+parte fra `://` e `?` e' l'unico tratto del link riprodotto cosi' com'e' (e' quello che serve a capire cosa ha fatto
+Windows); la password ci finirebbe solo in un link che il nostro generatore non scrive mai (`tavolo/<password>?...`). Gli altri messaggi di `JoinFromDeepLink` (server non elencato, host non risolvibile) non scrivono
+ne' il link ne' la password, e non sono stati toccati.
+<!-- verifica: grep -qF 'deep_link::DescribeShape(uri)' EdoproForkGSY/edopro_custom/gframe/duelclient.cpp -->
+
+**Cancelli.**
+- **1 (test)**: `tests/deep_link_tests.cpp`, da 21 a 85 verifiche. Rosso prima (la funzione di forma sostituita da uno stub
+  che restituisce il link intero, il parser vecchio): `deep_link_tests: 85 checks, 38 failures`; verde dopo: `85 checks, 0 failures`. Il resto della suite e' invariato, con i 2 FAIL noti su `OCG.lflist.conf` assente in locale.
+- **2 (build Linux)**: `tools/release/build_linux.sh release` da zero.
+- **3 (CI)**: vedi lo Stato della FASE 75d in `PHASES.md` del vault (id della run e job per job).
+
+**Non verificato.** Nessun avvio del simulatore (niente `DISPLAY`, regola della sessione) e nessun Windows: non si e' visto un
+link arrivato da Windows essere accettato, perche' non si conosce la forma con cui arriva. Il launcher non e' stato toccato
+(passa gia' `argv[1]` cosi' com'e'). Resta da fare a mano, sul PC Windows: ripetere la prova con una release che contenga
+questa modifica e leggere `error.log`.
+
 ## 1. Il problema, in una riga
 
 L'aggiornatore attuale vive **dentro** il client: il codice che esegue
