@@ -129,7 +129,9 @@ void DuelClient::JoinFromDeepLink(const std::string& uri) {
 	deep_link::TableLink link;
 	auto error = deep_link::ParseTableLink(uri, link);
 	if(error != deep_link::ParseError::Ok) {
-		ErrorLog("Link fedelex:// scartato ({}).", deep_link::ToString(error));
+		// FASE 75d: the shape of what arrived, never its values — the
+		// password is in the link (deep_link::DescribeShape).
+		ErrorLog("Link fedelex:// scartato ({}): {}.", deep_link::ToString(error), deep_link::DescribeShape(uri));
 		mainGame->PopupMessage(L"Il link ricevuto non e' valido: non e' stato possibile entrare nel tavolo.");
 		return;
 	}
