@@ -26,7 +26,8 @@ enum LAUNCH_PARAM {
 	// (launcher/main.cpp) when it was itself invoked with one (the OS
 	// handing it the URI via the registered x-scheme-handler/fedelex
 	// association). Consumed exactly once, in gframe.cpp's CheckArguments()
-	// -> ygo::DuelClient::JoinFromDeepLink(), which does the actual parsing
+	// -> ygo::DuelClient::JoinFromDeepLink() (wired up in FASE 75c; until
+	// then nothing read this argument), which does the actual parsing
 	// (gframe/deep_link.h) — this flag only carries the raw text across the
 	// process boundary, same role FROM_LAUNCHER plays for the provenance
 	// mark.

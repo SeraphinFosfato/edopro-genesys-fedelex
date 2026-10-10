@@ -20,6 +20,8 @@
 #include "fmt.h"
 #include "curl.h"
 #include "launcher_logic.h"
+#include "duelclient.h"
+#include "single_instance_lock.h"
 #if EDOPRO_MACOS
 #include "osx_menu.h"
 #endif
@@ -52,6 +54,17 @@ void CheckArguments(const args_t& args) {
 		ygo::GUIUtils::SetCheckbox(ygo::mainGame->device, ygo::mainGame->tabSettings.chkEnableSound, false);
 		ygo::GUIUtils::SetCheckbox(ygo::mainGame->device, ygo::mainGame->tabSettings.chkEnableMusic, false);
 	}
+	// FASE 75c: the fedelex:// table link the launcher forwarded as
+	// `-deep-link <url>` (launcher/main.cpp). Called once, from the
+	// `firstlaunch` branch of edopro_main(), i.e. after Game::Initialize()
+	// (widgets and ServerLobby::serversVector exist, which JoinFromDeepLink
+	// needs) and before MainLoop() runs its first frame. The argument is
+	// path_string (UTF-16 on Windows), JoinFromDeepLink wants UTF-8. Before
+	// this call existed (FASE 75 built the parsing, the launcher side and
+	// the function itself but never connected them) the option was parsed
+	// and then read by nobody.
+	if(args[LAUNCH_PARAM::DEEP_LINK].enabled)
+		ygo::DuelClient::JoinFromDeepLink(ygo::Utils::ToUTF8IfNeeded(args[LAUNCH_PARAM::DEEP_LINK].argument));
 }
 
 // FASE 64 cancello 5 / design/launcher.md §4, D244: if this binary was NOT
@@ -208,6 +221,24 @@ int edopro_main(const args_t& args) {
 		const epro::path_stringview dir = userdir.enabled ? userdir.argument : EPRO_TEXT("./");
 		ygo::Utils::SetUserStorageDirectory(dir);
 	}
+#if EDOPRO_WINDOWS || EDOPRO_LINUX
+	// FASE 75c: hold fedelex-tournament.lock (gframe/single_instance_lock.h)
+	// for the whole life of this process, deep-linked or not, so the
+	// launcher's probe (launcher/main.cpp, which tests the same file before
+	// acting on a link) can tell that a simulator is already open instead of
+	// always finding it free. Path: "./" is the data directory because the
+	// block above just did chdir/SetCurrentDirectory to the `-C` argument
+	// the launcher passes (its data_dir) — the very directory the launcher
+	// probes as data_dir + "/" + kTournamentLockFileName, whether data_dir
+	// is absolute or relative, and with no path re-spelled (nor re-encoded,
+	// on Windows) on this side. Taken before the slow start-up so the
+	// window in which a click finds the lock free is as short as possible.
+	// Failing to take it never stops the start: the lock exists to be
+	// observed by the launcher, not to gate this process.
+	ygo::SingleInstanceLock tournament_lock(std::string("./") + ygo::kTournamentLockFileName);
+	if(!tournament_lock.Acquired())
+		ygo::ErrorLog("Il lock fedelex-tournament.lock non e' stato preso (un altro simulatore lo tiene, o la cartella non e' scrivibile): proseguo comunque.");
+#endif
 	ygo::Utils::SetupCrashDumpLogging();
 	std::optional<ThreadsCleaner> cleaner;
 	try {
