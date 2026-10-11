@@ -96,6 +96,11 @@ bool Replay::OpenReplayFromBuffer(std::vector<uint8_t>&& contents) {
 		return false;
 	}
 	if(pheader.base.flag & REPLAY_COMPRESSED) {
+		// ponytail: tetto 256 MiB sul dato decompresso, valore da ratificare
+		if(pheader.base.datasize > (256u << 20)) {
+			Reset();
+			return false;
+		}
 		size_t replay_size = pheader.base.datasize;
 		auto comp_size = contents.size() - header_size;
 		replay_data.resize(pheader.base.datasize);
@@ -208,9 +213,16 @@ void Replay::ParseNames() {
 			count = 2;
 		else
 			count = 1;
+		// ponytail: tetto 8 giocatori per lato, valore largo da ratificare
+		if(count > 8) {
+			count = 0;
+			can_read = false;
+			return;
+		}
 		for(uint32_t i = 0; i < count; i++) {
 			wchar_t namebuf[20];
-			ReadName(namebuf);
+			if(!ReadName(namebuf))
+				break;
 			players.push_back(namebuf);
 		}
 	};
@@ -238,7 +250,7 @@ void Replay::ParseDecks() {
 	decks.clear();
 	if(pheader.base.id != REPLAY_YRP1 || (pheader.base.flag & REPLAY_SINGLE_MODE && !(pheader.base.flag & REPLAY_HAND_TEST)))
 		return;
-	for(uint32_t i = 0; i < home_count + opposing_count; ++i) {
+	for(uint32_t i = 0; i < home_count + opposing_count && can_read; ++i) {
 		ReplayDeck tmp;
 		for(uint32_t j = 0, main = Read<uint32_t>(); j < main && can_read; ++j)
 			tmp.main_deck.push_back(Read<uint32_t>());
@@ -274,7 +286,7 @@ void Replay::ParseStream() {
 		if(p.message == MSG_AI_NAME) {
 			auto* pbuf = p.data();
 			uint16_t len = BufferIO::Read<uint16_t>(pbuf);
-			if((len + 1u) != p.buff_size() - sizeof(uint16_t))
+			if((len + 1u) != p.buff_size() - sizeof(uint16_t) || players.size() < 2)
 				break;
 			pbuf[len] = 0;
 			players[1] = BufferIO::DecodeUTF8({ reinterpret_cast<char*>(pbuf), len });
