@@ -7,6 +7,7 @@
 #include "progress.h"
 #include "launcher_logic.h"
 
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -19,6 +20,7 @@
 #else
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 #include <unistd.h>
 #endif
 
@@ -98,6 +100,14 @@ ProgressWindow::ProgressWindow(const std::string& data_dir) : data_dir_(data_dir
 	if(HasGraphicalSession() && CommandExists("zenity")) {
 		int fds[2];
 		if(pipe(fds) == 0) {
+			// Finding 33: neither end may leak into other children (pipe2 is
+			// not on macOS, and the launcher is single-threaded here, so
+			// fcntl is race-free). The write end is also non-blocking: a
+			// zenity that stops reading must cost one skipped update, never
+			// a stalled download. dup2 in the child clears CLOEXEC on stdin.
+			for(int fd : fds)
+				fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC);
+			fcntl(fds[1], F_SETFL, fcntl(fds[1], F_GETFL) | O_NONBLOCK);
 			pid_t pid = fork();
 			if(pid == 0) {
 				dup2(fds[0], STDIN_FILENO);
@@ -156,6 +166,8 @@ void ProgressWindow::Update(long long downloaded_bytes, long long total_bytes) {
 	// the very next Update(), which is the opposite of "l'aggiornamento
 	// finisce lo stesso".
 	ssize_t written = write(write_fd_, line.data(), line.size());
+	if(written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+		return; // zenity is not reading right now: skip this update, never wait for it
 	if(written < 0) {
 		close(write_fd_);
 		write_fd_ = -1;
