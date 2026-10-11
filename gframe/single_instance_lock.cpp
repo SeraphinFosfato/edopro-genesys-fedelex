@@ -4,6 +4,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #else
+#include <cerrno>
 #include <fcntl.h>
 #include <sys/file.h>
 #include <unistd.h>
@@ -21,12 +22,18 @@ SingleInstanceLock::SingleInstanceLock(const std::string& lock_path) {
 	// CreateProcessW() the way a mutex would require, because the probing
 	// side here (launcher/main.cpp) never spawns a child while holding
 	// this handle open; it checks, then closes, then decides.
-	std::wstring wpath(lock_path.begin(), lock_path.end());
+	// UTF-8 -> UTF-16: widening byte by byte broke any non-ASCII path (Audit 2026-10-11 #23).
+	std::wstring wpath;
+	if(int n = MultiByteToWideChar(CP_UTF8, 0, lock_path.data(), static_cast<int>(lock_path.size()), nullptr, 0)) {
+		wpath.resize(n);
+		MultiByteToWideChar(CP_UTF8, 0, lock_path.data(), static_cast<int>(lock_path.size()), &wpath[0], n);
+	}
 	HANDLE h = CreateFileW(wpath.c_str(), GENERIC_READ,
 						   0, nullptr, CREATE_ALWAYS,
 						   FILE_ATTRIBUTE_HIDDEN, nullptr);
 	if(h == INVALID_HANDLE_VALUE) {
 		acquired = false;
+		busy = (GetLastError() == ERROR_SHARING_VIOLATION);
 		return;
 	}
 	handle = h;
@@ -49,6 +56,7 @@ SingleInstanceLock::SingleInstanceLock(const std::string& lock_path) {
 		return;
 	}
 	if(flock(fd, LOCK_EX | LOCK_NB) != 0) {
+		busy = (errno == EWOULDBLOCK);
 		close(fd);
 		fd = -1;
 		acquired = false;

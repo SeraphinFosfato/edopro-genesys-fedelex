@@ -802,7 +802,7 @@ int main(int argc, char** argv) {
 	// window.
 	if(!deep_link_arg.empty()) {
 		ygo::SingleInstanceLock probe(data_dir + "/" + ygo::kTournamentLockFileName);
-		if(!probe.Acquired()) {
+		if(probe.Busy()) {
 			Log(data_dir, "deep-link: un simulatore e' gia' aperto per questa cartella dati, non ne apro un secondo.");
 			NotifyUser("EDOPro (Fedelex custom)",
 					   "Il client e' gia' aperto. Chiudilo e riapri il link per entrare nel tavolo.");

@@ -57,9 +57,14 @@ public:
 	SingleInstanceLock& operator=(const SingleInstanceLock&) = delete;
 
 	bool Acquired() const { return acquired; }
+	// Three outcomes: Acquired() = taken, Busy() = another process holds it,
+	// neither = error (bad path, permissions): callers must proceed without
+	// the lock, only Busy() justifies refusing to start.
+	bool Busy() const { return busy; }
 
 private:
 	bool acquired{ false };
+	bool busy{ false };
 #if defined(_WIN32)
 	void* handle{ nullptr }; // HANDLE — kept as void* so this header never needs <windows.h>
 #else

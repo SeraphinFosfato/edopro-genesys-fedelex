@@ -74,6 +74,7 @@ void test_second_holder_is_refused_until_the_first_lets_go() {
 		check(first.Acquired(), "the first holder of a free lock must get it");
 		ygo::SingleInstanceLock second(path);
 		check(!second.Acquired(), "a second holder must be refused while the first lives (the launcher's probe depends on this)");
+		check(second.Busy(), "a held lock must report Busy(): the launcher only blocks on that");
 	}
 	ygo::SingleInstanceLock third(path);
 	check(third.Acquired(), "once the holder is gone (exit, crash or kill: the OS releases flock) the lock is free again");
@@ -107,6 +108,7 @@ void test_relative_data_dir_is_the_same_file_too() {
 void test_unwritable_directory_is_a_refusal_not_a_crash() {
 	ygo::SingleInstanceLock nowhere("/nonexistent-dir-for-sil-tests/" + kName);
 	check(!nowhere.Acquired(), "a lock that cannot be created must report not-acquired (edopro_main then logs and carries on)");
+	check(!nowhere.Busy(), "an error is not 'busy': the launcher must proceed without the lock");
 }
 
 }
