@@ -189,6 +189,12 @@ std::vector<LauncherFile> SelectLauncherFilesForPlatform(const std::vector<Launc
 														  const std::string& platform,
 														  size_t* discarded_count = nullptr);
 
+// Audit 2026-10-11: a manifest file name is joined to a local folder, so it
+// must be a plain file name: non-empty, not "." / "..", no path separators
+// ('/' or '\\'), no drive/stream colon, no control characters (NUL included).
+// Parse() refuses a manifest with any other name before anything is written.
+bool IsPlainFileName(const std::string& name);
+
 enum class VersionDecision {
 	Accept,        // strictly newer — install it
 	AlreadyCurrent,// same version — no action, no notification

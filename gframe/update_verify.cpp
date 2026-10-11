@@ -161,6 +161,10 @@ VerifyStatus Parse(const std::string& document, Manifest& out, std::string& erro
 				error = "files[].name is empty";
 				return VerifyStatus::SchemaViolation;
 			}
+			if(!IsPlainFileName(file.name)) {
+				error = "files[].name is not a plain file name";
+				return VerifyStatus::SchemaViolation;
+			}
 			if(!seen_names.insert(file.name).second) {
 				// Same reasoning as banlist's duplicate-id check: a
 				// duplicate name means the publisher's own build produced
@@ -264,6 +268,10 @@ VerifyStatus Parse(const std::string& document, Manifest& out, std::string& erro
 					error = "launcher_files[].name is empty";
 					return VerifyStatus::SchemaViolation;
 				}
+				if(!IsPlainFileName(file.name)) {
+					error = "launcher_files[].name is not a plain file name";
+					return VerifyStatus::SchemaViolation;
+				}
 
 				if(!ReadRequiredString(raw_file, "url", file.url)) {
 					error = "launcher_files[].url is missing or not a string";
@@ -330,6 +338,16 @@ VersionDecision CompareVersion(int incoming_version, int installed_version) {
 	if(incoming_version == installed_version)
 		return VersionDecision::AlreadyCurrent;
 	return VersionDecision::Rollback;
+}
+
+bool IsPlainFileName(const std::string& name) {
+	if(name.empty() || name == "." || name == "..")
+		return false;
+	for(const unsigned char c : name) {
+		if(c < 0x20 || c == 0x7f || c == '/' || c == '\\' || c == ':')
+			return false;
+	}
+	return true;
 }
 
 bool IsClientSupported(int min_supported, int client_version) {

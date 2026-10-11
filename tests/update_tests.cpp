@@ -316,6 +316,21 @@ void test_duplicate_file_name_is_schema_violation() {
 	check(status == VerifyStatus::SchemaViolation, "a duplicate files[].name must be a schema violation");
 }
 
+void test_hostile_file_names_are_schema_violations() {
+	const std::string hash(64, 'b');
+	const char* bad[] = { "..", ".", "../x", "a/b", "a\\\\b", "/etc/passwd", "C:\\\\x", "c:x", "a\\u0000b", "a\\nb" };
+	for(const char* name : bad) {
+		const std::string entry = std::string("{\"name\":\"") + name + "\",\"url\":\"https://example.invalid/a\",\"sha256\":\"" + hash + "\"";
+		Manifest out;
+		std::string error;
+		check(Parse("{\"version\":1,\"files\":[" + entry + "}]}", out, error) == VerifyStatus::SchemaViolation,
+			 "files[].name with a hostile value must be refused");
+		check(Parse("{\"version\":1,\"files\":[],\"launcher_files\":[" + entry + ",\"os\":\"linux\",\"role\":\"simulator\"}]}", out, error) == VerifyStatus::SchemaViolation,
+			 "launcher_files[].name with a hostile value must be refused");
+	}
+	check(IsPlainFileName("ygoprodll.exe") && IsPlainFileName("fedelex.conf"), "ordinary names stay valid");
+}
+
 void test_manifest_without_min_supported_is_valid() {
 	// design/client-update.md §9: a manifest that never declares the field
 	// is valid and closes nothing.
@@ -765,6 +780,7 @@ int RunUpdateTests() {
 	test_missing_sha256_is_schema_violation();
 	test_malformed_sha256_is_schema_violation();
 	test_duplicate_file_name_is_schema_violation();
+	test_hostile_file_names_are_schema_violations();
 	test_manifest_without_min_supported_is_valid();
 	test_min_supported_above_version_is_schema_violation();
 	test_valid_min_supported_round_trips();
