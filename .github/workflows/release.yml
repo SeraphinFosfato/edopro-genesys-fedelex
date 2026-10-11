@@ -19,14 +19,14 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-linux:
     name: Build Linux (client)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Installa le dipendenze di sistema
         # Stessa lista di ci.yml / tools/release/build_linux.sh — tenerle
@@ -46,14 +46,12 @@ jobs:
             libx11-dev libxxf86vm-dev libxcursor-dev libxrandr-dev libxi-dev \
             libwayland-dev libxkbcommon-dev
 
-      - name: Risolvi il commit di edo9300/irrlicht1-8-4@1.9-custom
+      - name: Commit di Irrlicht fissato (stesso SHA di tools/release/setup_irrlicht.sh)
         id: irrlicht-sha
-        run: |
-          sha="$(git ls-remote https://github.com/edo9300/irrlicht1-8-4.git refs/heads/1.9-custom | cut -f1)"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+        run: echo "sha=7071bec37b1aa1a663f662dc1372f9e476aae009" >> "$GITHUB_OUTPUT"
 
       - name: Cache Irrlicht compilato
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ../irrlicht-custom
           key: irrlicht-linux-${{ steps.irrlicht-sha.outputs.sha }}
@@ -62,7 +60,7 @@ jobs:
         run: tools/release/build_linux.sh release
 
       - name: Carica il binario Linux
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: linux-binary
           path: bin/x64/release/ygoprodll
@@ -76,7 +74,7 @@ jobs:
       # firmato (il launcher non lo scarica mai): e' un allegato per chi deve
       # leggere un crash con gdb.
       - name: Carica le informazioni di debug del simulatore Linux
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: linux-debug-symbols
           path: bin/x64/release/ygoprodll.debug
@@ -87,7 +85,7 @@ jobs:
       # launcher_files (D244.9, il launcher non si auto-aggiorna), serve
       # solo a chi vuole prenderlo senza installatore/tarball.
       - name: Carica il launcher Linux
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: linux-launcher-binary
           path: bin/x64/release/fedelex-launcher
@@ -100,7 +98,7 @@ jobs:
       # lo stesso nome ("fedelex.conf") perche' e' cosi' che
       # ALLEGATI_LAUNCHER lo cerca fra gli asset della release.
       - name: Carica fedelex.conf nudo (per il launcher)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: fedelex-conf
           path: strings/fedelex.conf
@@ -115,7 +113,7 @@ jobs:
         run: tools/release/bundle_linux.sh
 
       - name: Carica il tarball Linux
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: linux-tarball
           path: tools/release/out/edopro-custom-linux-x64.tar.gz
@@ -149,7 +147,7 @@ jobs:
           unzip -l tools/release/out/edopro-custom-linux-x64.zip
 
       - name: Carica lo ZIP Linux
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: linux-zip
           path: tools/release/out/edopro-custom-linux-x64.zip
@@ -181,7 +179,7 @@ jobs:
       # 60 il core era linkato staticamente e questo checkout doveva essere
       # "submodules: recursive" (il job Linux non ne aveva bisogno perche'
       # gia' passava --no-core=true).
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # Niente installazione di toolchain: il runner Windows monta gia' Visual
       # Studio 2022 e vcpkg. Lo script trova MSBuild con vswhere, cosi' non
@@ -221,7 +219,7 @@ jobs:
       # ygopro.exe avviene solo nei due step di impacchettamento sotto, che
       # sono cio' che finisce davvero nella release.
       - name: Carica il binario Windows
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: edopro-custom-windows-x86
           path: bin/release/ygoprodll.exe
@@ -284,7 +282,7 @@ jobs:
           Remove-Item -Recurse -Force tools/release/out/.zip-check
 
       - name: Carica lo ZIP Windows
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-zip
           path: tools/release/out/edopro-custom-windows-x86.zip
@@ -319,7 +317,7 @@ jobs:
             --out tools/release/out/edopro-custom-windows-x86-package.zip
 
       - name: Carica il pacchetto Windows per le persone
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-package
           path: tools/release/out/edopro-custom-windows-x86-package.zip
@@ -332,15 +330,17 @@ jobs:
     # push di tag v* arriva a pubblicare davvero.
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # solo qui: crea la Release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: linux-binary
           path: dist/
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: linux-tarball
           path: dist/
@@ -355,7 +355,7 @@ jobs:
       # sotto sul pacchetto per le persone): resta cosi' per chi installa a
       # mano, ma torna ad essere allegato NUDO per il launcher — ruoli
       # diversi, stesso file.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: linux-launcher-binary
           path: dist/
@@ -363,17 +363,17 @@ jobs:
       # FASE 66 (D247 punto 6): simbolo separato del simulatore Linux, non
       # nel manifesto firmato (il launcher non lo scarica mai) — allegato
       # nudo per chi deve leggere un crash con gdb.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: linux-debug-symbols
           path: dist/
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: fedelex-conf
           path: dist/
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: edopro-custom-windows-x86
           path: dist/
@@ -393,12 +393,12 @@ jobs:
       # mano continua a scaricare il tarball/binario nudo di prima. Il
       # manifesto firmato (design/client-update.md, pubblicato separatamente
       # nel vault) e' cio' che indirizza a QUESTI due file.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: linux-zip
           path: dist/
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: windows-zip
           path: dist/
@@ -406,7 +406,7 @@ jobs:
       # D218 punto A / D219: pacchetto Windows per le persone (exe +
       # strings/fedelex.conf + LEGGIMI.txt + notices/). AGGIUNTO, non in
       # sostituzione di ygopro.exe nudo sopra.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: windows-package
           path: dist/
@@ -414,14 +414,15 @@ jobs:
       - name: Crea la Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
         run: |
-          gh release create "${{ github.ref_name }}" \
+          gh release create "$TAG" \
             dist/ygoprodll dist/edopro-custom-linux-x64.tar.gz \
             dist/edopro-custom-linux-x64.zip dist/edopro-custom-windows-x86.zip \
             dist/edopro-custom-windows-x86-package.zip \
             dist/fedelex-launcher dist/ygoprodll.exe dist/fedelex.conf \
             dist/ygoprodll.debug \
-            --title "${{ github.ref_name }}" \
+            --title "$TAG" \
             --notes "$(cat <<EOF
           **Se giochi su Windows:** questa volta scarica e reinstalla il
           pacchetto a mano (istruzioni sotto), anche se avevi gia' installata
@@ -481,7 +482,7 @@ jobs:
 
           ## Per chi vuole i dettagli tecnici
 
-          Build automatica dal commit \`${{ github.sha }}\` (AGPLv3, sorgente
+          Build automatica dal commit \`$GITHUB_SHA\` (AGPLv3, sorgente
           completo in questo repository pubblico a quel commit).
 
           - \`edopro-custom-windows-x86-package.zip\` — il pacchetto Windows da

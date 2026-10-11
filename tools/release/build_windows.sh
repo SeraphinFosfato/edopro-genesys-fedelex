@@ -63,7 +63,11 @@ fi
 
 if [[ ! -d "$IRRLICHT_SRC" ]]; then
     echo "Clono edo9300/irrlicht1-8-4 (1.9-custom)..."
-    git clone --branch 1.9-custom --depth 1 https://github.com/edo9300/irrlicht1-8-4.git "$IRRLICHT_SRC"
+    # Fissato a uno SHA (Audit 2026-10-11 #19): il ramo 1.9-custom di edo9300/irrlicht1-8-4 e' mobile e di terzi.
+    # Aggiornarlo qui, in build_windows.sh/setup_irrlicht.sh e nel passo "Commit di Irrlicht fissato" di release.yml.
+    git init -q "$IRRLICHT_SRC"
+    git -C "$IRRLICHT_SRC" fetch -q --depth 1 https://github.com/edo9300/irrlicht1-8-4.git 7071bec37b1aa1a663f662dc1372f9e476aae009
+    git -C "$IRRLICHT_SRC" checkout -q FETCH_HEAD
 fi
 if [[ ! -d irrlicht/include || ! -d irrlicht/src ]]; then
     echo "Popolo irrlicht/include e irrlicht/src per il subproject Windows..."
