@@ -240,7 +240,10 @@ bool TitleCheckin::Post(const std::string& url, const std::string& credential, l
 	curl_easy_setopt(curl_handle, CURLOPT_TIMEOUT, timeout_seconds);
 	curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, Utils::GetUserAgent().data());
 	curl_easy_setopt(curl_handle, CURLOPT_NOPROXY, "*");
-	curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
+	// Audit 2026-10-11: this POST carries the player's credential, so a
+	// redirect must never be followed (it could send it to another host).
+	// A 3xx comes back as a status that is neither 200 nor 403 and is ignored.
+	curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 0L);
 	ApplyCurlCertificateConfig(curl_handle, gGameConfig->ssl_certificate_path,
 								Utils::FileExists(Utils::ToPathString(gGameConfig->ssl_certificate_path)));
 
