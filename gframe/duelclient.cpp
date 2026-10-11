@@ -113,6 +113,20 @@ void DuelClient::JoinFromDiscord() {
 #undef HIDE_AND_CHECK
 }
 
+namespace {
+// Link ricevuto all'avvio a freddo, prima che i dati di gioco siano pronti:
+// ripreso da RetryPendingDeepLink() (chiamato a ogni frame da MainLoop).
+std::string pending_deep_link;
+}
+
+void DuelClient::RetryPendingDeepLink() {
+	if(pending_deep_link.empty() || !mainGame->IsGameDataReady())
+		return;
+	auto uri = std::move(pending_deep_link);
+	pending_deep_link.clear();
+	JoinFromDeepLink(uri);
+}
+
 void DuelClient::JoinFromDeepLink(const std::string& uri) {
 	// Same early-out as OnJoin()/JoinFromDiscord() in discord_wrapper.cpp:
 	// a link that arrives while we are already doing something (siding, in
@@ -126,6 +140,17 @@ void DuelClient::JoinFromDeepLink(const std::string& uri) {
 	if((mainGame->is_building && mainGame->is_siding) || mainGame->dInfo.isInDuel ||
 	   mainGame->dInfo.isInLobby || mainGame->dInfo.isReplay || mainGame->wHostPrepare->isVisible())
 		return;
+	// Stessi cancelli di ServerLobby::JoinServer (Audit 2026-10-11 #6).
+	// Dati non pronti = caso normale all'avvio a freddo: si tiene il link.
+	if(!mainGame->IsGameDataReady()) {
+		pending_deep_link = uri;
+		return;
+	}
+	if(mainGame->OnlineGateClosed()) {
+		ErrorLog("Link fedelex:// rifiutato: online gate chiuso (reason {}).", static_cast<int>(mainGame->GetOnlineGateReason()));
+		mainGame->ShowOnlineGateWarning();
+		return;
+	}
 	deep_link::TableLink link;
 	auto error = deep_link::ParseTableLink(uri, link);
 	if(error != deep_link::ParseError::Ok) {

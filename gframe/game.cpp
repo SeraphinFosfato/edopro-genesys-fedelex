@@ -2336,6 +2336,7 @@ bool Game::MainLoop() {
 		// so every frame is fine: picks up a core swap (R2) immediately,
 		// same cadence as UpdateGameDataReadyGate() elsewhere in this loop.
 		RefreshOnlineGate();
+		DuelClient::RetryPendingDeepLink();
 		// §7: the 15-minute re-check of min_supported (R1) — this does NOT
 		// run every frame itself, only decides whether it's time to fire
 		// one, on the monotonic clock (never wall time, which can jump).

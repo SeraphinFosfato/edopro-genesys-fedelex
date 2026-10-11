@@ -106,6 +106,8 @@ public:
 	// before connecting (StartClient()'s CTOS_PLAYER_INFO sends whatever
 	// ebNickName holds).
 	static void JoinFromDeepLink(const std::string& uri);
+	// Riprende un link messo in attesa perche' i dati di gioco non erano pronti.
+	static void RetryPendingDeepLink();
 	// FASE 76b, design/server-duelli.md §13.6 punto 5: called every frame
 	// from Game::MainLoop while mainGame->dInfo.isAwaitingReconnect is
 	// true. Cheap when there is nothing to do (gframe/tournament_mode.h's
