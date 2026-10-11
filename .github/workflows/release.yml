@@ -411,6 +411,19 @@ jobs:
           name: windows-package
           path: dist/
 
+      # Audit 2026-10-11: SHA256SUMS con l'hash di ogni asset della release
+      # (stessa lista di `gh release create` qui sotto), cosi' chi scarica a
+      # mano puo' verificare con `sha256sum -c SHA256SUMS`.
+      - name: Calcola SHA256SUMS
+        working-directory: dist
+        run: |
+          sha256sum ygoprodll edopro-custom-linux-x64.tar.gz \
+            edopro-custom-linux-x64.zip edopro-custom-windows-x86.zip \
+            edopro-custom-windows-x86-package.zip \
+            fedelex-launcher ygoprodll.exe fedelex.conf \
+            ygoprodll.debug > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Crea la Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -421,7 +434,7 @@ jobs:
             dist/edopro-custom-linux-x64.zip dist/edopro-custom-windows-x86.zip \
             dist/edopro-custom-windows-x86-package.zip \
             dist/fedelex-launcher dist/ygoprodll.exe dist/fedelex.conf \
-            dist/ygoprodll.debug \
+            dist/ygoprodll.debug dist/SHA256SUMS \
             --title "$TAG" \
             --notes "$(cat <<EOF
           **Se giochi su Windows:** questa volta scarica e reinstalla il

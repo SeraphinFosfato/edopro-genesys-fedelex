@@ -74,7 +74,7 @@ rmdir "$STAGE/lib"
 
 echo "== 4/4: tar it up =="
 mkdir -p "$OUT_DIR"
-tar -C "$(dirname "$STAGE")" -czf "$OUT_DIR/${OUT_NAME}.tar.gz" "$(basename "$STAGE")"
+tar --owner=0 --group=0 --numeric-owner -C "$(dirname "$STAGE")" -czf "$OUT_DIR/${OUT_NAME}.tar.gz" "$(basename "$STAGE")"
 rm -rf "$REPO_ROOT/tools/release/.stage"
 
 echo "Release pronta: $OUT_DIR/${OUT_NAME}.tar.gz ($(du -h "$OUT_DIR/${OUT_NAME}.tar.gz" | cut -f1))"

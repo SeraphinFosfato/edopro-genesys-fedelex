@@ -491,7 +491,7 @@ EOF
 mkdir -p "$OUT_DIR"
 TARBALL="$OUT_DIR/${PKG_NAME}.tar.gz"
 rm -f "$TARBALL"
-tar -C "$STAGE_ROOT" -czf "$TARBALL" "$PKG_NAME"
+tar --owner=0 --group=0 --numeric-owner -C "$STAGE_ROOT" -czf "$TARBALL" "$PKG_NAME"
 rm -rf "$STAGE_ROOT"
 
 echo "Pacchetto pronto: $TARBALL ($(du -h "$TARBALL" | cut -f1))"
