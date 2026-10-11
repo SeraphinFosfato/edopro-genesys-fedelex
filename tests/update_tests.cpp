@@ -331,6 +331,18 @@ void test_hostile_file_names_are_schema_violations() {
 	check(IsPlainFileName("ygoprodll.exe") && IsPlainFileName("fedelex.conf"), "ordinary names stay valid");
 }
 
+void test_min_supported_floor_is_never_lowered() {
+	check(RaiseMinSupportedFloor(0, 0) == 0, "no floor ever seen stays 0");
+	check(RaiseMinSupportedFloor(0, 7) == 7, "first declared floor is remembered");
+	check(RaiseMinSupportedFloor(7, 3) == 7, "an older manifest with a lower floor must not reopen online play");
+	check(RaiseMinSupportedFloor(7, 0) == 7, "an older manifest without the field must not reopen online play");
+	check(RaiseMinSupportedFloor(7, 9) == 9, "a higher floor is adopted");
+	check(RaiseMinSupportedFloor(7, -5) == 7, "a negative value never lowers it");
+	check(ParseStoredMinSupported("12") == 12 && ParseStoredMinSupported("12\n") == 12, "stored value parses");
+	check(ParseStoredMinSupported("") == 0 && ParseStoredMinSupported("abc") == 0 && ParseStoredMinSupported("-3") == 0
+		  && ParseStoredMinSupported("99999999999") == 0, "garbage in the file means nothing remembered");
+}
+
 void test_manifest_without_min_supported_is_valid() {
 	// design/client-update.md §9: a manifest that never declares the field
 	// is valid and closes nothing.
@@ -781,6 +793,7 @@ int RunUpdateTests() {
 	test_malformed_sha256_is_schema_violation();
 	test_duplicate_file_name_is_schema_violation();
 	test_hostile_file_names_are_schema_violations();
+	test_min_supported_floor_is_never_lowered();
 	test_manifest_without_min_supported_is_valid();
 	test_min_supported_above_version_is_schema_violation();
 	test_valid_min_supported_round_trips();

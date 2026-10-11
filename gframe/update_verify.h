@@ -222,6 +222,19 @@ VersionDecision CompareVersion(int incoming_version, int installed_version);
 // which we follow but do not govern).
 bool IsClientSupported(int min_supported, int client_version);
 
+// Audit 2026-10-11: the highest min_supported ever seen in a verified
+// manifest is remembered by the client (a one-line text file, written by
+// ClientUpdater), and an older signed manifest that carries a LOWER floor
+// must not reopen online play. Pure: `stored` is the remembered value
+// (0 = none), `incoming` the manifest's; the result is what to use and
+// remember. A publisher who really wants to lower the floor has to ship a
+// new build instead (the floor only matters to builds below it).
+int RaiseMinSupportedFloor(int stored, int incoming);
+
+// Reads the remembered value from the file's text. Anything that is not a
+// plain non-negative decimal integer is 0 (= nothing remembered).
+int ParseStoredMinSupported(const std::string& text);
+
 }
 
 #endif //UPDATE_VERIFY_H

@@ -12,6 +12,8 @@ extern "C" {
 #include "tweetnacl/tweetnacl.h"
 }
 
+#include <algorithm>
+
 namespace ygo::update {
 
 namespace {
@@ -348,6 +350,23 @@ bool IsPlainFileName(const std::string& name) {
 			return false;
 	}
 	return true;
+}
+
+int RaiseMinSupportedFloor(int stored, int incoming) {
+	return std::max({ stored, incoming, 0 });
+}
+
+int ParseStoredMinSupported(const std::string& raw) {
+	const std::string text = (!raw.empty() && raw.back() == '\n') ? raw.substr(0, raw.size() - 1) : raw;
+	if(text.empty() || text.size() > 9)
+		return 0;
+	int value = 0;
+	for(const char c : text) {
+		if(c < '0' || c > '9')
+			return 0;
+		value = value * 10 + (c - '0');
+	}
+	return value;
 }
 
 bool IsClientSupported(int min_supported, int client_version) {

@@ -28,6 +28,8 @@
 
 #define LOCKFILE EPRO_TEXT("./.edopro_lock")
 #define UPDATES_FOLDER EPRO_TEXT("./updates/{}")
+// Highest min_supported ever seen in a verified manifest (RaiseMinSupportedFloor).
+#define MIN_SUPPORTED_FILE EPRO_TEXT("./updates/.min_supported")
 
 // D243 (design/client-update.md §6quater): THIS client's own platform,
 // fixed at compile time — never read from the manifest, never guessed at
@@ -127,6 +129,22 @@ static CURLcode curlPerform(const char* url, void* payload, void* payload2 = nul
 }
 
 namespace ygo {
+
+static int ReadStoredMinSupported() {
+	FileStream stream{ MIN_SUPPORTED_FILE, FileStream::in | FileStream::binary };
+	if(stream.fail())
+		return 0;
+	std::string text((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+	return ygo::update::ParseStoredMinSupported(text);
+}
+
+static void WriteStoredMinSupported(int value) {
+	if(!Utils::CreatePath(MIN_SUPPORTED_FILE))
+		return;
+	FileStream stream{ MIN_SUPPORTED_FILE, FileStream::out | FileStream::binary | FileStream::trunc };
+	if(!stream.fail())
+		stream << value << '\n';
+}
 
 void ClientUpdater::StartUnzipper(unzip_callback callback, void* payload) {
 #if EDOPRO_ANDROID
@@ -409,10 +427,16 @@ bool ClientUpdater::FetchVerifiedManifest(ygo::update::Manifest& out_manifest) {
 	// the manifest failed to verify above: absence of a signed opinion
 	// never closes the door, only an explicit one does (last_min_supported
 	// keeps whatever it last held, i.e. 0 — "absent" — the very first time).
-	last_min_supported = out_manifest.min_supported;
-	if(!ygo::update::IsClientSupported(out_manifest.min_supported, ygo::update::CLIENT_UPDATE_VERSION)) {
+	// Audit 2026-10-11: the floor only goes up. An older signed manifest
+	// (replayed, or served by a stale mirror) with a lower value must not
+	// reopen online play for a client the publisher already closed.
+	const int floor = ygo::update::RaiseMinSupportedFloor(ReadStoredMinSupported(), out_manifest.min_supported);
+	if(floor > ReadStoredMinSupported())
+		WriteStoredMinSupported(floor);
+	last_min_supported = floor;
+	if(!ygo::update::IsClientSupported(floor, ygo::update::CLIENT_UPDATE_VERSION)) {
 		ygo::ErrorLog("Online gate: questo client (build {}) e' sotto min_supported ({}) dichiarato dal manifesto.",
-					 ygo::update::CLIENT_UPDATE_VERSION, out_manifest.min_supported);
+					 ygo::update::CLIENT_UPDATE_VERSION, floor);
 	}
 	return true;
 }
@@ -498,6 +522,9 @@ ClientUpdater::ClientUpdater(epro::path_stringview override_url) {
 	if(override_url.size())
 		update_url = Utils::ToUTF8IfNeeded(override_url);
 #endif
+	// A floor learned in an earlier run applies from the first frame, even
+	// before (or without) any network reply.
+	last_min_supported = ReadStoredMinSupported();
 	if(Lock.acquired())
 		DeleteOld();
 }
