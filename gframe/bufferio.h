@@ -7,6 +7,7 @@
 #include <cstring>
 #include <cstdint>
 #include <tuple>
+#include <stdexcept>
 #include "text_types.h"
 
 class BufferIO {
@@ -21,11 +22,43 @@ public:
 	static void insert_value(std::vector<uint8_t>& vec, T val) {
 		insert_data(vec, &val, sizeof(T));
 	}
+	// Per-thread read bound (finding 52): while a ReadLimit is alive on this
+	// thread, Read()/Skip() throw Overrun instead of reading past its end.
+	// nullptr = no bound, i.e. the behaviour every other caller always had.
+	struct Overrun : std::runtime_error {
+		Overrun() : std::runtime_error("BufferIO: read past end of buffer") {}
+	};
+	static inline thread_local const uint8_t* read_end = nullptr;
+	class ReadLimit {
+		const uint8_t* previous;
+	public:
+		ReadLimit(const uint8_t* begin, size_t len) : previous(read_end) { read_end = begin + len; }
+		~ReadLimit() { read_end = previous; }
+		ReadLimit(const ReadLimit&) = delete;
+		ReadLimit& operator=(const ReadLimit&) = delete;
+	};
+	static void CheckRead(const uint8_t* p, size_t size) {
+		if(read_end && (p > read_end || size > static_cast<size_t>(read_end - p)))
+			throw Overrun();
+	}
+	template<typename input_type>
+	static void Skip(input_type*& p, size_t size) {
+		static_assert(std::is_same_v<std::remove_cv_t<input_type>, uint8_t>, "only uint8_t supported as buffer input");
+		CheckRead(p, size);
+		p += size;
+	}
 	template<typename input_type>
 	static void Read(input_type*& p, void* dest, size_t size) {
 		static_assert(std::is_same_v<std::remove_cv_t<input_type>, uint8_t>, "only uint8_t supported as buffer input");
+		CheckRead(p, size);
 		std::memcpy(dest, p, size);
 		p += size;
+	}
+	// Bytes left before the active limit; SIZE_MAX when none is active.
+	static size_t Remaining(const uint8_t* p) {
+		if(!read_end)
+			return SIZE_MAX;
+		return p > read_end ? 0 : static_cast<size_t>(read_end - p);
 	}
 	template<typename T, typename input_type>
 	static T Read(input_type*& p) {

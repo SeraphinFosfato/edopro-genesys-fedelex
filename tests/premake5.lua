@@ -41,6 +41,7 @@ project "banlist_tests"
 		"tournament_mode_tests.cpp",
 		"server_tls_tests.cpp",
 		"single_instance_lock_tests.cpp",
+		"bufferio_tests.cpp",
 		"../gframe/banlist_verify.cpp",
 		"../gframe/banlist_diff.cpp",
 		"../gframe/title_verify.cpp",
