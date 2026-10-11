@@ -366,6 +366,18 @@ void test_title_issued_before_revocation_does_not_supersede_it() {
 		 "not superseded: access must stay Revoked");
 }
 
+void test_stored_title_and_block_are_not_replaced_by_older_ones() {
+	const auto title = MakeTitle("2026-09-17T00:00:00.000Z");
+	check(!IncomingTitleIsNotOlder(title, "2026-09-16T00:00:00.000Z"), "an older title must not replace a newer one");
+	check(IncomingTitleIsNotOlder(title, "2026-09-17T00:00:00.000Z"), "the same title again is accepted");
+	check(IncomingTitleIsNotOlder(title, "2026-09-18T00:00:00.000Z"), "a newer title replaces the stored one");
+	check(IncomingTitleIsNotOlder(StoredTitle{}, "2026-01-01T00:00:00.000Z"), "nothing stored: anything is accepted");
+	const auto block = MakeRevocationBlock("2026-09-16T00:00:00.000Z");
+	check(!IncomingBlockIsNotOlder(block, "2026-09-15T00:00:00.000Z"), "an older suspension must not replace a newer revocation");
+	check(IncomingBlockIsNotOlder(block, "2026-09-17T00:00:00.000Z"), "a newer block replaces the stored one");
+	check(IncomingBlockIsNotOlder(StoredBlock{}, "2026-01-01T00:00:00.000Z"), "no block stored: anything is accepted");
+}
+
 void test_equal_timestamps_do_not_supersede() {
 	const auto title = MakeTitle("2026-09-16T00:00:00.000Z");
 	const auto block = MakeRevocationBlock("2026-09-16T00:00:00.000Z");
@@ -520,6 +532,7 @@ int RunTitleTests() {
 	test_title_issued_after_revocation_supersedes_it();
 	test_title_issued_before_revocation_does_not_supersede_it();
 	test_equal_timestamps_do_not_supersede();
+	test_stored_title_and_block_are_not_replaced_by_older_ones();
 	test_replayed_old_title_cannot_unblock_a_later_revocation();
 	test_no_block_present_means_title_supersedes_trivially();
 	test_suspension_blocks_the_same_way_a_revocation_does();

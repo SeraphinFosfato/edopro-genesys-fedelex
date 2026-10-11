@@ -29,6 +29,14 @@ bool TitleSupersedes(const StoredTitle& title, const StoredBlock& block) {
 	return title.issued_at > block.at;
 }
 
+bool IncomingTitleIsNotOlder(const StoredTitle& stored, const std::string& incoming_issued_at) {
+	return !stored.present || incoming_issued_at >= stored.issued_at;
+}
+
+bool IncomingBlockIsNotOlder(const StoredBlock& stored, const std::string& incoming_at) {
+	return stored.kind == StoredBlock::Kind::None || incoming_at >= stored.at;
+}
+
 bool IsExpired(const std::string& expires_at, std::time_t now) {
 	if(expires_at.empty())
 		return false;

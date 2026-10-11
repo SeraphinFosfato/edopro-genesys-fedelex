@@ -73,6 +73,10 @@ bool TitleStore::ApplyVerifiedDocument(const std::string& raw_document, bool per
 		std::lock_guard<epro::mutex> lock(mutex_);
 		if(!BindOrCheck(fields.user_ref))
 			return false;
+		if(!title::IncomingTitleIsNotOlder(title_, fields.issued_at)) {
+			ErrorLog("Title check-in: title issued_at {} is older than the stored one, ignored", fields.issued_at);
+			return false;
+		}
 		title_.present = true;
 		title_.user_ref = fields.user_ref;
 		title_.issued_at = fields.issued_at;
@@ -91,6 +95,10 @@ bool TitleStore::ApplyVerifiedDocument(const std::string& raw_document, bool per
 		std::lock_guard<epro::mutex> lock(mutex_);
 		if(!BindOrCheck(fields.user_ref))
 			return false;
+		if(!title::IncomingBlockIsNotOlder(block_, fields.revoked_at)) {
+			ErrorLog("Title check-in: revocation revoked_at {} is older than the stored block, ignored", fields.revoked_at);
+			return false;
+		}
 		block_.kind = title::StoredBlock::Kind::Revocation;
 		block_.user_ref = fields.user_ref;
 		block_.at = fields.revoked_at;
@@ -110,6 +118,10 @@ bool TitleStore::ApplyVerifiedDocument(const std::string& raw_document, bool per
 		std::lock_guard<epro::mutex> lock(mutex_);
 		if(!BindOrCheck(fields.user_ref))
 			return false;
+		if(!title::IncomingBlockIsNotOlder(block_, fields.suspended_at)) {
+			ErrorLog("Title check-in: suspension suspended_at {} is older than the stored block, ignored", fields.suspended_at);
+			return false;
+		}
 		block_.kind = title::StoredBlock::Kind::Suspension;
 		block_.user_ref = fields.user_ref;
 		block_.at = fields.suspended_at;

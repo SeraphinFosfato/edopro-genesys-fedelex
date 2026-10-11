@@ -63,6 +63,14 @@ enum class AccessState {
 // producer — see IsExpired.
 bool TitleSupersedes(const StoredTitle& title, const StoredBlock& block);
 
+// Audit 2026-10-11: a stored title / block is only ever replaced by one that
+// is not OLDER (same lexicographic ISO-8601 comparison as above; an equal
+// timestamp is the same message again and is accepted). Without this an old
+// signed title could be replayed over a newer one, and an old suspension over
+// a newer revocation. Nothing stored (empty) is replaced by anything.
+bool IncomingTitleIsNotOlder(const StoredTitle& stored, const std::string& incoming_issued_at);
+bool IncomingBlockIsNotOlder(const StoredBlock& stored, const std::string& incoming_at);
+
 // Whether `expires_at` (an ISO-8601 UTC timestamp in the format above) is in
 // the past relative to `now`. An unparseable timestamp returns false — never
 // expired — on purpose: `expires_at` only ever reaches this function inside
