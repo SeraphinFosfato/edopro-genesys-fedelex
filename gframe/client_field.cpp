@@ -323,6 +323,8 @@ void ClientField::UpdateFieldCard(uint8_t controler, uint8_t location, const uin
 	CoreUtils::QueryStream stream{ data, mainGame->dInfo.compat_mode, len, mainGame->dInfo.legacy_race_size };
 	auto cit = lst->begin();
 	for(const auto& query : stream.GetQueries()) {
+		if(cit == lst->end())
+			break; // finding 52: more queries than cards in the list
 		auto pcard = *cit++;
 		if(pcard)
 			pcard->UpdateInfo(query);

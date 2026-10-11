@@ -78,7 +78,10 @@ void Query::Parse(const uint8_t*& current, bool legacy_race_size) {
 			case QUERY_END:
 				return;
 			default: {
-				current += size - sizeof(uint32_t);
+				// finding 52: a size below 4 would wrap and move the pointer backwards/far away
+				if(size < sizeof(uint32_t))
+					throw BufferIO::Overrun();
+				BufferIO::Skip(current, size - sizeof(uint32_t));
 				break;
 			}
 		}
@@ -325,8 +328,10 @@ void QueryStream::ParseCompat(const uint8_t* buff, uint32_t len) {
 	const auto* start = buff;
 	while(static_cast<uint32_t>(buff - start) < len) {
 		int size = BufferIO::Read<int32_t>(buff);
+		if(size < 4)
+			throw BufferIO::Overrun(); // finding 52: would move buff backwards
 		queries.emplace_back(buff, true, size);
-		buff += size - 4;
+		BufferIO::Skip(buff, size - 4);
 	}
 }
 

@@ -698,10 +698,23 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 		break;
 	}
 	case STOC_GAME_MSG: {
+		if(len < 1)
+			return; // finding 52: len - 1 below would wrap
 		analyzeMutex.lock();
 		answered = false;
 		ClientAnalyze(pdata, static_cast<uint32_t>(len - 1));
 		analyzeMutex.unlock();
+		if(analyze_failed) {
+			// Same path as a lost connection: the loop exits and the parser
+			// is fed the connection-end packet ClientEvent would have queued.
+			std::vector<uint8_t> tmp{ INTERNAL_HANDLE_CONNECTION_END, 0 };
+			to_analyze_mutex.lock();
+			to_analyze.clear();
+			to_analyze.push_back(std::move(tmp));
+			to_analyze_mutex.unlock();
+			cv.notify_one();
+			event_base_loopexit(client_base, 0);
+		}
 		break;
 	}
 	case STOC_ERROR_MSG: {
@@ -1652,6 +1665,15 @@ inline T2 CompatRead(const uint8_t*& buf) {
 		return static_cast<T2>(BufferIO::Read<T1>(buf));
 	return BufferIO::Read<T2>(buf);
 }
+// finding 52: ceiling for message counts that create objects without reading
+// anything per element, so the buffer length cannot bound them. Legit values
+// are at most a few hundred (cards in a duel); this only stops 0xFFFFFFFF.
+inline uint32_t CheckedCount(uint32_t count) {
+	constexpr uint32_t kMaxCreatedPerCount = 4096;
+	if(count > kMaxCreatedPerCount)
+		throw BufferIO::Overrun();
+	return count;
+}
 inline void Play(SoundManager::SFX sound) {
 	if(!mainGame->dInfo.isCatchingUp)
 		gSoundManager->PlaySoundEffect(sound);
@@ -1666,7 +1688,22 @@ inline std::unique_lock<epro::mutex> LockIf() {
 		return std::unique_lock<epro::mutex>(mainGame->gMutex);
 	return std::unique_lock<epro::mutex>();
 }
+// finding 52: the only place that bounds and catches the decoder. Nothing
+// escapes from here, so callers holding locks by hand (analyzeMutex, gMutex in
+// replay catch-up) stay balanced. On a malformed message: analyze_failed is
+// set and false is returned; each caller decides how to stop.
 int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
+	analyze_failed = false;
+	try {
+		BufferIO::ReadLimit guard(msg, len);
+		return ClientAnalyzeImpl(msg, len);
+	} catch(const BufferIO::Overrun&) {
+		ErrorLog("Duel message {} is malformed (read past its end)", static_cast<int>(mainGame->dInfo.curMsg));
+		analyze_failed = true;
+		return false;
+	}
+}
+int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 	auto& curMsg = mainGame->dInfo.curMsg;
 	auto PerformQueuedPanelConfirm = [&] {
 		if(mainGame->dField.queued_panel_confirm_cards.empty())
@@ -3000,10 +3037,13 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		const auto count = CompatRead<uint8_t, uint32_t>(pbuf);
 		uint32_t code;
 		ClientCard* pcard;
+		// finding 52: count comes from the message, the pile is the limit
+		if(count > mainGame->dField.deck[player].size())
+			throw BufferIO::Overrun();
 		mainGame->dField.selectable_cards.clear();
 		for(uint32_t i = 0; i < count; ++i) {
 			code = BufferIO::Read<uint32_t>(pbuf);
-			pbuf += (mainGame->dInfo.compat_mode) ? 3 : 6;
+			BufferIO::Skip(pbuf, (mainGame->dInfo.compat_mode) ? 3 : 6);
 			pcard = *(mainGame->dField.deck[player].rbegin() + i);
 			if (code != 0)
 				pcard->SetCode(code);
@@ -3035,10 +3075,12 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		const auto count = CompatRead<uint8_t, uint32_t>(pbuf);
 		uint32_t code;
 		ClientCard* pcard;
+		if(count > mainGame->dField.extra[player].size())
+			throw BufferIO::Overrun(); // finding 52
 		mainGame->dField.selectable_cards.clear();
 		for(auto it = mainGame->dField.extra[player].crbegin(), end = it + count; it != end; ++it) {
 			code = BufferIO::Read<uint32_t>(pbuf);
-			pbuf += (mainGame->dInfo.compat_mode) ? 3 : 6;
+			BufferIO::Skip(pbuf, (mainGame->dInfo.compat_mode) ? 3 : 6);
 			pcard = *it;
 			if (code != 0)
 				pcard->SetCode(code);
@@ -3372,10 +3414,14 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		else
 			lst = mainGame->dField.szone;
 		ClientCard* mc[7];
+		if(count > std::size(mc))
+			throw BufferIO::Overrun(); // finding 52
 		auto lock = LockIf();
 		for (int i = 0; i < count; ++i) {
 			CoreUtils::loc_info previous = CoreUtils::ReadLocInfo(pbuf, mainGame->dInfo.compat_mode);
 			previous.controler = mainGame->LocalPlayer(previous.controler);
+			if(previous.controler > 1 || previous.sequence >= lst[previous.controler].size() || !lst[previous.controler][previous.sequence])
+				throw BufferIO::Overrun(); // finding 52
 			mc[i] = lst[previous.controler][previous.sequence];
 			mc[i]->SetCode(0);
 			if(!mainGame->dInfo.isCatchingUp) {
@@ -3392,6 +3438,8 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			CoreUtils::loc_info current = CoreUtils::ReadLocInfo(pbuf, mainGame->dInfo.compat_mode);
 			current.controler = mainGame->LocalPlayer(current.controler);
 			if (current.location > 0) {
+				if(current.controler > 1 || current.sequence >= lst[current.controler].size() || mc[i]->sequence >= lst[current.controler].size() || !lst[current.controler][current.sequence])
+					throw BufferIO::Overrun(); // finding 52
 				uint8_t prev_seq = mc[i]->sequence;
 				auto tmp = lst[current.controler][current.sequence];
 				lst[current.controler][prev_seq] = tmp;
@@ -4022,6 +4070,8 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		const auto count = CompatRead<uint8_t, uint32_t>(pbuf);
 		auto lock = LockIf();
 		auto& deck = mainGame->dField.deck[player];
+		if(count > deck.size())
+			throw BufferIO::Overrun(); // finding 52
 		for (auto it = deck.crbegin(), end = it + count; it != end; ++it) {
 			auto pcard = *it;
 			const auto code = BufferIO::Read<uint32_t>(pbuf);
@@ -4543,10 +4593,10 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 	}
 	case MSG_TAG_SWAP: {
 		const auto player = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
-		const auto mcount = CompatRead<uint8_t, uint32_t>(pbuf);
-		const auto ecount = CompatRead<uint8_t, uint32_t>(pbuf);
-		const auto pcount = CompatRead<uint8_t, uint32_t>(pbuf);
-		const auto hcount = CompatRead<uint8_t, uint32_t>(pbuf);
+		const auto mcount = CheckedCount(CompatRead<uint8_t, uint32_t>(pbuf));
+		const auto ecount = CheckedCount(CompatRead<uint8_t, uint32_t>(pbuf));
+		const auto pcount = CheckedCount(CompatRead<uint8_t, uint32_t>(pbuf));
+		const auto hcount = CheckedCount(CompatRead<uint8_t, uint32_t>(pbuf));
 		const auto topcode = BufferIO::Read<uint32_t>(pbuf);
 		auto MatchPile = [player,&pcount](auto& pile, uint32_t count, uint8_t location) {
 			if(pile.size() > count) {
@@ -4652,7 +4702,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				ClientCard* ccard = new ClientCard{};
 				mainGame->dField.AddCard(ccard, p, LOCATION_MZONE, seq);
 				ccard->position = BufferIO::Read<uint8_t>(pbuf);
-				const auto xyz_mat_count = CompatRead<uint8_t, uint32_t>(pbuf);
+				const auto xyz_mat_count = CheckedCount(CompatRead<uint8_t, uint32_t>(pbuf));
 				for(uint32_t xyz = 0; xyz < xyz_mat_count; ++xyz) {
 					ClientCard* xcard = new ClientCard{};
 					ccard->overlayed.push_back(xcard);
@@ -4673,7 +4723,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				ccard->position = BufferIO::Read<uint8_t>(pbuf);
 				if(mainGame->dInfo.compat_mode)
 					continue;
-				const auto xyz_mat_count = BufferIO::Read<uint32_t>(pbuf);
+				const auto xyz_mat_count = CheckedCount(BufferIO::Read<uint32_t>(pbuf));
 				for(uint32_t xyz = 0; xyz < xyz_mat_count; ++xyz) {
 					ClientCard* xcard = new ClientCard{};
 					ccard->overlayed.push_back(xcard);
@@ -4686,7 +4736,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				}
 			}
 			auto push_range = [&pbuf,p](uint8_t location) {
-				const auto val = CompatRead<uint8_t, uint32_t>(pbuf);
+				const auto val = CheckedCount(CompatRead<uint8_t, uint32_t>(pbuf));
 				for(uint32_t seq = 0; seq < val; ++seq)
 					mainGame->dField.AddCard(new ClientCard{}, p, location, seq);
 			};

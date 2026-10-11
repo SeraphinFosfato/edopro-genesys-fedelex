@@ -134,6 +134,8 @@ public:
 	static ReplayStream replay_stream;
 	static Replay last_replay;
 	static int ClientAnalyze(const uint8_t* msg, uint32_t len);
+	// Set by ClientAnalyze when the message was malformed (finding 52).
+	static inline bool analyze_failed = false;
 	static int ClientAnalyze(const CoreUtils::Packet& packet) {
 		return ClientAnalyze(packet.data(), static_cast<uint32_t>(packet.buff_size()));
 	}
@@ -211,6 +213,8 @@ public:
 	}
 
 	static void ReplayPrompt(bool need_header = false);
+	// The old body of ClientAnalyze; only ClientAnalyze calls it (finding 52).
+	static int ClientAnalyzeImpl(const uint8_t* msg, uint32_t len);
 
 protected:
 	static bool is_refreshing;

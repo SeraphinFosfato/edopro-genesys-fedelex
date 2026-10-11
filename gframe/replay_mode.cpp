@@ -212,6 +212,21 @@ void ReplayMode::Undo() {
 	Restart(false);
 	Pause(false, false);
 }
+// Finding 52: ClientAnalyze met a malformed message. Same unwinding as the
+// MSG_RETRY branch (release the catch-up lock BEFORE taking gMutex again),
+// then tell the user; the caller returns false and the replay ends as usual.
+static bool AbortDamagedReplay() {
+	if(mainGame->dInfo.isCatchingUp) {
+		mainGame->dInfo.isCatchingUp = false;
+		mainGame->dField.RefreshAllCards();
+		mainGame->gMutex.unlock();
+	}
+	std::unique_lock<epro::mutex> lock(mainGame->gMutex);
+	mainGame->stMessage->setText(L"Replay danneggiato: riproduzione interrotta.");
+	mainGame->PopupElement(mainGame->wMessage);
+	mainGame->actionSignal.Wait(lock);
+	return false;
+}
 bool ReplayMode::ReplayAnalyze(const CoreUtils::Packet& p) {
 	is_restarting = false;
 	{
@@ -247,6 +262,8 @@ bool ReplayMode::ReplayAnalyze(const CoreUtils::Packet& p) {
 					mainGame->gMutex.unlock();
 				}
 				DuelClient::ClientAnalyze(p);
+				if(DuelClient::analyze_failed)
+					return AbortDamagedReplay();
 				return false;
 			}
 			return true;
@@ -300,6 +317,8 @@ bool ReplayMode::ReplayAnalyze(const CoreUtils::Packet& p) {
 			return true;
 		}
 		DuelClient::ClientAnalyze(p);
+		if(DuelClient::analyze_failed)
+			return AbortDamagedReplay();
 		if(pauseable) {
 			current_step++;
 			if(skip_step) {
