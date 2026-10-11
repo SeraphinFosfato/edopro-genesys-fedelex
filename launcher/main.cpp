@@ -720,12 +720,12 @@ bool InstallSimulatorFile(const ygo::update::LauncherFile& file, const Destinati
 	// from one and needs no second CreateProcessW.
 	std::wstring wfinal(dest.final_path.begin(), dest.final_path.end());
 	std::wstring wdata(data_dir.begin(), data_dir.end());
-	std::wstring cmdline = L"\"" + wfinal + L"\" -from-launcher -C \"" + wdata + L"\"";
+	std::wstring cmdline = ygo::launcher::QuoteWindowsArg(wfinal) + L" -from-launcher -C " + ygo::launcher::QuoteWindowsArg(wdata);
 	// FASE 75: same reasoning as the POSIX body above — this probe IS the
 	// real launch if it survives, so the deep link has to ride along here.
 	if(!deep_link.empty()) {
 		std::wstring wlink(deep_link.begin(), deep_link.end());
-		cmdline += L" -deep-link \"" + wlink + L"\"";
+		cmdline += L" -deep-link " + ygo::launcher::QuoteWindowsArg(wlink);
 	}
 	std::vector<wchar_t> cmdline_buf(cmdline.begin(), cmdline.end());
 	cmdline_buf.push_back(0);
@@ -1011,10 +1011,10 @@ int main(int argc, char** argv) {
 	curl_global_cleanup();
 	std::wstring wsim(simulator_path.begin(), simulator_path.end());
 	std::wstring wdata(data_dir.begin(), data_dir.end());
-	std::wstring cmdline = L"\"" + wsim + L"\" -from-launcher -C \"" + wdata + L"\"";
+	std::wstring cmdline = ygo::launcher::QuoteWindowsArg(wsim) + L" -from-launcher -C " + ygo::launcher::QuoteWindowsArg(wdata);
 	if(!deep_link_arg.empty()) {
 		std::wstring wlink(deep_link_arg.begin(), deep_link_arg.end());
-		cmdline += L" -deep-link \"" + wlink + L"\"";
+		cmdline += L" -deep-link " + ygo::launcher::QuoteWindowsArg(wlink);
 	}
 	std::vector<wchar_t> cmdline_buf(cmdline.begin(), cmdline.end());
 	cmdline_buf.push_back(0);

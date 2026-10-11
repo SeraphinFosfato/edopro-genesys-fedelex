@@ -158,6 +158,16 @@ void test_progress_percent_clamps_to_100() {
 		 "downloaded_bytes above total_bytes must clamp the percentage to 100, never over 100");
 }
 
+void test_quote_windows_arg_hostile_cases() {
+	using ygo::launcher::QuoteWindowsArg;
+	check(QuoteWindowsArg(L"C:\\Program Files\\x.exe") == L"\"C:\\Program Files\\x.exe\"", "spaces and inner backslashes are kept as-is inside the quotes");
+	check(QuoteWindowsArg(L"C:\\dir\\") == L"\"C:\\dir\\\\\"", "a trailing backslash is doubled so it cannot escape the closing quote");
+	check(QuoteWindowsArg(L"a\"b") == L"\"a\\\"b\"", "an embedded quote is escaped");
+	check(QuoteWindowsArg(L"a\\\"b") == L"\"a\\\\\\\"b\"", "backslashes before a quote are doubled, the quote escaped");
+	check(QuoteWindowsArg(L"x\" -C \"evil") == L"\"x\\\" -C \\\"evil\"", "an injected option stays inside one argument");
+	check(QuoteWindowsArg(L"") == L"\"\"", "empty argument is an empty quoted string");
+}
+
 void test_progress_percent_zero_downloaded_is_zero() {
 	check(DownloadProgressPercent(0, 66100000) == 0,
 		 "no bytes downloaded yet must be 0%, the first value the window ever shows");
@@ -188,6 +198,7 @@ int RunLauncherLogicTests() {
 	test_progress_percent_unknown_total_is_zero();
 	test_progress_percent_clamps_to_100();
 	test_progress_percent_zero_downloaded_is_zero();
+	test_quote_windows_arg_hostile_cases();
 
 	std::printf("launcher_logic_tests: %d checks, %d failures\n", checks, failures);
 	return failures == 0 ? 0 : 1;

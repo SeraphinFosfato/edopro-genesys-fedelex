@@ -17,6 +17,7 @@
 // per girare, la cosa che sta testando e' nel file sbagliato").
 
 #include <string>
+#include <string_view>
 
 namespace ygo::launcher {
 
@@ -128,6 +129,14 @@ std::string FormatDownloadProgress(long long downloaded_bytes, long long total_b
 // not "assume done" and not "assume nothing", just the one value that asks
 // nothing of whoever reads it.
 int DownloadProgressPercent(long long downloaded_bytes, long long total_bytes);
+
+// Audit 2026-10-11: quotes ONE argument for a Windows command line, following
+// the rules CommandLineToArgvW (and the MSVC CRT) use to split it back:
+// always wrapped in double quotes; a run of backslashes is doubled when it
+// ends before a quote or at the end, and each embedded quote gets a
+// backslash. Pure (wide chars are plain wchar_t, no Windows header), so it
+// is tested on Linux too.
+std::wstring QuoteWindowsArg(std::wstring_view arg);
 
 }
 

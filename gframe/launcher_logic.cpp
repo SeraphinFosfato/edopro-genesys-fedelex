@@ -85,4 +85,24 @@ int DownloadProgressPercent(long long downloaded_bytes, long long total_bytes) {
 	return rounded;
 }
 
+std::wstring QuoteWindowsArg(std::wstring_view arg) {
+	std::wstring out = L"\"";
+	size_t backslashes = 0;
+	for(const wchar_t c : arg) {
+		if(c == L'\\') {
+			++backslashes;
+			continue;
+		}
+		if(c == L'"')
+			out.append(backslashes * 2 + 1, L'\\'); // double the run, then escape the quote
+		else
+			out.append(backslashes, L'\\');
+		backslashes = 0;
+		out.push_back(c);
+	}
+	out.append(backslashes * 2, L'\\'); // trailing run sits before the closing quote
+	out.push_back(L'"');
+	return out;
+}
+
 }
