@@ -1,6 +1,8 @@
 #ifndef POINTS_BUDGET_H
 #define POINTS_BUDGET_H
 
+#include <cstdint>
+
 namespace ygo {
 
 // FASE 32 — design/banlist-distribution.md, "Il tetto di punti è un dato
@@ -19,7 +21,7 @@ namespace ygo {
 // override (GenericDuel::room_points_budget) — the caller decides which,
 // this function only ever sees a plain int and doesn't care where it came
 // from. Either way a deck of any size passes when it's 0.
-inline bool IsOverPointsBudget(int total_points, int points_budget) {
+inline bool IsOverPointsBudget(int64_t total_points, int points_budget) {
 	return points_budget > 0 && total_points > points_budget;
 }
 

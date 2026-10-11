@@ -1,3 +1,4 @@
+#include <cctype>
 #include <algorithm>
 #include <functional>
 // std::istringstream in LoadLFListSingle: con libstdc++ arriva di rimbalzo da
@@ -17,6 +18,7 @@
 #include "game_config.h"
 #include "lflist_hash.h"
 #include "lflist_conf.h"
+#include "logging.h"
 #include "points_budget.h"
 
 namespace ygo {
@@ -87,8 +89,12 @@ bool DeckManager::LoadLFListSingle(const epro::path_string& path) {
 		uint32_t code = 0;
 		int limit = 3;
 		int points = 0;
-		if(!ParseLFListEntryLine(str, code, limit, points))
+		if(!ParseLFListEntryLine(str, code, limit, points)) {
+			// Audit 2026-10-11 #32: a negative-points line is refused, and said so.
+			if(!str.empty() && std::isdigit(static_cast<unsigned char>(str[0])))
+				ErrorLog("lflist: line rejected in '{}': {}", BufferIO::EncodeUTF8(lflist.listName), str);
 			continue;
+		}
 
 		// limit is used as a shift amount below; an out-of-range value from a
 		// malformed file would shift a uint32_t by >=32 bits, which is UB.
@@ -168,8 +174,8 @@ int DeckManager::TypeCount(const Deck::Vector& cards, uint32_t type) {
 	}
 	return count;
 }
-int DeckManager::CountPoints(const Deck::Vector& cards, const LFList* lflist) {
-	int count = 0;
+int64_t DeckManager::CountPoints(const Deck::Vector& cards, const LFList* lflist) {
+	int64_t count = 0;
 	for(const auto& card : cards) {
 		count += lflist->GetCardPoints(card);
 		}
@@ -289,7 +295,7 @@ DeckError DeckManager::CheckDeckContent(const Deck& deck, LFList const* lflist, 
 	// room_points_budget, resolved once when the room was created
 	// (design/banlist-distribution.md, "Come il tetto raggiunge la
 	// stanza").
-	const int total_points = CountPoints(deck.main, lflist) + CountPoints(deck.extra, lflist) + CountPoints(deck.side, lflist);
+	const int64_t total_points = CountPoints(deck.main, lflist) + CountPoints(deck.extra, lflist) + CountPoints(deck.side, lflist);
 	if(IsOverPointsBudget(total_points, points_budget)) {
 		ret.type = DeckError::TOOMANYPOINTS;
 		ret.count.current = static_cast<uint32_t>(total_points);

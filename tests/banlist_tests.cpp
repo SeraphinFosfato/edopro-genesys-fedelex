@@ -403,6 +403,12 @@ void test_budget_is_excluded_from_the_hash_and_zero_never_rejects() {
 	// lflist->points_budget, but the zero-means-no-cap rule inside it is
 	// the same rule either way.
 	check(!IsOverPointsBudget(0, 0), "a budget of 0 (no cap) must never reject an empty deck");
+	{
+		uint32_t c = 0; int l = 3, pt = 0;
+		check(!ParseLFListEntryLine("11384280 3 -50", c, l, pt), "#32: negative points in a .conf line must reject the line");
+		check(ParseLFListEntryLine("11384280 3 50", c, l, pt) && pt == 50, "#32: positive points still parse");
+		check(IsOverPointsBudget(int64_t(3000000000LL), 100), "#32: a sum past INT32_MAX must still be over budget (no wrap)");
+	}
 	check(!IsOverPointsBudget(999999, 0), "a budget of 0 (no cap) must never reject any deck, however many points it has");
 }
 

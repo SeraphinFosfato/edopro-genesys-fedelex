@@ -33,6 +33,9 @@ inline bool ParseLFListEntryLine(const std::string& line, uint32_t& code, int& l
 		return false;
 	if(!(iss >> points))
 		points = 0; // points is optional
+	// Audit 2026-10-11 #32: negative points would let a deck slip under the cap.
+	if(points < 0)
+		return false;
 	return true;
 }
 
