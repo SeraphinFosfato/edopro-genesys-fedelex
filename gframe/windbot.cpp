@@ -105,6 +105,10 @@ WindBot::launch_ret_t WindBot::Launch(int port, epro::wstringview pass, bool cha
 		const char* argDeckFile_cstr = overridedeck ? argDeckFile.data() : nullptr;
 		pid = vfork();
 		if(pid == 0) {
+			// Audit #64: don't leak listener/client sockets to mono (close only, async-signal-safe;
+			// vfork child has its own fd table).
+			for(int fd = 3; fd < 4096; ++fd)
+				close(fd);
 			execlp("mono", "WindBot.exe", "./WindBot/WindBot.exe",
 				   argPass_cstr, argDeck_cstr, argPort_cstr, argVersion_cstr, argName_cstr, argChat_cstr,
 				   argDbPaths_cstr, "AssetPath=./WindBot", argHand_cstr, argDeckFile_cstr, nullptr);
