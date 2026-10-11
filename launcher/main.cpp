@@ -356,9 +356,18 @@ struct CurlResult {
 	std::string body;
 };
 
+// Audit #61: the cap also holds for bodies with no Content-Length, which
+// CURLOPT_MAXFILESIZE_LARGE cannot see.
+struct BodySink {
+	std::string* out;
+	size_t max;
+};
+
 size_t WriteCallback(char* ptr, size_t size, size_t nmemb, void* userdata) {
-	auto* out = static_cast<std::string*>(userdata);
-	out->append(ptr, size * nmemb);
+	auto* sink = static_cast<BodySink*>(userdata);
+	if(sink->out->size() + size * nmemb > sink->max)
+		return 0; // curl aborts with CURLE_WRITE_ERROR
+	sink->out->append(ptr, size * nmemb);
 	return size * nmemb;
 }
 
@@ -387,13 +396,30 @@ CurlResult Fetch(const std::string& url, long timeout_seconds, ProgressCallback 
 	if(!curl)
 		return result;
 	char error_buffer[CURL_ERROR_SIZE] = {};
+	// Audit #61: the manifest has no size field, so a download gets a fixed
+	// 512 MiB ceiling (to be ratified); the manifest/.sig fetches (no progress) 4 MiB.
+	const curl_off_t max_size = on_progress ? curl_off_t(512) * 1024 * 1024 : curl_off_t(4) * 1024 * 1024;
+	BodySink sink{&result.body, static_cast<size_t>(max_size)};
 	curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &result.body);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &sink);
+	curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, max_size);
 	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, timeout_seconds);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_seconds);
+#if (LIBCURL_VERSION_NUM >= 0x075500) // 7.85.0: the string variant
+	curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "https");
+#else
+	curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTPS);
+#endif
+	if(on_progress) {
+		// Audit #61c: no total cap on a download (a slow line must still finish);
+		// it fails only if it stays under 1 KiB/s for 60 s (values to be ratified).
+		curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1024L);
+		curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 60L);
+	} else {
+		curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_seconds);
+	}
 	curl_easy_setopt(curl, CURLOPT_NOPROXY, "*");
 	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error_buffer);
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, "fedelex-launcher/1");
