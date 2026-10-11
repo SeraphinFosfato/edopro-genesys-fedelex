@@ -370,12 +370,14 @@ void GUIUtils::ShowErrorWindow(epro::stringview context, epro::stringview messag
 #elif EDOPRO_LINUX
 	const auto* context_cstr = context.data();
 	const auto* message_cstr = message.data();
-	const auto xmessage = epro::format("{}\n{}", context, message);
+	const auto xmessage = epro::format(" {}\n{}", context, message); // leading space: a text starting with '-' must not become an option (Audit #65; xmessage's support for "--" is unverified)
+	const auto zenity_text = epro::format("--text={}", message);
+	const auto zenity_text_cstr = zenity_text.data();
 	const auto xmessage_cstr = xmessage.data();
 	auto pid = vfork();
 	if(pid == 0) {
 		execl("/usr/bin/kdialog", "kdialog", "--title", context_cstr, "--error", message_cstr, nullptr);
-		execl("/usr/bin/zenity", "zenity", "--title", context_cstr, "--error", message_cstr, nullptr);
+		execl("/usr/bin/zenity", "zenity", "--title", context_cstr, "--error", zenity_text_cstr, nullptr);
 		execl("/usr/bin/xmessage", "xmessage", xmessage_cstr, nullptr);
 		_exit(EXIT_FAILURE);
 	} else if(pid > 0)
