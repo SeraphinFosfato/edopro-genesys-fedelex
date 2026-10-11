@@ -68,6 +68,7 @@
 #if defined(_WIN32)
 #define FEDELEX_WINDOWS 1
 #include <windows.h>
+#include <io.h>
 #else
 #define FEDELEX_WINDOWS 0
 #include <sys/stat.h>
@@ -290,9 +291,26 @@ bool RemoveFile(const std::string& path) {
 // MoveFile is really an overload of the WinAPI MoveFileW. It compiled
 // (v0.2.5/v0.2.6 shipped it) only because the parameter types differ; a
 // name that the preprocessor does not touch is one trap fewer.
+#if FEDELEX_WINDOWS
+std::wstring Widen(const std::string& s) {
+	std::wstring w;
+	if(int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0)) {
+		w.resize(n);
+		MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), &w[0], n);
+	}
+	return w;
+}
+#endif
+
+// Audit 2026-10-11 #60: D244.5's "una copia sola" (the previous .old is
+// replaced) now happens inside the rename itself — rename(2) / MoveFileExW
+// replace the destination atomically, so a crash never leaves it absent.
 bool RenameFile(const std::string& from, const std::string& to) {
-	RemoveFile(to); // D244.5: "una copia sola" — the previous .old, if any, is dropped first.
+#if FEDELEX_WINDOWS
+	return MoveFileExW(Widen(from).c_str(), Widen(to).c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
 	return std::rename(from.c_str(), to.c_str()) == 0;
+#endif
 }
 
 std::string ReadFile(const std::string& path) {
@@ -305,11 +323,24 @@ std::string ReadFile(const std::string& path) {
 }
 
 bool WriteFile(const std::string& path, const std::string& bytes) {
-	std::ofstream f(path, std::ios::binary | std::ios::trunc);
+	// Audit #60: status checked AFTER flush, data forced to disk before the caller renames it into place.
+#if FEDELEX_WINDOWS
+	FILE* f = _wfopen(Widen(path).c_str(), L"wb");
+#else
+	FILE* f = std::fopen(path.c_str(), "wbe"); // 'e': O_CLOEXEC, the children never inherit it.
+#endif
 	if(!f)
 		return false;
-	f.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-	return f.good();
+	bool ok = std::fwrite(bytes.data(), 1, bytes.size(), f) == bytes.size();
+	ok = std::fflush(f) == 0 && ok;
+	ok = std::ferror(f) == 0 && ok;
+#if FEDELEX_WINDOWS
+	ok = _commit(_fileno(f)) == 0 && ok;
+#else
+	ok = ::fsync(fileno(f)) == 0 && ok;
+#endif
+	ok = std::fclose(f) == 0 && ok;
+	return ok;
 }
 
 std::string HashFile(const std::string& path) {
