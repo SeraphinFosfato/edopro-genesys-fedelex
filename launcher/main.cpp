@@ -548,9 +548,10 @@ void InstallStringsFile(const ygo::update::LauncherFile& file, const Destination
 		Log(data_dir, "launcher_files: impossibile scrivere " + tmp);
 		return;
 	}
-	if(FileExists(dest.final_path))
-		RenameFile(dest.final_path, dest.final_path + ".old");
+	// Un file di dati non ha bisogno di .old: il rename sostituisce la destinazione in un solo passo,
+	// senza finestra in cui fedelex.conf non esiste.
 	if(!RenameFile(tmp, dest.final_path)) {
+		RemoveFile(tmp);
 		Log(data_dir, "launcher_files: impossibile installare " + dest.final_path);
 		return;
 	}
