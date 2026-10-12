@@ -48,6 +48,7 @@ DESTINATARIO_LABEL = {
 SISTEMA_LABEL = {
     "linux": "Linux",
     "windows": "Windows",
+    "tutti": "tutti i sistemi",
 }
 
 

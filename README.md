@@ -37,6 +37,8 @@ Ogni release allega questi file (generato da
   Le stringhe di questo fork (etichette del filtro punti), SOLO per il launcher (D244, ALLEGATI_LAUNCHER, role 'strings'): installa sia su Linux che su Windows, il campo 'sistema' qui sopra e' nominale. Non scaricarlo a mano.
 - **`ygoprodll.debug`** (Linux, da scaricare a mano)
   Informazioni di debug del simulatore Linux (FASE 66, D247 punto 6), staccate dal binario distribuito per farlo scendere da 67 a ~10 MB. Non serve per giocare: scaricalo solo se devi leggere un crash con gdb (va messo accanto al binario che e' andato in crash, stesso nome con .debug).
+- **`SHA256SUMS`** (tutti i sistemi, da scaricare a mano)
+  Hash SHA-256 di ogni altro allegato di questa release (audit 2026-10-11). Per verificare un file scaricato a mano: mettilo nella stessa cartella e lancia `sha256sum -c --ignore-missing SHA256SUMS`.
 <!-- artifacts:end -->
 
 Le istruzioni d'installazione per ciascun file sono nel `LEGGIMI.txt` dentro
