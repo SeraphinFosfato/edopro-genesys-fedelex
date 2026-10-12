@@ -29,6 +29,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Installa le dipendenze di sistema
+        # apt-get bloccato sul runner (CI #99, 2026-10-12: 3 ore fermo qui): meglio fallire e rilanciare.
+        timeout-minutes: 15
         # Stessa lista di ci.yml / tools/release/build_linux.sh — tenerle
         # vicine, si disallineano facilmente. libwayland-dev/libxkbcommon-dev
         # erano mancanti qui (mai arrivate quando sono state aggiunte a

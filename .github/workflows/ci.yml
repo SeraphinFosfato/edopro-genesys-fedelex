@@ -82,6 +82,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Installa le dipendenze di sistema
+        # apt-get bloccato sul runner (CI #99, 2026-10-12: 3 ore fermo qui): meglio fallire e rilanciare.
+        timeout-minutes: 15
         # Stessa lista di tools/release/build_linux.sh (nomi Arch), tradotta
         # per apt — tenere le due liste vicine, si disallineano facilmente:
         #   mesa glu freetype2 sqlite curl libevent libgit2 libssh2 fmt flac
