@@ -2,6 +2,7 @@
 #define LFLIST_CONF_H
 
 #include <cstdint>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -52,10 +53,14 @@ inline bool ParseLFListBudgetLine(const std::string& line, int& budget) {
 	if(line.rfind(LFLIST_BUDGET_DIRECTIVE, 0) != 0)
 		return false;
 	std::istringstream iss(line.substr(LFLIST_BUDGET_DIRECTIVE.size()));
-	int value = 0;
-	if(!(iss >> value) || value <= 0)
+	long long value = 0;
+	iss >> value;
+	// Overflow di long long: lo stream lascia LLONG_MAX e failbit. E' un numero enorme, quindi un tetto, non "nessun tetto".
+	if(iss.fail() && value != std::numeric_limits<long long>::max())
 		return false;
-	budget = value;
+	if(value <= 0)
+		return false;
+	budget = value > std::numeric_limits<int>::max() ? std::numeric_limits<int>::max() : static_cast<int>(value);
 	return true;
 }
 

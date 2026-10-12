@@ -16,6 +16,7 @@
 #include "game_config.h"
 #include <irrlicht.h>
 #include "duelclient.h"
+#include "points_budget.h"
 #include "client_card.h"
 #include "materials.h"
 #include "image_manager.h"
@@ -456,7 +457,7 @@ catch(...) { what = def; }
 			// GenericDuel's constructor reads the moment NetServer creates
 			// the room on receipt of this same packet — same process, same
 			// pattern netserver.cpp already uses for gdeckManager->_lfList.
-			TOI(gGameConfig->pointsBudget, mainGame->ebPointsBudget->getText(), 0);
+			gGameConfig->pointsBudget = ParseHostPointsBudget(mainGame->ebPointsBudget->getText());
 			cscg.info.duel_rule = 0;
 			cscg.info.duel_flag_low = mainGame->duel_param & 0xffffffff;
 			cscg.info.duel_flag_high = (mainGame->duel_param >> 32) & 0xffffffff;

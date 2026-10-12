@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 #include <unordered_set>
 #include <nlohmann/json.hpp>
 #include "banlist_keys.h"
@@ -243,6 +244,11 @@ VerifyStatus Parse(const std::string& document, Payload& out, std::string& error
 			const auto raw_budget = budget_it->get<int64_t>();
 			if(raw_budget < 0) {
 				error = "points_budget is negative";
+				return VerifyStatus::SchemaViolation;
+			}
+			if(raw_budget > std::numeric_limits<int>::max()) {
+				// static_cast<int> avrebbe troncato (anche a 0 = nessun tetto): un tetto fuori scala si rifiuta.
+				error = "points_budget is out of range";
 				return VerifyStatus::SchemaViolation;
 			}
 			payload.points_budget = static_cast<int>(raw_budget);

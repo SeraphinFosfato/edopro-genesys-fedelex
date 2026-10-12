@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -408,6 +409,17 @@ void test_budget_is_excluded_from_the_hash_and_zero_never_rejects() {
 		check(!ParseLFListEntryLine("11384280 3 -50", c, l, pt), "#32: negative points in a .conf line must reject the line");
 		check(ParseLFListEntryLine("11384280 3 50", c, l, pt) && pt == 50, "#32: positive points still parse");
 		check(IsOverPointsBudget(int64_t(3000000000LL), 100), "#32: a sum past INT32_MAX must still be over budget (no wrap)");
+	}
+	{
+		const int kMax = std::numeric_limits<int>::max();
+		check(ParseHostPointsBudget(L"") == 0 && ParseHostPointsBudget(L"100") == 100, "tetto host: vuoto = 0, cifre normali invariate");
+		check(ParseHostPointsBudget(L"99999999999999999999999") == kMax, "tetto host: un numero fuori scala e' il massimo, non 0 (nessun tetto)");
+		check(ParseHostPointsBudget(L"2147483648") == kMax, "tetto host: INT_MAX+1 e' il massimo");
+		int b = 0;
+		check(ParseLFListBudgetLine("$points_budget 99999999999999999999999", b) && b == kMax, "tetto in .conf: overflow = massimo, non 'nessun tetto'");
+		b = 0;
+		check(!ParseLFListBudgetLine("$points_budget abc", b) && b == 0, "tetto in .conf: testo malformato ignorato come prima");
+		check(ParseLFListBudgetLine("$points_budget 100", b) && b == 100, "tetto in .conf: valore normale invariato");
 	}
 	check(!IsOverPointsBudget(999999, 0), "a budget of 0 (no cap) must never reject any deck, however many points it has");
 }

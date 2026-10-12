@@ -2,6 +2,8 @@
 #define POINTS_BUDGET_H
 
 #include <cstdint>
+#include <limits>
+#include <string>
 
 namespace ygo {
 
@@ -23,6 +25,23 @@ namespace ygo {
 // from. Either way a deck of any size passes when it's 0.
 inline bool IsOverPointsBudget(int64_t total_points, int points_budget) {
 	return points_budget > 0 && total_points > points_budget;
+}
+
+
+// Campo "tetto punti" dell'host. Vuoto = 0 (nessun tetto, scelta esplicita).
+// Un numero troppo grande per un int NON diventa 0 (cioe' "nessun tetto"):
+// viene riportato al massimo, cioe' un tetto che nessun mazzo supera ma che
+// resta un tetto. Il campo e' EDITBOX_NUMERIC, quindi contiene solo cifre.
+inline int ParseHostPointsBudget(const std::wstring& text) {
+	int64_t value = 0;
+	for(const wchar_t c : text) {
+		if(c < L'0' || c > L'9')
+			return 0;
+		value = value * 10 + (c - L'0');
+		if(value > std::numeric_limits<int>::max())
+			value = std::numeric_limits<int>::max();
+	}
+	return static_cast<int>(value);
 }
 
 }
