@@ -296,8 +296,10 @@ void Replay::ParseStream() {
 			turn_count++;
 		}
 		if(p.message == OLD_REPLAY_MODE) {
-			if(!yrp) {
+			// profondita' massima 1: un replay annidato non ne apre un altro
+			if(!yrp && !is_nested) {
 				yrp = std::make_unique<Replay>();
+				yrp->is_nested = true;
 				if(!yrp->OpenReplayFromBuffer(std::move(p.buffer)))
 					yrp = nullptr;
 			}

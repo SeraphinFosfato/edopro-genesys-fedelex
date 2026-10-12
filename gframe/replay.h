@@ -116,6 +116,7 @@ public:
 	int GetTurnsCount();
 	epro::path_string GetReplayName();
 	std::unique_ptr<Replay> yrp;
+	bool is_nested = false;
 	std::vector<uint8_t> replay_data;
 	std::vector<uint8_t> comp_data;
 	std::vector<uint8_t> GetSerializedBuffer();
