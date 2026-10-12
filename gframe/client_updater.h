@@ -113,7 +113,6 @@ private:
 	// a throwaway one and only cares about the bool and the log lines this
 	// already writes.
 	bool FetchVerifiedManifest(ygo::update::Manifest& out_manifest);
-	void DownloadUpdate(void* payload, update_callback callback);
 	void Unzip(void* payload, unzip_callback callback);
 	struct DownloadInfo {
 		std::string name;
@@ -125,7 +124,7 @@ private:
 	// (design/client-update.md §6quinquies, D238) — never a file written
 	// after a download. The file-based version (`.edopro_update_version`,
 	// written by a now-removed SetInstalledVersion()) lagged reality
-	// whenever DownloadUpdate() wrote it but Unzip()/Reboot() failed
+	// whenever the (now removed) download step wrote it but Unzip()/Reboot() failed
 	// afterwards (§6bis/§6ter): the file said "already on the new version"
 	// while the OLD binary kept running, and from then on CompareVersion()
 	// answered AlreadyCurrent forever — the one remedy (updating) stopped
@@ -143,7 +142,6 @@ private:
 	std::atomic<bool> has_update{ false };
 	std::atomic<bool> downloaded{ false };
 	std::atomic<bool> failed{ false };
-	std::atomic<bool> downloading{ false };
 	std::string update_url{ UPDATE_URL };
 	std::string status_message;
 	// See GetLastMinSupported() above. 0 ("absent", Manifest::min_supported's
