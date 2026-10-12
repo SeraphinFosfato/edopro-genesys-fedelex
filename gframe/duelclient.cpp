@@ -569,7 +569,7 @@ void DuelClient::HandleSTOCPacketLanSync(std::vector<uint8_t>&& data) {
 	auto* pdata = data.data() + 1;
 	switch(pktType) {
 		case STOC_CHAT_2: {
-			auto pkt = BufferIO::getStruct<STOC_Chat2>(pdata, data.size());
+			auto pkt = BufferIO::getStruct<STOC_Chat2>(pdata, data.size() - 1);
 			if(pkt.type == STOC_Chat2::PTYPE_DUELIST && (mainGame->dInfo.player_type >= 7 || !pkt.is_team) && mainGame->tabSettings.chkIgnoreOpponents->isChecked())
 				return;
 			if(pkt.type == STOC_Chat2::PTYPE_OBS && mainGame->tabSettings.chkIgnoreSpectators->isChecked())
@@ -588,8 +588,10 @@ void DuelClient::HandleSTOCPacketLanSync(std::vector<uint8_t>&& data) {
 
 void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 	auto* pdata = data.data();
-	auto len = data.size();
+	if(data.empty())
+		return;
 	uint8_t pktType = BufferIO::Read<uint8_t>(pdata);
+	const auto len = data.size() - 1; // byte di tipo escluso: i getStruct sotto non leggono oltre il buffer
 	switch(pktType) {
 	case INTERNAL_HANDLE_CONNECTION_END: {
 		bool iseof = !!BufferIO::Read<uint8_t>(pdata);
@@ -699,10 +701,10 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 	}
 	case STOC_GAME_MSG: {
 		if(len < 1)
-			return; // finding 52: len - 1 below would wrap
+			return; // finding 52: il messaggio ha almeno un byte
 		analyzeMutex.lock();
 		answered = false;
-		ClientAnalyze(pdata, static_cast<uint32_t>(len - 1));
+		ClientAnalyze(pdata, static_cast<uint32_t>(len));
 		analyzeMutex.unlock();
 		if(analyze_failed) {
 			// Same path as a lost connection: the loop exits and the parser
@@ -1447,7 +1449,7 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 		break;
 	}
 	case STOC_CHAT:	{
-		auto pkt = BufferIO::getStruct<STOC_Chat>(pdata, data.size());
+		auto pkt = BufferIO::getStruct<STOC_Chat>(pdata, len);
 		int player = pkt.player;
 		int type = -1;
 		if(player < mainGame->dInfo.team1 + mainGame->dInfo.team2) {
@@ -1559,7 +1561,7 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 		last_replay.pheader.base.id = 0;
 		uint32_t replay_header_size;
 		if(ExtendedReplayHeader::ParseReplayHeader(pdata, len, last_replay.pheader, &replay_header_size)) {
-			const auto total_data_size = len - (replay_header_size - sizeof(uint8_t));
+			const auto total_data_size = len - replay_header_size;
 			last_replay.comp_data.resize(total_data_size);
 			memcpy(last_replay.comp_data.data(), pdata + replay_header_size, total_data_size);
 		}
