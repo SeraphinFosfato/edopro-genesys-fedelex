@@ -370,7 +370,7 @@ void CGUIImageButton::draw() {
 			skin->draw3DButtonPaneStandard(this, AbsoluteRect, &AbsoluteClippingRect);
 	}
 	if(Image && isDrawImage)
-		irr::gui::Draw2DImageRotation(driver, Image, ImageRect, pos, center, imageRotation, imageScale);
+		irr::gui::Draw2DImageRotation(driver, Image, ImageRect, pos, center, imageRotation, imageScale, true, dimmed ? 0xff555555 : 0xffffffff);
 	IGUIElement::draw();
 }
 

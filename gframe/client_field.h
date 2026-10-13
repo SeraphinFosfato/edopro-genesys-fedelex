@@ -35,6 +35,11 @@ public:
 	std::vector<ClientCard*> remove[2];
 	std::vector<ClientCard*> extra[2];
 	std::vector<ClientCard*> limbo_temp;
+	// FASE 85c: cards shown in a whole-zone select panel that are NOT valid
+	// candidates (dimmed, click ignored). Empty outside a tournament room.
+	std::set<ClientCard*> select_zone_invalid;
+	// ... and the own Deck was widened from STOC_DECK_ZONE: order by code, no sequence shown.
+	bool select_zone_deck = false;
 	std::set<ClientCard*> overlay_cards;
 	std::vector<ClientCard*> summonable_cards;
 	std::vector<ClientCard*> spsummonable_cards;

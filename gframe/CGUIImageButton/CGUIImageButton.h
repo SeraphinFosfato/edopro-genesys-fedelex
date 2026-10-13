@@ -182,6 +182,9 @@ public:
 
 	void setImageSize(core::dimension2di s);
 
+	// FASE 85c: draw the image darkened (non-valid card of a whole-zone panel).
+	void setDimmed(bool d) { dimmed = d; }
+
 protected:
 #if IRRLICHT_VERSION_MAJOR==1 && IRRLICHT_VERSION_MINOR==9
 	void drawSprite(EGUI_BUTTON_STATE state, u32 startTime, const core::vector2di& center);
@@ -224,6 +227,7 @@ protected:
 	bool isDrawImage;
 	bool isFixedSize;
 	f32 imageRotation;
+	bool dimmed = false;
 	core::vector2df imageScale;
 	core::dimension2di imageSize;
 };

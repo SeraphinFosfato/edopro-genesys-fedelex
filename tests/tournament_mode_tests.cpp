@@ -224,6 +224,40 @@ void test_reconnect_active_blocks_input() {
 		 "design/server-duelli.md §13.6 punto 5: 'nessun altro comando accettato' while the overlay is up");
 }
 
+// --- FASE 85c: whole-zone panel ---------------------------------------
+
+void test_zone_full_outside_tournament_never() {
+	check(!ZoneShownInFull(false, true, 0x01, true) && !ZoneShownInFull(false, true, 0x10, true),
+		"outside tournament the panel is never widened to the whole zone");
+}
+
+void test_zone_full_per_location() {
+	check(ZoneShownInFull(true, true, 0x10, false) && ZoneShownInFull(true, false, 0x10, false),
+		"tournament: any graveyard in full");
+	check(ZoneShownInFull(true, true, 0x20, false) && ZoneShownInFull(true, false, 0x20, false),
+		"tournament: any banished pile in full");
+	check(ZoneShownInFull(true, true, 0x40, false) && !ZoneShownInFull(true, false, 0x40, true),
+		"tournament: own Extra yes, opponent Extra never");
+	check(ZoneShownInFull(true, true, 0x01, true), "tournament: own Deck with STOC_DECK_ZONE");
+	check(!ZoneShownInFull(true, true, 0x01, false), "tournament: own Deck without STOC_DECK_ZONE (old server) -> as today");
+	check(!ZoneShownInFull(true, false, 0x01, true), "tournament: opponent Deck never");
+	check(!ZoneShownInFull(true, true, 0x02, true) && !ZoneShownInFull(true, true, 0x04, true),
+		"tournament: hand / field are not panel zones");
+}
+
+void test_zone_plan_maps_valid_once() {
+	const auto plan = ZoneDisplayPlan({10, 10, 20, 30}, {30, 10});
+	check(plan.size() == 4 && plan[0] == 1 && plan[1] == -1 && plan[2] == -1 && plan[3] == 0,
+		"plan: valid candidates matched once each, extra copies and others dimmed");
+	check(ZoneDisplayPlan({}, {1}).empty(), "plan: empty zone -> empty plan");
+}
+
+void test_zone_click() {
+	check(ZoneClickAccepted(false, false), "outside tournament every click counts");
+	check(!ZoneClickAccepted(true, false), "tournament: click on a non-valid card ignored");
+	check(ZoneClickAccepted(true, true), "tournament: click on a valid card accepted");
+}
+
 }
 
 int RunTournamentModeTests() {
@@ -267,6 +301,11 @@ int RunTournamentModeTests() {
 
 	test_reconnect_inactive_does_not_block_input();
 	test_reconnect_active_blocks_input();
+
+	test_zone_full_outside_tournament_never();
+	test_zone_full_per_location();
+	test_zone_plan_maps_valid_once();
+	test_zone_click();
 
 	std::printf("tournament_mode_tests: %d checks, %d failures\n", checks, failures);
 	return failures == 0 ? 0 : 1;

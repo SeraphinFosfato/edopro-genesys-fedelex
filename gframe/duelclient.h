@@ -62,6 +62,9 @@ private:
 	static epro::wstringview ConnectFailedMessage();
 	static bool is_closing;
 	static uint64_t select_hint;
+	// FASE 85c: STOC_DECK_ZONE waiting for the select message that follows it.
+	static std::vector<uint32_t> deck_zone_codes;
+	static bool deck_zone_received;
 	static std::wstring event_string;
 	static bool is_swapping;
 	static bool stop_threads;

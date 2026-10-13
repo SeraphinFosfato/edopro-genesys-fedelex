@@ -50,4 +50,43 @@ bool ReconnectBlocksInput(bool isAwaitingReconnect) {
 	return isAwaitingReconnect;
 }
 
+bool ZoneShownInFull(bool isTournamentRoom, bool isOwn, uint32_t location, bool deckZoneReceived) {
+	if(!isTournamentRoom)
+		return false;
+	switch(location) {
+	case 0x10: // LOCATION_GRAVE
+	case 0x20: // LOCATION_REMOVED
+		return true;
+	case 0x40: // LOCATION_EXTRA
+		return isOwn;
+	case 0x01: // LOCATION_DECK
+		return isOwn && deckZoneReceived;
+	default:
+		return false;
+	}
+}
+
+std::vector<int> ZoneDisplayPlan(const std::vector<uint32_t>& zoneCodes,
+                                  const std::vector<uint32_t>& validCodes) {
+	std::vector<bool> used(validCodes.size(), false);
+	std::vector<int> plan;
+	plan.reserve(zoneCodes.size());
+	for(const auto code : zoneCodes) {
+		int found = -1;
+		for(size_t i = 0; i < validCodes.size(); ++i) {
+			if(!used[i] && validCodes[i] == code) {
+				found = static_cast<int>(i);
+				used[i] = true;
+				break;
+			}
+		}
+		plan.push_back(found);
+	}
+	return plan;
+}
+
+bool ZoneClickAccepted(bool isTournamentRoom, bool isValidCandidate) {
+	return !isTournamentRoom || isValidCandidate;
+}
+
 }

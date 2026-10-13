@@ -363,6 +363,8 @@ void ClientField::ResolveEffectYNPause() {
 	}
 }
 void ClientField::ClearSelect() {
+	select_zone_invalid.clear();
+	select_zone_deck = false;
 	for(auto& pcard : selectable_cards) {
 		pcard->is_selectable = false;
 		pcard->is_selected = false;
@@ -398,6 +400,7 @@ void ClientField::ShowSelectCard(bool buttonok, bool chain) {
 		auto& curstring = mainGame->stCardPos[i];
 		auto& curcard = selectable_cards[i];
 		curstring->enableOverrideColor(false);
+		mainGame->btnCardSelect[i]->setDimmed(select_zone_invalid.count(curcard) != 0);
 		// image
 		if(curcard->code)
 			mainGame->imageLoading[mainGame->btnCardSelect[i]] = curcard->code;
@@ -417,6 +420,9 @@ void ClientField::ShowSelectCard(bool buttonok, bool chain) {
 			else if(curcard->location == LOCATION_OVERLAY) {
 				text = epro::format(L"{}[{}]({})", gDataManager->FormatLocation(curcard->overlayTarget->location, curcard->overlayTarget->sequence),
 					curcard->overlayTarget->sequence + 1, curcard->sequence + 1);
+			} else if(curcard->location == LOCATION_DECK && select_zone_deck) {
+				// FASE 85c: the real position in the Deck is not public information.
+				text = std::wstring{ gDataManager->FormatLocation(LOCATION_DECK, 0) };
 			} else if(curcard->location) {
 				text = epro::format(L"{}[{}]", gDataManager->FormatLocation(curcard->location, curcard->sequence),
 					curcard->sequence + 1);
@@ -494,6 +500,7 @@ void ClientField::ShowChainCard() {
 		else
 			mainGame->btnCardSelect[i]->setImage(mainGame->imageManager.tCover[curcard->controler]);
 		mainGame->btnCardSelect[i]->setRelativePosition(mainGame->Scale<irr::s32>(static_cast<irr::s32>(startpos + i * 125), 55, static_cast<irr::s32>(startpos + 120 + i * 125), 225));
+		mainGame->btnCardSelect[i]->setDimmed(false);
 		mainGame->btnCardSelect[i]->setPressed(false);
 		mainGame->btnCardSelect[i]->setVisible(true);
 		curstring->setText(epro::format(L"{}[{}]", gDataManager->FormatLocation(curcard->location, curcard->sequence),

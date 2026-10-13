@@ -820,6 +820,9 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 				}
 				case MSG_SELECT_CARD: {
 					command_card = selectable_cards[id - BUTTON_CARD_0 + mainGame->scrCardList->getPos() / 10];
+					// FASE 85c: a dimmed (non-valid) card of the whole-zone panel does nothing.
+					if(!tournament_mode::ZoneClickAccepted(mainGame->dInfo.isTournamentRoom, select_zone_invalid.count(command_card) == 0))
+						break;
 					if (command_card->is_selected) {
 						command_card->is_selected = false;
 						auto it = std::find(selected_cards.begin(), selected_cards.end(), command_card);
@@ -853,6 +856,9 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 				}
 				case MSG_SELECT_UNSELECT_CARD: {
 					command_card = selectable_cards[id - BUTTON_CARD_0 + mainGame->scrCardList->getPos() / 10];
+					// FASE 85c: a dimmed (non-valid) card of the whole-zone panel does nothing.
+					if(!tournament_mode::ZoneClickAccepted(mainGame->dInfo.isTournamentRoom, select_zone_invalid.count(command_card) == 0))
+						break;
 					if (command_card->is_selected) {
 						command_card->is_selected = false;
 						if(command_card->controler)
@@ -1039,6 +1045,7 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 					auto& curstring = mainGame->stCardPos[i];
 					// draw selectable_cards[i + pos] in btnCardSelect[i]
 					curstring->enableOverrideColor(false);
+					mainGame->btnCardSelect[i]->setDimmed(select_zone_invalid.count(curcard) != 0);
 					// image
 					if(curcard->code)
 						mainGame->imageLoading[mainGame->btnCardSelect[i]] = curcard->code;
@@ -1058,6 +1065,8 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 						else if(curcard->location == LOCATION_OVERLAY) {
 							text = epro::format(L"{}[{}]({})", gDataManager->FormatLocation(curcard->overlayTarget->location, curcard->overlayTarget->sequence),
 								curcard->overlayTarget->sequence + 1, curcard->sequence + 1);
+						} else if(curcard->location == LOCATION_DECK && select_zone_deck) {
+							text = std::wstring{ gDataManager->FormatLocation(LOCATION_DECK, 0) };
 						} else if(curcard->location != 0) {
 							text = epro::format(L"{}[{}]", gDataManager->FormatLocation(curcard->location, curcard->sequence),
 								curcard->sequence + 1);

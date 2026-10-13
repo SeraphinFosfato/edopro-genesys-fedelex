@@ -369,6 +369,9 @@ public:
 #define STOC_REMATCH		0xf1
 #define STOC_WAITING_REMATCH	0xf2
 #define STOC_CHAT_2			0xf3
+// FASE 85c: codici ancora nel proprio Deck, ordinati per codice, subito prima di una
+// SELECT_CARD/SELECT_UNSELECT_CARD con candidati dal Deck (solo server Fedelex).
+#define STOC_DECK_ZONE		0xf8
 
 #define STOC_NEW_REPLAY			0x30
 

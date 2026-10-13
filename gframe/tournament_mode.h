@@ -21,6 +21,7 @@
 // property of these functions' bodies, not just of their call sites.
 
 #include <cstdint>
+#include <vector>
 
 namespace ygo::tournament_mode {
 
@@ -131,6 +132,25 @@ bool ReconnectBlocksInput(bool isAwaitingReconnect);
 // differs). `clickedCardOnField`: clicked_card is in hand/MZONE/SZONE
 // (location & 0xe).
 bool HoverClosesCmdMenu(bool isTournamentRoom, bool clickedCardOnField, bool hoveredIsClickedCard);
+
+// FASE 85c (D252 esteso): in a tournament room the SELECT_CARD /
+// SELECT_UNSELECT_CARD panel shows the WHOLE source zone, only the valid
+// candidates clickable. Outside a tournament room: only the candidates, as today.
+// Is the whole zone (`location`, controlled by us if `isOwn`) shown? Graveyard
+// and banished: any controller (public; face-down opponent cards are skipped
+// by the caller). Extra Deck: only ours. Deck: only ours, and only if the
+// server sent STOC_DECK_ZONE (`deckZoneReceived`); an old server -> as today.
+bool ZoneShownInFull(bool isTournamentRoom, bool isOwn, uint32_t location, bool deckZoneReceived);
+
+// For each code of the (sorted) zone list, the index into `validCodes` of the
+// valid candidate it stands for (each valid candidate used at most once), or
+// -1 if that card is not a valid candidate (shown dimmed, not clickable).
+std::vector<int> ZoneDisplayPlan(const std::vector<uint32_t>& zoneCodes,
+                                  const std::vector<uint32_t>& validCodes);
+
+// Does a click on a panel card count? Outside a tournament room always (every
+// card in the panel was selectable); inside, only valid candidates.
+bool ZoneClickAccepted(bool isTournamentRoom, bool isValidCandidate);
 
 }
 

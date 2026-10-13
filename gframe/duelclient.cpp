@@ -59,6 +59,8 @@ bool DuelClient::client_is_tls = false;
 std::string DuelClient::temp_tls_name;
 bool DuelClient::is_closing = false;
 uint64_t DuelClient::select_hint = 0;
+std::vector<uint32_t> DuelClient::deck_zone_codes;
+bool DuelClient::deck_zone_received = false;
 std::wstring DuelClient::event_string;
 RNG::mt19937 DuelClient::rnd;
 
@@ -1568,6 +1570,19 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 		}
 		break;
 	}
+	case STOC_DECK_ZONE: {
+		// FASE 85c: an old client never gets here (no default in this switch).
+		if(!mainGame->dInfo.isTournamentRoom)
+			break;
+		const auto n = BufferIO::Read<uint16_t>(pdata);
+		if(static_cast<size_t>(n) * sizeof(uint32_t) > len - sizeof(uint16_t))
+			break;
+		deck_zone_codes.clear();
+		for(uint16_t i = 0; i < n; ++i)
+			deck_zone_codes.push_back(BufferIO::Read<uint32_t>(pdata));
+		deck_zone_received = true;
+		break;
+	}
 	case STOC_CATCHUP: {
 		mainGame->dInfo.isCatchingUp = !!BufferIO::Read<uint8_t>(pdata);
 		if(!mainGame->dInfo.isCatchingUp) {
@@ -1731,6 +1746,68 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 			return;
 		}
 		PerformQueuedPanelConfirm();
+	};
+	// FASE 85c (D252 esteso): sort the select candidates; in a tournament room
+	// first widen the panel to the whole source zone (see tournament_mode.h).
+	// Outside a tournament room this is exactly the std::sort it replaces.
+	auto SortSelectableCards = [&](bool panelmode) {
+		auto& df = mainGame->dField;
+		const bool tournament = mainGame->dInfo.isTournamentRoom;
+		df.select_zone_invalid.clear();
+		df.select_zone_deck = false;
+		if(tournament && panelmode) {
+			std::vector<std::pair<uint8_t, uint32_t>> zones;
+			for(auto* c : df.selectable_cards) {
+				if(c->location == 0 || (c->location & LOCATION_OVERLAY))
+					continue;
+				if(!tournament_mode::ZoneShownInFull(tournament, c->controler == 0, c->location, deck_zone_received))
+					continue;
+				const auto z = std::make_pair(c->controler, c->location);
+				if(std::find(zones.begin(), zones.end(), z) == zones.end())
+					zones.push_back(z);
+			}
+			const std::set<ClientCard*> valid(df.selectable_cards.begin(), df.selectable_cards.end());
+			for(const auto& z : zones) {
+				if(z.second == LOCATION_DECK) {
+					std::vector<uint32_t> validCodes;
+					for(auto* c : df.selectable_cards)
+						if(c->controler == z.first && c->location == LOCATION_DECK)
+							validCodes.push_back(c->code);
+					const auto plan = tournament_mode::ZoneDisplayPlan(deck_zone_codes, validCodes);
+					for(size_t i = 0; i < plan.size(); ++i) {
+						if(plan[i] >= 0)
+							continue;
+						auto* p = new ClientCard{};
+						p->SetCode(deck_zone_codes[i]);
+						p->location = LOCATION_DECK;
+						p->controler = z.first;
+						p->sequence = static_cast<uint32_t>(df.limbo_temp.size());
+						df.limbo_temp.push_back(p);
+						df.selectable_cards.push_back(p);
+						df.select_zone_invalid.insert(p);
+					}
+					df.select_zone_deck = true;
+					continue;
+				}
+				const auto& pile = z.second == LOCATION_GRAVE ? df.grave[z.first]
+					: z.second == LOCATION_REMOVED ? df.remove[z.first] : df.extra[z.first];
+				for(auto* p : pile) {
+					// An opponent's face-down card is never revealed.
+					if(valid.count(p) || (z.first != 0 && (p->position & POS_FACEDOWN)))
+						continue;
+					df.selectable_cards.push_back(p);
+					df.select_zone_invalid.insert(p);
+				}
+			}
+		}
+		deck_zone_received = false;
+		deck_zone_codes.clear();
+		std::sort(df.selectable_cards.begin(), df.selectable_cards.end(), [&](ClientCard* a, ClientCard* b) {
+			// The real order of the Deck is not public: by code (STOC_DECK_ZONE).
+			if(df.select_zone_deck && a->location == LOCATION_DECK && b->location == LOCATION_DECK && a->controler == b->controler)
+				return a->code < b->code;
+			return ClientCard::client_card_sort(a, b);
+		});
 	};
 	const auto* pbuf = msg;
 	if(!mainGame->dInfo.isReplay && !mainGame->dInfo.isSingleMode) {
@@ -2475,7 +2552,7 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 			if (info.location & 0xf1)
 				panelmode = true;
 		}
-		std::sort(mainGame->dField.selectable_cards.begin(), mainGame->dField.selectable_cards.end(), ClientCard::client_card_sort);
+		SortSelectableCards(panelmode);
 		PerformQueuedPanelConfirmIfDifferent(mainGame->dField.selectable_cards);
 		std::wstring text = epro::format(L"{}({}-{})", gDataManager->GetDesc(select_hint ? select_hint : 560, mainGame->dInfo.compat_mode),
 			mainGame->dField.select_min, mainGame->dField.select_max);
@@ -2556,7 +2633,7 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 			if (info.location & 0xf1)
 				panelmode = true;
 		}
-		std::sort(mainGame->dField.selectable_cards.begin(), mainGame->dField.selectable_cards.end(), ClientCard::client_card_sort);
+		SortSelectableCards(panelmode);
 		PerformQueuedPanelConfirmIfDifferent(mainGame->dField.selectable_cards);
 		std::wstring text = epro::format(L"{}({}-{})", gDataManager->GetDesc(select_hint ? select_hint : 560, mainGame->dInfo.compat_mode),
 			mainGame->dField.select_min, mainGame->dField.select_max);
