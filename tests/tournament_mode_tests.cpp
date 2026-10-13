@@ -139,6 +139,16 @@ void test_tournament_empty_pile_offers_nothing() {
 		 "in tournament, an empty pile still offers nothing at all -- there is no zone-level menu to speak of either way");
 }
 
+// --- HoverClosesCmdMenu (FASE 85b) ------------------------------------
+
+void test_hover_closes_menu() {
+	check(HoverClosesCmdMenu(false, true, false), "outside tournament, hovering another card closes the menu (upstream)");
+	check(HoverClosesCmdMenu(false, false, false), "outside tournament, even a non-field clicked card: upstream rule unchanged");
+	check(HoverClosesCmdMenu(true, true, false), "tournament, menu of a field card: hovering another card closes it");
+	check(!HoverClosesCmdMenu(true, false, false), "tournament, menu opened from the Guarda list: hovering a field card behind does NOT close it");
+	check(!HoverClosesCmdMenu(true, true, true) && !HoverClosesCmdMenu(false, true, true), "hovering the clicked card itself never closes it");
+}
+
 // --- EffectYNIsConcealed (§13.5 point 4) ------------------------------
 
 void test_outside_tournament_effectyn_is_never_concealed() {
@@ -238,6 +248,7 @@ int RunTournamentModeTests() {
 	test_tournament_nonempty_pile_offers_only_list();
 	test_tournament_nonempty_pile_with_nothing_activatable_still_offers_list();
 	test_tournament_empty_pile_offers_nothing();
+	test_hover_closes_menu();
 
 	test_outside_tournament_effectyn_is_never_concealed();
 	test_tournament_effectyn_is_concealed_outside_resolution();

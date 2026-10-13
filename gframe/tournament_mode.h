@@ -119,6 +119,19 @@ bool ReconnectGivesUp(bool receivedExplicitJoinError);
 // chiudere il simulatore", "nessun altro comando accettato").
 bool ReconnectBlocksInput(bool isAwaitingReconnect);
 
+// FASE 85b: the hover-away rule that closes the per-card command menu
+// (event_handler.cpp, EMIE_MOUSE_MOVED: "mcard != clicked_card -> hide").
+// Upstream it assumes the menu belongs to a card on the field under the
+// cursor. In a tournament room the same menu is also opened from the
+// "Guarda" list for a card in Deck/GY/Banished/Extra (list_command = 0 path,
+// BUTTON_CARD_x), so clicked_card is NOT on the field and the cursor sits
+// over whatever field card is behind the closed list window: the first
+// mouse move over any card hid the menu at once. Outside a tournament room
+// this is the upstream rule unchanged (hide whenever the hovered card
+// differs). `clickedCardOnField`: clicked_card is in hand/MZONE/SZONE
+// (location & 0xe).
+bool HoverClosesCmdMenu(bool isTournamentRoom, bool clickedCardOnField, bool hoveredIsClickedCard);
+
 }
 
 #endif //TOURNAMENT_MODE_H

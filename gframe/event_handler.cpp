@@ -1744,7 +1744,7 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 					SetShowMark(hovered_card, false);
 				}
 				if(mcard) {
-					if(mcard != clicked_card)
+					if(tournament_mode::HoverClosesCmdMenu(mainGame->dInfo.isTournamentRoom, clicked_card && (clicked_card->location & 0xe), mcard == clicked_card))
 						mainGame->wCmdMenu->setVisible(false);
 					if(hovered_location == LOCATION_HAND) {
 						mcard->is_hovered = true;

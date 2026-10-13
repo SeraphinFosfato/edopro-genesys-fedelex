@@ -24,6 +24,12 @@ int ZoneMenuFlags(bool isTournamentRoom, bool pileNonEmpty, int flagsOutsideTour
 	return flagsOutsideTournament;
 }
 
+bool HoverClosesCmdMenu(bool isTournamentRoom, bool clickedCardOnField, bool hoveredIsClickedCard) {
+	if(hoveredIsClickedCard)
+		return false;
+	return !(isTournamentRoom && !clickedCardOnField);
+}
+
 bool EffectYNIsConcealed(bool isTournamentRoom, bool inChainResolution) {
 	return isTournamentRoom && !inChainResolution;
 }
