@@ -26,6 +26,7 @@
 #include "netserver.h"
 #include "replay_mode.h"
 #include "single_mode.h"
+#include "tournament_mode.h"
 #include "CGUICustomCheckBox/CGUICustomCheckBox.h"
 #include "CGUICustomTable/CGUICustomTable.h"
 #include "CGUICustomTabControl/CGUICustomTabControl.h"
