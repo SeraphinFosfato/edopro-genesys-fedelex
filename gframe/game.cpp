@@ -1392,6 +1392,11 @@ std::wstring Game::GetOnlineGateMessage() const {
 	return message;
 }
 
+bool Game::RestartAllowedNow() const {
+	return ygo::tournament_mode::RestartAllowed({ dInfo.isInDuel, dInfo.isInLobby, is_siding,
+		wRoomListPlaceholder->isVisible(), wLanWindow->isVisible(), wCreateHost->isVisible(), wHostPrepare->isVisible() });
+}
+
 void Game::ShowOnlineGateWarning() {
 	const auto message = GetOnlineGateMessage();
 	if(message.empty())
@@ -2640,9 +2645,7 @@ bool Game::MainLoop() {
 			}
 		}
 		if(!wQuery->isVisible()) {
-			if(!update_prompted && gClientUpdater->HasUpdate() && !(dInfo.isInDuel || dInfo.isInLobby || is_siding
-				|| wRoomListPlaceholder->isVisible() || wLanWindow->isVisible()
-				|| wCreateHost->isVisible() || wHostPrepare->isVisible())) {
+			if(!update_prompted && gClientUpdater->HasUpdate() && RestartAllowedNow()) {
 				std::lock_guard<epro::mutex> lock(gMutex);
 				menuHandler.prev_operation = ACTION_UPDATE_PROMPT;
 				stQMessage->setText(epro::format(L"{}\n{}", gDataManager->GetSysString(1460), gDataManager->GetSysString(1461)).data());
@@ -2671,7 +2674,7 @@ bool Game::MainLoop() {
 			// format_version instead of once per session.
 			else if(!banlist_update_prompted && gBanlistUpdater && gBanlistUpdater->HasStagedUpdate() &&
 					banlist::ShouldNotifyForUpdate(gBanlistUpdater->StagedPayload().format_version, gGameConfig->lastSeenBanlistVersion) &&
-					!(dInfo.isInDuel || dInfo.isInLobby || is_siding)) {
+					RestartAllowedNow()) { // FASE 86b: was missing the room-list/host windows
 				std::lock_guard<epro::mutex> lock(gMutex);
 				const auto diff = banlist::ComputeDiff(gBanlistUpdater->ActivePayload(), gBanlistUpdater->StagedPayload());
 				menuHandler.prev_operation = ACTION_BANLIST_UPDATE_PROMPT;

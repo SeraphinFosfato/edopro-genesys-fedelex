@@ -634,6 +634,7 @@ public:
 	// Pops GetOnlineGateMessage() and opens the releases page once per
 	// session (design/blocco-online.md §5: "un bottone... mostra l'avviso").
 	void ShowOnlineGateWarning();
+	bool RestartAllowedNow() const; // FASE 86b
 	bool MainLoop();
 	bool ApplySkin(const epro::path_string& skin, bool reload = false, bool firstrun = false);
 	void RefreshDeck(irr::gui::IGUIComboBox* cbDeck);

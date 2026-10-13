@@ -152,6 +152,16 @@ std::vector<int> ZoneDisplayPlan(const std::vector<uint32_t>& zoneCodes,
 // card in the panel was selectable); inside, only valid candidates.
 bool ZoneClickAccepted(bool isTournamentRoom, bool isValidCandidate);
 
+// FASE 86b: may the client offer / perform a restart (banlist "riavvia ora",
+// which ends in Utils::Reboot -> launcher -> client update)? Never while the
+// player is in a duel, a room lobby, siding, or on the way into/out of one
+// (room list, LAN, create-host and host-prepare windows). Deferred, not
+// cancelled: the caller asks again on the next frame / next click.
+struct RestartContext {
+	bool inDuel, inLobby, siding, roomListVisible, lanVisible, createHostVisible, hostPrepareVisible;
+};
+bool RestartAllowed(const RestartContext& c);
+
 }
 
 #endif //TOURNAMENT_MODE_H

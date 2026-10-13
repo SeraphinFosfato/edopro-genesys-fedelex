@@ -695,7 +695,11 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 					// show_changelog=false (FASE 4e): this restart is about
 					// the banlist, not an EDOPro release — the changelog
 					// window has nothing to do with it.
-					Utils::Reboot(false);
+					// FASE 86b: Reboot -> launcher -> client update; never from a room.
+					// Entered one (e.g. fedelex:// link) after the popup: do nothing,
+					// the banlist is promoted at the next start anyway.
+					if(mainGame->RestartAllowedNow())
+						Utils::Reboot(false);
 					break;
 				}
 				}

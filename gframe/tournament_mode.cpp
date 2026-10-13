@@ -89,4 +89,9 @@ bool ZoneClickAccepted(bool isTournamentRoom, bool isValidCandidate) {
 	return !isTournamentRoom || isValidCandidate;
 }
 
+bool RestartAllowed(const RestartContext& c) {
+	return !(c.inDuel || c.inLobby || c.siding || c.roomListVisible || c.lanVisible
+			 || c.createHostVisible || c.hostPrepareVisible);
+}
+
 }

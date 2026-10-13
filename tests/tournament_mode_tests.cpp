@@ -260,6 +260,18 @@ void test_zone_click() {
 
 }
 
+void test_restart_allowed() {
+	using C = RestartContext;
+	check(RestartAllowed(C{}), "restart: idle main menu allowed");
+	check(!RestartAllowed(C{true,false,false,false,false,false,false}), "restart: duel blocks");
+	check(!RestartAllowed(C{false,true,false,false,false,false,false}), "restart: lobby blocks");
+	check(!RestartAllowed(C{false,false,true,false,false,false,false}), "restart: siding blocks");
+	check(!RestartAllowed(C{false,false,false,true,false,false,false}), "restart: room list blocks");
+	check(!RestartAllowed(C{false,false,false,false,true,false,false}), "restart: LAN blocks");
+	check(!RestartAllowed(C{false,false,false,false,false,true,false}), "restart: create host blocks");
+	check(!RestartAllowed(C{false,false,false,false,false,false,true}), "restart: host prepare blocks");
+}
+
 int RunTournamentModeTests() {
 	test_outside_tournament_auto_passes_on_empty_chain();
 	test_outside_tournament_does_not_auto_pass_when_something_is_there();
@@ -306,6 +318,7 @@ int RunTournamentModeTests() {
 	test_zone_full_per_location();
 	test_zone_plan_maps_valid_once();
 	test_zone_click();
+	test_restart_allowed();
 
 	std::printf("tournament_mode_tests: %d checks, %d failures\n", checks, failures);
 	return failures == 0 ? 0 : 1;
