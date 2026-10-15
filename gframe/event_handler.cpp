@@ -753,7 +753,9 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 								// player may still back out instead of
 								// using the small menu this opens.
 								mainGame->HideElement(mainGame->wCardSelect);
-								auto curpos = mainGame->device->getCursorControl()->getPosition();
+								// FASE 87a: ShowMenu scales its input, so it takes base coordinates (like the field click's Resize(..., true)), not raw pixels.
+								auto rawpos = mainGame->device->getCursorControl()->getPosition();
+								auto curpos = mainGame->Resize(rawpos.X, rawpos.Y, true);
 								ShowMenu(clicked_card->cmdFlag, curpos.X, curpos.Y);
 							}
 						}
