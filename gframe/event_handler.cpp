@@ -413,6 +413,8 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 			case BUTTON_CMD_ACTIVATE:
 			case BUTTON_CMD_RESET: {
 				mainGame->wCmdMenu->setVisible(false);
+				if(!list_command && mainGame->wCardSelect->isVisible())
+					mainGame->HideElement(mainGame->wCardSelect);
 				ShowCancelOrFinishButton(0);
 				// FASE 75b/D252 point 4: clicking "Attiva" IS the "Si'"
 				// answer to a concealed MSG_SELECT_EFFECTYN -- it is a
@@ -521,6 +523,8 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 			}
 			case BUTTON_CMD_SUMMON: {
 				mainGame->wCmdMenu->setVisible(false);
+				if(!list_command && mainGame->wCardSelect->isVisible())
+					mainGame->HideElement(mainGame->wCardSelect);
 				if(!clicked_card)
 					break;
 				for(size_t i = 0; i < summonable_cards.size(); ++i) {
@@ -535,6 +539,8 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 			}
 			case BUTTON_CMD_SPSUMMON: {
 				mainGame->wCmdMenu->setVisible(false);
+				if(!list_command && mainGame->wCardSelect->isVisible())
+					mainGame->HideElement(mainGame->wCardSelect);
 				if(!list_command) {
 					if(!clicked_card)
 						break;
@@ -584,6 +590,8 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 			}
 			case BUTTON_CMD_MSET: {
 				mainGame->wCmdMenu->setVisible(false);
+				if(!list_command && mainGame->wCardSelect->isVisible())
+					mainGame->HideElement(mainGame->wCardSelect);
 				if(!clicked_card)
 					break;
 				for(size_t i = 0; i < msetable_cards.size(); ++i) {
@@ -597,6 +605,8 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 			}
 			case BUTTON_CMD_SSET: {
 				mainGame->wCmdMenu->setVisible(false);
+				if(!list_command && mainGame->wCardSelect->isVisible())
+					mainGame->HideElement(mainGame->wCardSelect);
 				if(!clicked_card)
 					break;
 				for(size_t i = 0; i < ssetable_cards.size(); ++i) {
@@ -610,6 +620,8 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 			}
 			case BUTTON_CMD_REPOS: {
 				mainGame->wCmdMenu->setVisible(false);
+				if(!list_command && mainGame->wCardSelect->isVisible())
+					mainGame->HideElement(mainGame->wCardSelect);
 				if(!clicked_card)
 					break;
 				for(size_t i = 0; i < reposable_cards.size(); ++i) {
@@ -623,6 +635,8 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 			}
 			case BUTTON_CMD_ATTACK: {
 				mainGame->wCmdMenu->setVisible(false);
+				if(!list_command && mainGame->wCardSelect->isVisible())
+					mainGame->HideElement(mainGame->wCardSelect);
 				if(!clicked_card)
 					break;
 				for(size_t i = 0; i < attackable_cards.size(); ++i) {
@@ -752,7 +766,7 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 								// BUTTON_YES) must stay available -- the
 								// player may still back out instead of
 								// using the small menu this opens.
-								mainGame->HideElement(mainGame->wCardSelect);
+								// FASE 89ui: the list stays open under the menu (hiding it left the menu floating alone); the BUTTON_CMD_* cases below close it once the action is sent.
 								// FASE 87a: ShowMenu scales its input, so it takes base coordinates (like the field click's Resize(..., true)), not raw pixels.
 								auto rawpos = mainGame->device->getCursorControl()->getPosition();
 								auto curpos = mainGame->Resize(rawpos.X, rawpos.Y, true);

@@ -369,8 +369,14 @@ void CGUIImageButton::draw() {
 		if(DrawBorder)
 			skin->draw3DButtonPaneStandard(this, AbsoluteRect, &AbsoluteClippingRect);
 	}
-	if(Image && isDrawImage)
-		irr::gui::Draw2DImageRotation(driver, Image, ImageRect, pos, center, imageRotation, imageScale, true, dimmed ? 0xff555555 : 0xffffffff);
+	if(Image && isDrawImage) {
+		irr::gui::Draw2DImageRotation(driver, Image, ImageRect, pos, center, imageRotation, imageScale, true, 0xffffffff);
+		// FASE 89ui: dim with an alpha-blended black quad, not a vertex tint: the vertex colour was honoured by D3D9 (Windows default) but ignored by the Linux GL path, so nothing was dimmed there.
+		if(dimmed) {
+			const core::recti area(pos.X, pos.Y, pos.X + (s32)(ImageRect.getWidth() * imageScale.X), pos.Y + (s32)(ImageRect.getHeight() * imageScale.Y));
+			driver->draw2DRectangle(video::SColor(0xAA, 0, 0, 0), area, &AbsoluteClippingRect);
+		}
+	}
 	IGUIElement::draw();
 }
 
