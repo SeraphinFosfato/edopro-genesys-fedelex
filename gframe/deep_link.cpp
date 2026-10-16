@@ -110,6 +110,7 @@ const char* ToString(ParseError error) {
 	case ParseError::BadPort: return "BadPort";
 	case ParseError::PasswordTooLong: return "PasswordTooLong";
 	case ParseError::NameTooLong: return "NameTooLong";
+	case ParseError::BadTournament: return "BadTournament";
 	}
 	return "Unknown";
 }
@@ -178,28 +179,57 @@ std::string DescribeShape(const std::string& uri) {
 		" altre=" + std::to_string(others) + " lunghezza=" + std::to_string(uri.size());
 }
 
-ParseError ParseTableLink(const std::string& uri, TableLink& out) {
-	out = TableLink{};
+namespace {
+// Shared by every route: ONE trailing '/', the head matched without regard to
+// case, an optional single '/' before '?' (see FASE 75d above). On success
+// `query` is what follows the '?'.
+bool MatchRoute(const std::string& uri, epro::stringview head, epro::stringview& query) {
 	epro::stringview view(uri);
-	// FASE 75d: ONE literal '/' at the very end is tolerated (values are
-	// encodeURIComponent'ed, so a literal '/' cannot belong to one — it can
-	// only have been added after the link was built). A second one would end
-	// up inside the last value, so it is refused instead.
+	// A second trailing '/' would end up inside the last value: refused.
 	if(!view.empty() && view.back() == '/') {
 		view.remove_suffix(1);
 		if(!view.empty() && view.back() == '/')
-			return ParseError::BadScheme;
+			return false;
 	}
-	if(view.size() < kHead.size() || !EqualsIgnoreCase(view.substr(0, kHead.size()), kHead))
-		return ParseError::BadScheme;
-	view.remove_prefix(kHead.size());
-	// ...and an optional single '/' between "tavolo" and '?' (the form
-	// Windows and browsers give to a URL with a host and no path).
+	if(view.size() < head.size() || !EqualsIgnoreCase(view.substr(0, head.size()), head))
+		return false;
+	view.remove_prefix(head.size());
 	if(!view.empty() && view.front() == '/')
 		view.remove_prefix(1);
 	if(view.empty() || view.front() != '?')
+		return false;
+	query = view.substr(1);
+	return true;
+}
+}
+
+ParseError ParseListLink(const std::string& uri, ListLink& out) {
+	out = ListLink{};
+	epro::stringview query;
+	if(!MatchRoute(uri, "fedelex://lista"sv, query))
 		return ParseError::BadScheme;
-	auto fields = ParseQuery(view.substr(1));
+	auto fields = ParseQuery(query);
+	auto it = fields.find("torneo");
+	if(it == fields.end())
+		return ParseError::MissingField;
+	// Short alnum/dash only: the code ends up in a JSON body, never in a path.
+	const auto& code = it->second;
+	if(code.empty() || code.size() > 32)
+		return ParseError::BadTournament;
+	for(char c : code) {
+		if(!std::isalnum(static_cast<unsigned char>(c)) && c != '-')
+			return ParseError::BadTournament;
+	}
+	out.tournament = code;
+	return ParseError::Ok;
+}
+
+ParseError ParseTableLink(const std::string& uri, TableLink& out) {
+	out = TableLink{};
+	epro::stringview query;
+	if(!MatchRoute(uri, kHead, query))
+		return ParseError::BadScheme;
+	auto fields = ParseQuery(query);
 
 	auto host_it = fields.find("host");
 	auto port_it = fields.find("port");

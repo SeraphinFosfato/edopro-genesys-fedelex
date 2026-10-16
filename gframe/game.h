@@ -241,6 +241,15 @@ struct title_auth_panel_elements {
 	irr::gui::IGUIStaticText* stTitleAuthStatus;
 	irr::gui::IGUIButton* btnTitleAuthSave;
 	irr::gui::IGUIButton* btnTitleAuthCancel;
+	// FASE 88A: decklist upload for an online tournament (fedelex://lista).
+	irr::gui::IGUIWindow* wDecklist;
+	irr::gui::IGUIStaticText* stDecklistHeader;
+	irr::gui::IGUIComboBox* cbDecklistDeck;
+	irr::gui::IGUIStaticText* stDecklistCounts;
+	irr::gui::IGUIListBox* lstDecklistCards;
+	irr::gui::IGUIStaticText* stDecklistStatus;
+	irr::gui::IGUIButton* btnDecklistSend;
+	irr::gui::IGUIButton* btnDecklistCancel;
 };
 
 struct lan_panel_elements {
@@ -679,6 +688,15 @@ public:
 	// verdetto non e' "non riconosciuta" (401), quindi fino ad allora sta
 	// qui e non nel config.
 	std::string pending_title_credential;
+	// FASE 88A. Opens the upload window for `tournament` (already validated by
+	// deep_link::ParseListLink). Refuses with a message if there is no credential.
+	void OpenDecklistUpload(const std::string& tournament);
+	void UpdateDecklistPreview();
+	void OnDecklistSend(); // first click asks for confirmation, second sends
+	void FinishDecklistUpload(const TitleCheckin::DecklistResult& result);
+	std::string decklist_tournament;
+	std::string decklist_ydk;
+	bool decklist_confirming = false;
 	struct RepoGui {
 		std::string path;
 		IProgressBar* progress1;

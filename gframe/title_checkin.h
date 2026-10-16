@@ -95,6 +95,18 @@ public:
 	// MainLoop come per Generation()): true se c'era qualcosa da ritirare.
 	bool TakeCredentialCheckResult(CredentialCheckResult& out);
 
+	// FASE 88A: POST /v1/decklist on a worker (same host as the title
+	// endpoint). false = not started (no credential stored, a request already
+	// running, or body over 16KB). The result is taken once from the main
+	// thread; status_code is the HTTP status, body the raw reply.
+	struct DecklistResult {
+		bool transport_ok = false;
+		long status_code = 0;
+		std::string body;
+	};
+	bool StartDecklistUpload(const std::string& tournament, const std::string& ydk);
+	bool TakeDecklistResult(DecklistResult& out);
+
 private:
 	void Loop();
 	// One check-in attempt: POSTs the stored credential, and — only for a
@@ -119,12 +131,19 @@ private:
 	// la verifica interattiva no — dieci secondi e basta, valore dato
 	// dall'utente il 2026-09-25 (FASE 27.2).
 	static bool Post(const std::string& url, const std::string& credential, long timeout_seconds, PostResult& out);
+	// Same transport, caller-built JSON body.
+	static bool PostBody(const std::string& url, const std::string& body, long timeout_seconds, PostResult& out);
+	void DecklistTask(std::string body);
 
 	void CredentialCheckTask(std::string credential);
 
 	std::string base_url{ TITLE_API_URL };
 	epro::thread worker_;
 	epro::thread credential_worker_;
+	epro::thread decklist_worker_;
+	bool decklist_running_ = false; // guarded by credential_mutex_
+	bool decklist_ready_ = false;   // guarded by credential_mutex_
+	DecklistResult decklist_result_; // guarded by credential_mutex_
 	mutable epro::mutex credential_mutex_;
 	bool credential_running_ = false; // guarded by credential_mutex_
 	bool credential_ready_ = false;   // guarded by credential_mutex_

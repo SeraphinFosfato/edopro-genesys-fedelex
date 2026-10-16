@@ -208,6 +208,15 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 				mainGame->ShowElement(mainGame->wMainMenu);
 				break;
 			}
+			case BUTTON_DECKLIST_SEND: {
+				mainGame->OnDecklistSend();
+				break;
+			}
+			case BUTTON_DECKLIST_CANCEL: {
+				mainGame->HideElement(mainGame->wDecklist);
+				mainGame->ShowElement(mainGame->wMainMenu);
+				break;
+			}
 			case BUTTON_ONLINE_MULTIPLAYER: {
 				// FASE 59 — design/blocco-online.md §5: "il bottone resta
 				// visibile e premibile... premendolo si legge il perche'".
@@ -1076,6 +1085,10 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 		}
 		case irr::gui::EGET_COMBO_BOX_CHANGED: {
 			switch (id) {
+			case COMBOBOX_DECKLIST_DECK: {
+				mainGame->UpdateDecklistPreview();
+				break;
+			}
 			case COMBOBOX_DUEL_RULE: {
 				auto setDeckSizes = [&](const DeckSizes& size) {
 					mainGame->ebMainMin->setText(epro::to_wstring<int>(size.main.min).data());
