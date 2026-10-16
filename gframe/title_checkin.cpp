@@ -69,6 +69,8 @@ void TitleCheckin::Join() {
 	// secondi del suo timeout, che e' il tetto per costruzione.
 	if(credential_worker_.joinable())
 		credential_worker_.join();
+	if(decklist_worker_.joinable())
+		decklist_worker_.join();
 }
 
 void TitleCheckin::SetInDuel(bool in_duel) {
@@ -209,17 +211,70 @@ void TitleCheckin::CredentialCheckTask(std::string credential) {
 	credential_running_ = false;
 }
 
-bool TitleCheckin::Post(const std::string& url, const std::string& credential, long timeout_seconds, PostResult& out) {
-	out = PostResult{};
-	char error_buffer[CURL_ERROR_SIZE]{};
-	auto curl_handle = curl_easy_init();
-	FetchBuffer buffer{ &out.body };
+bool TitleCheckin::StartDecklistUpload(const std::string& tournament, const std::string& ydk) {
+	// FASE 88A. The credential is read here and goes straight into the body:
+	// it is never logged and never stored anywhere else.
+	const std::string credential = gGameConfig->titleCredential;
+	if(credential.empty())
+		return false;
+	// Body ceiling (the server refuses more): 16KB, a ydk is about 1KB.
+	std::string body = nlohmann::json{ { "credential", credential }, { "tournament", tournament }, { "ydk", ydk } }.dump();
+	if(body.size() >= 16u * 1024u)
+		return false;
+	{
+		std::lock_guard<epro::mutex> lock(credential_mutex_);
+		if(decklist_running_)
+			return false;
+		decklist_running_ = true;
+		decklist_ready_ = false;
+	}
+	if(decklist_worker_.joinable())
+		decklist_worker_.join();
+	decklist_worker_ = epro::thread(&TitleCheckin::DecklistTask, this, std::move(body));
+	return true;
+}
 
+bool TitleCheckin::TakeDecklistResult(DecklistResult& out) {
+	std::lock_guard<epro::mutex> lock(credential_mutex_);
+	if(!decklist_ready_)
+		return false;
+	decklist_ready_ = false;
+	out = std::move(decklist_result_);
+	decklist_result_ = DecklistResult{};
+	return true;
+}
+
+void TitleCheckin::DecklistTask(std::string body) {
+	Utils::SetThreadName("Decklist upload");
+	// Same host as the title endpoint, only the path changes.
+	static const std::string title_path = "/v1/title";
+	std::string url = base_url;
+	if(url.size() >= title_path.size() && url.compare(url.size() - title_path.size(), title_path.size(), title_path) == 0)
+		url.replace(url.size() - title_path.size(), title_path.size(), "/v1/decklist");
+	PostResult post;
+	DecklistResult result;
+	result.transport_ok = PostBody(url, body, 15L, post);
+	result.status_code = post.status_code;
+	result.body = std::move(post.body);
+	std::lock_guard<epro::mutex> lock(credential_mutex_);
+	decklist_result_ = std::move(result);
+	decklist_ready_ = true;
+	decklist_running_ = false;
+}
+
+bool TitleCheckin::Post(const std::string& url, const std::string& credential, long timeout_seconds, PostResult& out) {
 	// {"credential": "..."} via nlohmann rather than hand-built string
 	// concatenation: the credential is an opaque, player-pasted value this
 	// client never validates the shape of, so it must go through a real
 	// JSON string escaper, not string + "\"" + credential + "\"".
-	const std::string body = nlohmann::json{ { "credential", credential } }.dump();
+	return PostBody(url, nlohmann::json{ { "credential", credential } }.dump(), timeout_seconds, out);
+}
+
+bool TitleCheckin::PostBody(const std::string& url, const std::string& body, long timeout_seconds, PostResult& out) {
+	out = PostResult{};
+	char error_buffer[CURL_ERROR_SIZE]{};
+	auto curl_handle = curl_easy_init();
+	FetchBuffer buffer{ &out.body };
 
 	curl_slist* headers = curl_slist_append(nullptr, "Content-Type: application/json");
 

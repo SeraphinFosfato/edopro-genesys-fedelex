@@ -131,6 +131,29 @@ void DuelClient::RetryPendingDeepLink() {
 }
 
 void DuelClient::JoinFromDeepLink(const std::string& uri) {
+	// FASE 88A: fedelex://lista?torneo=CODE — upload of the locked decklist.
+	// BadScheme just means "not this route": fall through to the table link.
+	deep_link::ListLink list;
+	const auto list_error = deep_link::ParseListLink(uri, list);
+	if(list_error != deep_link::ParseError::BadScheme) {
+		if(list_error != deep_link::ParseError::Ok) {
+			ErrorLog("Link fedelex://lista scartato ({}).", deep_link::ToString(list_error));
+			mainGame->PopupMessage(L"Il link ricevuto non e' valido: manca il codice del torneo o non e' corretto.");
+			return;
+		}
+		if(!mainGame->IsGameDataReady()) {
+			pending_deep_link = uri;
+			return;
+		}
+		// No handoff yet (a later phase): a game in progress is refused, not torn down.
+		if((mainGame->is_building && mainGame->is_siding) || mainGame->dInfo.isInDuel ||
+		   mainGame->dInfo.isInLobby || mainGame->dInfo.isReplay || mainGame->wHostPrepare->isVisible()) {
+			mainGame->PopupMessage(L"Finisci prima la partita in corso");
+			return;
+		}
+		mainGame->OpenDecklistUpload(list.tournament);
+		return;
+	}
 	// Same early-out as OnJoin()/JoinFromDiscord() in discord_wrapper.cpp:
 	// a link that arrives while we are already doing something (siding, in
 	// a duel, in a lobby, watching a replay, already preparing a host) is

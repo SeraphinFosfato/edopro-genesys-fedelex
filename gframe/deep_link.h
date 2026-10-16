@@ -64,7 +64,16 @@ enum class ParseError {
 	BadPort,       // port is not a base-10 integer in [1, 65535]
 	PasswordTooLong, // decoded pass would not fit CTOS_JoinGame::pass[20]
 	NameTooLong,     // decoded nome would not fit CTOS_PlayerInfo::name[20]
+	BadTournament,   // lista: torneo empty, over 32 chars, or not alphanumeric/'-'
 };
+
+// FASE 88A: fedelex://lista?torneo=<CODE>. Same quirks tolerated as the
+// tavolo route (case, one '/' before '?', one trailing '/'). BadScheme means
+// "not this route", so a caller can try the other route next.
+struct ListLink {
+	std::string tournament;
+};
+ParseError ParseListLink(const std::string& uri, ListLink& out);
 
 const char* ToString(ParseError error);
 

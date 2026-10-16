@@ -269,9 +269,25 @@ void test_shape_of_unreadable_forms() {
 		 "a long route is not echoed");
 }
 
+void test_list_link() {
+	ListLink out;
+	check(ParseListLink("fedelex://lista?torneo=ABC-12", out) == ParseError::Ok && out.tournament == "ABC-12", "valid list link parses");
+	check(ParseListLink("FEDELEX://Lista/?torneo=x1/", out) == ParseError::Ok && out.tournament == "x1", "list link tolerates case and slashes");
+	check(ParseListLink("fedelex://tavolo?torneo=x", out) == ParseError::BadScheme && out.tournament.empty(), "other route is BadScheme");
+	check(ParseListLink("fedelex://lista?x=1", out) == ParseError::MissingField, "missing torneo");
+	check(ParseListLink("fedelex://lista?torneo=", out) == ParseError::BadTournament, "empty torneo");
+	check(ParseListLink("fedelex://lista?torneo=a%22b", out) == ParseError::BadTournament, "quote in torneo");
+	check(ParseListLink("fedelex://lista?torneo=a%2Fb", out) == ParseError::BadTournament, "slash in torneo");
+	check(ParseListLink("fedelex://lista?torneo=" + std::string(33, 'a'), out) == ParseError::BadTournament, "33 chars too long");
+	check(ParseListLink("fedelex://lista?torneo=" + std::string(32, 'a'), out) == ParseError::Ok, "32 chars ok");
+	TableLink t;
+	check(ParseTableLink("fedelex://lista?torneo=x", t) == ParseError::BadScheme, "tavolo parser refuses the lista route");
+}
+
 }
 
 int RunDeepLinkTests() {
+	test_list_link();
 	test_well_formed_link_parses();
 	test_percent_encoded_name_decodes();
 	test_plus_is_not_decoded_to_space();

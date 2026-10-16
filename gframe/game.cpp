@@ -332,6 +332,18 @@ void Game::Initialize() {
 	btnTitleAuthSave = env->addButton(Scale(140, 278, 230, 303), wTitleAuth, BUTTON_TITLE_AUTH_SAVE, gDataManager->GetSysString(1211).data());
 	btnTitleAuthCancel = env->addButton(Scale(250, 278, 340, 303), wTitleAuth, BUTTON_TITLE_AUTH_CANCEL, gDataManager->GetSysString(1212).data());
 	UpdateTitleAuthButton();
+	// FASE 88A: literal strings, no strings.conf entries (same reason as wTitleAuth).
+	wDecklist = env->addWindow(Scale(420, 60, 900, 510), false, L"");
+	wDecklist->getCloseButton()->setVisible(false);
+	wDecklist->setVisible(false);
+	stDecklistHeader = env->addStaticText(L"", Scale(20, 30, 460, 52), false, false, wDecklist);
+	cbDecklistDeck = AddComboBox(env, Scale(20, 56, 460, 81), wDecklist, COMBOBOX_DECKLIST_DECK);
+	cbDecklistDeck->setMaxSelectionRows(10);
+	stDecklistCounts = env->addStaticText(L"", Scale(20, 86, 460, 108), false, false, wDecklist);
+	lstDecklistCards = env->addListBox(Scale(20, 112, 460, 300), wDecklist, -1, true);
+	stDecklistStatus = env->addStaticText(L"", Scale(20, 306, 460, 390), false, true, wDecklist);
+	btnDecklistSend = env->addButton(Scale(90, 400, 250, 425), wDecklist, BUTTON_DECKLIST_SEND, L"Invia lista");
+	btnDecklistCancel = env->addButton(Scale(270, 400, 390, 425), wDecklist, BUTTON_DECKLIST_CANCEL, L"Chiudi");
 	//lan mode
 	wLanWindow = env->addWindow(Scale(220, 100, 800, 520), false, gDataManager->GetSysString(1200).data());
 	defaultStrings.emplace_back(wLanWindow, 1200);
@@ -2606,6 +2618,13 @@ bool Game::MainLoop() {
 				FinishTitleCredentialCheck(check);
 			}
 		}
+		if(gTitleCheckin) {
+			TitleCheckin::DecklistResult upload;
+			if(gTitleCheckin->TakeDecklistResult(upload)) {
+				std::lock_guard<epro::mutex> lock(gMutex);
+				FinishDecklistUpload(upload);
+			}
+		}
 		if(gTitleStore) {
 			const auto generation = gTitleStore->Generation();
 			if(generation != title_seen_generation) {
@@ -3019,6 +3038,146 @@ void Game::UpdateTitleAuthButton() {
 	// an external repo this fork doesn't own), same precedent as the
 	// Wayland-backend prompt.
 	btnTitleAuth->setText(gGameConfig->titleCredential.empty() ? L"Login" : L"Logout");
+}
+void Game::OpenDecklistUpload(const std::string& tournament) {
+	if(gGameConfig->titleCredential.empty() || !gTitleCheckin) {
+		PopupMessage(L"Per caricare la lista serve la chiave di licenza: attivala prima dal pulsante Login del menu.");
+		return;
+	}
+	decklist_tournament = tournament;
+	decklist_confirming = false;
+	stDecklistHeader->setText(Utils::ToUnicodeIfNeeded(epro::format("Torneo: {}", tournament)).data());
+	stDecklistStatus->setText(L"");
+	btnDecklistSend->setText(L"Invia lista");
+	btnDecklistSend->setEnabled(true);
+	RefreshDeck(cbDecklistDeck);
+	UpdateDecklistPreview();
+	if(wMainMenu->isVisible())
+		HideElement(wMainMenu);
+	ShowElement(wDecklist);
+}
+void Game::UpdateDecklistPreview() {
+	// Changing the deck cancels a pending confirmation: the warning was about the other one.
+	decklist_confirming = false;
+	btnDecklistSend->setText(L"Invia lista");
+	decklist_ydk.clear();
+	lstDecklistCards->clear();
+	stDecklistCounts->setText(L"");
+	const auto sel = cbDecklistDeck->getSelected();
+	if(sel < 0) {
+		stDecklistStatus->setText(L"Nessun mazzo trovato nella cartella dei mazzi.");
+		btnDecklistSend->setEnabled(false);
+		return;
+	}
+	Deck deck;
+	if(!DeckManager::LoadDeckFromFile(Utils::ToPathString(cbDecklistDeck->getItem(sel)), deck, true)) {
+		stDecklistStatus->setText(L"Impossibile leggere questo mazzo.");
+		btnDecklistSend->setEnabled(false);
+		return;
+	}
+	stDecklistStatus->setText(L"");
+	btnDecklistSend->setEnabled(true);
+	stDecklistCounts->setText(epro::format(L"Main {}  Extra {}  Side {}", deck.main.size(), deck.extra.size(), deck.side.size()).data());
+	const auto names = DeckManager::ExportDeckCardNames(deck);
+	size_t pos = 0;
+	while(pos < names.size()) {
+		auto end = names.find(L'\n', pos);
+		if(end == std::wstring::npos)
+			end = names.size();
+		lstDecklistCards->addItem(names.substr(pos, end - pos).data());
+		pos = end + 1;
+	}
+	// ydk text: one code per line, sections #main / #extra / !side.
+	auto section = [this](const char* header, const Deck::Vector& cards) {
+		decklist_ydk += header;
+		for(auto card : cards)
+			decklist_ydk += epro::to_string(card->getRealCode()) + "\n";
+	};
+	section("#main\n", deck.main);
+	section("#extra\n", deck.extra);
+	section("!side\n", deck.side);
+}
+void Game::OnDecklistSend() {
+	if(decklist_ydk.empty() || !gTitleCheckin)
+		return;
+	if(!decklist_confirming) {
+		decklist_confirming = true;
+		btnDecklistSend->setText(L"Conferma e blocca");
+		stDecklistStatus->setText(L"La lista viene bloccata per tutto il torneo, non si potrà cambiare.");
+		return;
+	}
+	if(!gTitleCheckin->StartDecklistUpload(decklist_tournament, decklist_ydk)) {
+		stDecklistStatus->setText(L"Impossibile inviare ora (chiave assente, invio già in corso o lista troppo grande).");
+		return;
+	}
+	btnDecklistSend->setEnabled(false);
+	btnDecklistCancel->setEnabled(false);
+	cbDecklistDeck->setEnabled(false);
+	stDecklistStatus->setText(L"Invio in corso, fino a 15 secondi...");
+}
+void Game::FinishDecklistUpload(const TitleCheckin::DecklistResult& result) {
+	btnDecklistCancel->setEnabled(true);
+	cbDecklistDeck->setEnabled(true);
+	btnDecklistSend->setEnabled(true);
+	decklist_confirming = false;
+	btnDecklistSend->setText(L"Invia lista");
+	std::wstring message;
+	std::string code;
+	nlohmann::json j = nlohmann::json::parse(result.body, nullptr, false);
+	if(j.is_object()) {
+		for(const char* key : { "error", "code" }) {
+			if(j.contains(key) && j[key].is_string()) {
+				code = j[key].get<std::string>();
+				break;
+			}
+		}
+	}
+	if(!result.transport_ok) {
+		message = L"Server non raggiungibile: controlla la connessione e riprova.";
+	} else switch(result.status_code) {
+	case 200:
+		if(j.is_object() && j.value("status", "") == "locked") {
+			message = epro::format(L"Lista bloccata ({} punti).", j.value("pointsTotal", 0));
+			btnDecklistSend->setEnabled(false);
+		} else if(j.is_object() && j.value("status", "") == "invalid") {
+			message = L"La lista non è valida, scegli un altro mazzo:";
+			if(j.contains("problems") && j["problems"].is_array()) {
+				for(const auto& problem : j["problems"])
+					message += L"\n- " + Utils::ToUnicodeIfNeeded(problem.is_string() ? problem.get<std::string>() : problem.dump());
+			}
+		} else {
+			message = L"Risposta del server non riconosciuta.";
+		}
+		break;
+	case 409:
+		message = L"La tua lista per questo torneo è già bloccata.";
+		btnDecklistSend->setEnabled(false);
+		break;
+	case 429:
+		message = L"Troppi tentativi, riprova fra un minuto.";
+		break;
+	case 401:
+		message = L"Chiave di licenza non riconosciuta: rifai il Login con la chiave giusta.";
+		break;
+	case 403:
+		if(code == "caricamento_non_aperto")
+			message = L"Il caricamento non è aperto per questo torneo.";
+		else if(code == "non_iscritto")
+			message = L"Non risulti iscritto a questo torneo.";
+		else
+			message = L"Chiave di licenza non valida o sospesa: contatta un judge.";
+		break;
+	case 404:
+		message = L"Torneo non trovato: controlla il link.";
+		break;
+	case 503:
+		message = L"Verifica non disponibile al momento, riprova più tardi.";
+		break;
+	default:
+		message = L"Errore inatteso dal server, riprova più tardi.";
+		break;
+	}
+	stDecklistStatus->setText(message.data());
 }
 void Game::StartTitleCredentialCheck() {
 	// FASE 27.2. Prima di questa fase il bottone Salva scriveva nel config e
@@ -4273,6 +4432,7 @@ void Game::OnResize() {
 	wRoomListPlaceholder->setRelativePosition(irr::core::recti(0, 0, window_size.Width, window_size.Height));
 	wMainMenu->setRelativePosition(ResizeWin(mainMenuLeftX, 200, mainMenuRightX, 485));
 	wTitleAuth->setRelativePosition(ResizeWinFromCenter(0, 0, wTitleAuth->getRelativePosition().getWidth(), wTitleAuth->getRelativePosition().getHeight(), 135));
+	wDecklist->setRelativePosition(ResizeWinFromCenter(0, 0, wDecklist->getRelativePosition().getWidth(), wDecklist->getRelativePosition().getHeight(), 135));
 	wBtnSettings->setRelativePosition(ResizeWin(0, 610, 30, 640));
 	SetCentered(wCommitsLog);
 	SetCentered(updateWindow, false);
