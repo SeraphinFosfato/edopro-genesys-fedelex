@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <random>
 #include "config.h"
 #if EDOPRO_WINDOWS
 #include <ws2tcpip.h>
@@ -2795,6 +2796,20 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 				count, specount, ignore_chain, always_chain, chain_when_avail)) {
 			SetResponseI(-1);
 			mainGame->dField.ClearChainSelect();
+			// FASE 89: in a tournament room an instant answer would tell the opponent
+			// we have nothing, so wait 0.8-1.2 s first. This runs on the parser thread
+			// (same place as the WaitFrameSignal below): later messages just queue up.
+			// Skipped while catching up after a reconnect; abandoned if the duel ends
+			// or the threads are stopping (the response is then not sent at all).
+			if(damage_step_idle && mainGame->dInfo.isTournamentRoom && !mainGame->dInfo.isCatchingUp) {
+				static thread_local std::mt19937 rng{std::random_device{}()};
+				const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(std::uniform_int_distribution<int>(800, 1200)(rng));
+				while(std::chrono::steady_clock::now() < deadline) {
+					epro::this_thread::sleep_for(std::chrono::milliseconds(10));
+					if(stop_threads || !mainGame->dInfo.isInDuel)
+						return true;
+				}
+			}
 			if(mainGame->tabSettings.chkNoChainDelay->isChecked() && !ignore_chain) {
 				std::unique_lock<epro::mutex> tmp(mainGame->gMutex);
 				mainGame->WaitFrameSignal(20, tmp);
