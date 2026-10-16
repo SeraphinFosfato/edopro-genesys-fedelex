@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <random>
 #include "config.h"
 #if EDOPRO_WINDOWS
 #include <ws2tcpip.h>
@@ -2963,10 +2964,29 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 		// select_trigger/count/specount/the three chain buttons stopped
 		// mattering there: every one of them was a way an empty chain
 		// window looked different from a full one.
-		if(tournament_mode::ChainAutoPasses(mainGame->dInfo.isTournamentRoom, mainGame->dField.chain_forced, select_trigger,
+		// FASE 89: damage step / damage calculation with nothing to activate and no
+		// chain open: pass silently, even in a tournament room. A real chain
+		// (chains non-empty) still prompts the opponent as usual.
+		const bool damage_step_idle = mainGame->dField.in_damage_step && count == 0 && !select_trigger
+			&& !mainGame->dField.chain_forced && mainGame->dField.chains.empty();
+		if(damage_step_idle || tournament_mode::ChainAutoPasses(mainGame->dInfo.isTournamentRoom, mainGame->dField.chain_forced, select_trigger,
 				count, specount, ignore_chain, always_chain, chain_when_avail)) {
 			SetResponseI(-1);
 			mainGame->dField.ClearChainSelect();
+			// FASE 89: in a tournament room an instant answer would tell the opponent
+			// we have nothing, so wait 0.8-1.2 s first. This runs on the parser thread
+			// (same place as the WaitFrameSignal below): later messages just queue up.
+			// Skipped while catching up after a reconnect; abandoned if the duel ends
+			// or the threads are stopping (the response is then not sent at all).
+			if(damage_step_idle && mainGame->dInfo.isTournamentRoom && !mainGame->dInfo.isCatchingUp) {
+				static thread_local std::mt19937 rng{std::random_device{}()};
+				const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(std::uniform_int_distribution<int>(800, 1200)(rng));
+				while(std::chrono::steady_clock::now() < deadline) {
+					epro::this_thread::sleep_for(std::chrono::milliseconds(10));
+					if(stop_threads || !mainGame->dInfo.isInDuel)
+						return true;
+				}
+			}
 			if(mainGame->tabSettings.chkNoChainDelay->isChecked() && !ignore_chain) {
 				std::unique_lock<epro::mutex> tmp(mainGame->gMutex);
 				mainGame->WaitFrameSignal(20, tmp);
@@ -3771,6 +3791,7 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 		return true;
 	}
 	case MSG_NEW_PHASE: {
+		mainGame->dField.in_damage_step = false;
 		Play(SoundManager::SFX::PHASE);
 		const auto phase = BufferIO::Read<uint16_t>(pbuf);
 		auto lock = LockIf();
@@ -4651,9 +4672,11 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 		return true;
 	}
 	case MSG_DAMAGE_STEP_START: {
+		mainGame->dField.in_damage_step = true;
 		return true;
 	}
 	case MSG_DAMAGE_STEP_END: {
+		mainGame->dField.in_damage_step = false;
 		return true;
 	}
 	case MSG_MISSED_EFFECT: {
