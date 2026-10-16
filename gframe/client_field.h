@@ -112,6 +112,8 @@ public:
 	//     "Si'" should open the plain pause or the full-materials "Guarda"
 	//     (panelmode, Xyz materials), which of the two BUTTON_YES must do.
 	bool in_chain_resolution;
+	// FASE 89: between MSG_DAMAGE_STEP_START and MSG_DAMAGE_STEP_END (covers damage calculation).
+	bool in_damage_step;
 	ClientCard* effectyn_pending_card;
 	bool pending_panel_reveal;
 	void ResolveEffectYNPause();

@@ -44,6 +44,7 @@ ClientField::ClientField() {
 	deck_reversed = false;
 	conti_selecting = false;
 	in_chain_resolution = false;
+	in_damage_step = false;
 	effectyn_pending_card = nullptr;
 	pending_panel_reveal = false;
 	for(int p = 0; p < 2; ++p) {
@@ -114,6 +115,7 @@ void ClientField::Clear() {
 	conti_selecting = false;
 	deck_reversed = false;
 	in_chain_resolution = false;
+	in_damage_step = false;
 	effectyn_pending_card = nullptr;
 	pending_panel_reveal = false;
 }
