@@ -62,6 +62,7 @@
 #include "progress.h"
 #include "sha256.h"
 #include "single_instance_lock.h"
+#include "deep_link_ipc.h"
 
 #include <curl/curl.h>
 
@@ -852,12 +853,14 @@ int main(int argc, char** argv) {
 	// it in exactly the same way client_updater.cpp's own FileLock cannot
 	// see a process that never links against it.
 	//
-	// Known, accepted gap: this only catches "another fedelex simulator
-	// for this data dir is alive", regardless of how IT was started — it
-	// does NOT attempt to hand the already-open window the new link (that
-	// would need the flagged listener). The player sees "already open,
-	// close it and retry" instead of the room opening in the existing
-	// window.
+	// (FASE 88 B, below, now also hands the open simulator the link.)
+	// FASE 88 B: before giving up, hand the link to the open simulator over
+	// 127.0.0.1 (gframe/deep_link_ipc.h). Answered = done, no second window.
+	if(!deep_link_arg.empty() && ygo::deep_link_ipc::SendToRunningClient(deep_link_arg)) {
+		Log(data_dir, "deep-link: inoltrato al simulatore gia' aperto.");
+		curl_global_cleanup();
+		return EXIT_SUCCESS;
+	}
 	if(!deep_link_arg.empty()) {
 		ygo::SingleInstanceLock probe(data_dir + "/" + ygo::kTournamentLockFileName);
 		if(probe.Busy()) {

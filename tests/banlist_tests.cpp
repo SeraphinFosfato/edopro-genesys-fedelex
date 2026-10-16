@@ -67,6 +67,8 @@ int RunServerTlsTests();
 // Defined in single_instance_lock_tests.cpp — same reasoning, for FASE 75c's
 // tournament lock (the simulator's and the launcher's spelling of its path).
 int RunSingleInstanceLockTests();
+// FASE 88 B: gframe/deep_link_ipc.* (validation + loopback round trip).
+int RunDeepLinkIpcTests();
 // Finding 52: BufferIO read limit (bufferio_tests.cpp).
 int RunBufferIOTests();
 
@@ -775,6 +777,7 @@ int main() {
 	const int tournament_mode_failures = RunTournamentModeTests();
 	const int server_tls_failures = RunServerTlsTests();
 	const int single_instance_lock_failures = RunSingleInstanceLockTests();
+	const int deep_link_ipc_failures = RunDeepLinkIpcTests();
 	const int bufferio_failures = RunBufferIOTests();
-	return (failures == 0 && bufferio_failures == 0 && diff_failures == 0 && title_failures == 0 && update_failures == 0 && game_data_ready_failures == 0 && online_gate_failures == 0 && updater_managed_files_failures == 0 && launcher_logic_failures == 0 && deep_link_failures == 0 && tournament_mode_failures == 0 && server_tls_failures == 0 && single_instance_lock_failures == 0) ? 0 : 1;
+	return (failures == 0 && bufferio_failures == 0 && diff_failures == 0 && title_failures == 0 && update_failures == 0 && game_data_ready_failures == 0 && online_gate_failures == 0 && updater_managed_files_failures == 0 && launcher_logic_failures == 0 && deep_link_failures == 0 && tournament_mode_failures == 0 && server_tls_failures == 0 && single_instance_lock_failures == 0 && deep_link_ipc_failures == 0) ? 0 : 1;
 }

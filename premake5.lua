@@ -449,6 +449,8 @@ project "fedelex-launcher"
 		-- handing it a deep link — zero gframe dependency, same reasoning
 		-- as the three files above it.
 		"gframe/single_instance_lock.cpp",
+		-- FASE 88 B: forwards the link to an already-open simulator.
+		"gframe/deep_link_ipc.cpp",
 		"gframe/sha256.cpp",
 		"gframe/tweetnacl/*.c",
 	}

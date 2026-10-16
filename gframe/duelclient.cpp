@@ -34,6 +34,9 @@
 #include "room_list_notice.h"
 #include "server_lobby.h"
 #include "deep_link.h"
+#include "deep_link_ipc.h"
+#include <memory>
+#include <mutex>
 #include "tournament_mode.h"
 #include "tls_client.h"
 #include "server_tls.h"
@@ -122,7 +125,181 @@ namespace {
 std::string pending_deep_link;
 }
 
+// FASE 88 B: links forwarded by a second launch. The listener thread only
+// queues; everything that touches the GUI happens in ProcessIncomingDeepLinks()
+// on the main thread (called from RetryPendingDeepLink, once per frame).
+namespace {
+std::unique_ptr<deep_link_ipc::Listener> deep_link_listener;
+std::mutex incoming_mutex;
+std::vector<std::string> incoming_links;
+// Link waiting for the player's answer / for the current game to be left.
+std::string forfeit_uri;
+bool forfeit_prompt_open = false;
+bool forfeit_active = false;
+bool forfeit_sent_this_duel = false;
+bool forfeit_deck_sent = false;
+std::chrono::steady_clock::time_point forfeit_started;
+// Safety valve for a surrender chain that never completes (server gone, ...).
+constexpr auto kForfeitTimeout = std::chrono::seconds(90);
+
+bool OnlineRoomOpen() { return DuelClient::IsConnected(); }
+
+void LeaveLobbyNow() {
+	// Same steps as BUTTON_HP_CANCEL (menu_handler.cpp), minus showing the room list.
+	DuelClient::StopClient();
+	mainGame->dInfo.isInLobby = false;
+	mainGame->btnCreateHost->setEnabled(mainGame->IsGameDataReady());
+	mainGame->btnJoinHost->setEnabled(true);
+	mainGame->btnJoinCancel->setEnabled(true);
+	if(mainGame->wHostPrepare->isVisible()) mainGame->HideElement(mainGame->wHostPrepare);
+	if(mainGame->gBot.window->isVisible()) mainGame->HideElement(mainGame->gBot.window);
+	if(mainGame->wHostPrepareR->isVisible()) mainGame->HideElement(mainGame->wHostPrepareR);
+	if(mainGame->wHostPrepareL->isVisible()) mainGame->HideElement(mainGame->wHostPrepareL);
+	mainGame->wChat->setVisible(false);
+}
+
+void ForfeitFinished() {
+	forfeit_active = false;
+	auto uri = std::move(forfeit_uri);
+	forfeit_uri.clear();
+	if(!uri.empty())
+		DuelClient::JoinFromDeepLink(uri);
+}
+}
+
+bool DuelClient::ForfeitPromptOpen() { return forfeit_prompt_open; }
+
+void DuelClient::StartDeepLinkListener() {
+	auto l = std::make_unique<deep_link_ipc::Listener>();
+	if(!l->Start([](std::string m) {
+		std::lock_guard<std::mutex> lock(incoming_mutex);
+		if(incoming_links.size() < 4) // a burst of clicks is one intent; never grow unbounded
+			incoming_links.push_back(std::move(m));
+	})) {
+		ErrorLog("Porta {} occupata: i link fedelex:// non verranno inoltrati a questo client.", deep_link_ipc::kPort);
+		return;
+	}
+	deep_link_listener = std::move(l);
+}
+
+void DuelClient::AnswerForfeitPrompt(bool yes) {
+	forfeit_prompt_open = false;
+	mainGame->HideElement(mainGame->wQuery);
+	if(!yes) {
+		forfeit_uri.clear();
+		return;
+	}
+	// A tournament room may have been entered while the prompt was open.
+	if(mainGame->dInfo.isTournamentRoom) {
+		forfeit_uri.clear();
+		mainGame->PopupMessage(L"Finisci prima la partita in corso");
+		return;
+	}
+	forfeit_active = true;
+	forfeit_sent_this_duel = false;
+	forfeit_deck_sent = false;
+	forfeit_started = std::chrono::steady_clock::now();
+}
+
+// Drives "surrender every remaining game, then leave, then join". Never just a
+// disconnect: that opens the reconnect window and leaves the opponent stuck.
+static void ForfeitTick() {
+	if(std::chrono::steady_clock::now() - forfeit_started > kForfeitTimeout) {
+		forfeit_active = false;
+		forfeit_uri.clear();
+		mainGame->PopupMessage(L"Impossibile lasciare la partita in corso: il link e' stato ignorato.");
+		return;
+	}
+	if(!OnlineRoomOpen()) {
+		ForfeitFinished();
+		return;
+	}
+	auto& g = *mainGame;
+	// Spectators and the pre-duel lobby have no game to forfeit.
+	if(g.dInfo.player_type >= 7 || (g.dInfo.isInLobby && !g.dInfo.isInDuel)) {
+		LeaveLobbyNow();
+		ForfeitFinished();
+		return;
+	}
+	if(g.dInfo.isInDuel) {
+		if(!forfeit_sent_this_duel) {
+			DuelClient::SendPacketToServer(CTOS_SURRENDER);
+			forfeit_sent_this_duel = true;
+		}
+	} else {
+		forfeit_sent_this_duel = false;
+	}
+	if(g.is_siding) {
+		// Next game of the match: the server waits for our deck before it starts
+		// it, and only then can the surrender be sent. Resend the deck unchanged.
+		if(!forfeit_deck_sent) {
+			const auto& deck = gdeckManager->sent_deck;
+			uint8_t deckbuf[0xf000];
+			auto* pdeck = deckbuf;
+			const auto tot = deck.main.size() + deck.extra.size() + deck.side.size();
+			if(tot <= sizeof(deckbuf) / sizeof(uint32_t) - 2) {
+				BufferIO::Write<uint32_t>(pdeck, static_cast<uint32_t>(deck.main.size() + deck.extra.size()));
+				BufferIO::Write<uint32_t>(pdeck, static_cast<uint32_t>(deck.side.size()));
+				for(const auto& c : deck.main) BufferIO::Write<uint32_t>(pdeck, c->code);
+				for(const auto& c : deck.extra) BufferIO::Write<uint32_t>(pdeck, c->code);
+				for(const auto& c : deck.side) BufferIO::Write<uint32_t>(pdeck, c->code);
+				DuelClient::SendBufferToServer(CTOS_UPDATE_DECK, deckbuf, pdeck - deckbuf);
+			}
+			forfeit_deck_sent = true;
+		}
+	} else {
+		forfeit_deck_sent = false;
+	}
+	// End-of-match prompts that block the network thread until someone clicks.
+	if(g.wFileSave->isVisible()) {
+		g.saveReplay = false;
+		g.HideElement(g.wFileSave);
+		g.replaySignal.Set();
+	}
+	if(g.wMessage->isVisible()) {
+		g.HideElement(g.wMessage);
+		g.actionSignal.Set();
+	}
+}
+
+static void ProcessIncomingDeepLinks() {
+	if(forfeit_active) {
+		ForfeitTick();
+		return;
+	}
+	if(forfeit_prompt_open)
+		return; // one question at a time; later clicks stay queued
+	std::string uri;
+	{
+		std::lock_guard<std::mutex> lock(incoming_mutex);
+		if(incoming_links.empty())
+			return;
+		uri = std::move(incoming_links.front());
+		incoming_links.erase(incoming_links.begin());
+	}
+	auto& g = *mainGame;
+	g.device->restoreWindow(); // best effort: un-minimize; real focus stealing is OS-dependent
+	// Not a room we can forfeit: refuse rather than tear it down.
+	if(g.dInfo.isReplay || g.dInfo.isSingleMode) {
+		g.PopupMessage(L"Finisci prima la partita in corso");
+		return;
+	}
+	if(!OnlineRoomOpen() && !g.is_siding && !g.dInfo.isInDuel && !g.dInfo.isInLobby) {
+		DuelClient::JoinFromDeepLink(uri);
+		return;
+	}
+	if(g.dInfo.isTournamentRoom) {
+		g.PopupMessage(L"Finisci prima la partita in corso");
+		return;
+	}
+	forfeit_uri = std::move(uri);
+	forfeit_prompt_open = true;
+	g.stQMessage->setText(L"Sei in una partita. Per aprire il link devi arrenderti e lasciarla: vuoi farlo?");
+	g.PopupElement(g.wQuery);
+}
+
 void DuelClient::RetryPendingDeepLink() {
+	ProcessIncomingDeepLinks();
 	if(pending_deep_link.empty() || !mainGame->IsGameDataReady())
 		return;
 	auto uri = std::move(pending_deep_link);

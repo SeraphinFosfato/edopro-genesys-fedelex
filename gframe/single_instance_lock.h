@@ -3,6 +3,9 @@
 
 #include <string>
 
+// NOTE (FASE 88 B): the listener this comment calls out of scope now exists,
+// see gframe/deep_link_ipc.h; this lock stays the "is one alive" probe.
+//
 // FASE 75, design/launcher.md, PHASES.md "il link del tavolo", cancello 3:
 // "se il simulatore e' gia' aperto non se ne apre un secondo". The brief
 // left the exact mechanism to whoever implements ("forma a scelta, locale

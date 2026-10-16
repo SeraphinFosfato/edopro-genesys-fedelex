@@ -1963,6 +1963,11 @@ bool ClientField::OnCommonEvent(const irr::SEvent& event, bool& stopPropagation)
 		auto id = event.GUIEvent.Caller->getID();
 		if(mainGame->menuHandler.IsSynchronizedElement(id))
 			mainGame->menuHandler.SynchronizeElement(event.GUIEvent.Caller);
+		if(event.GUIEvent.EventType == irr::gui::EGET_BUTTON_CLICKED && (id == BUTTON_YES || id == BUTTON_NO) && DuelClient::ForfeitPromptOpen()) {
+			DuelClient::AnswerForfeitPrompt(id == BUTTON_YES);
+			stopPropagation = true;
+			return true;
+		}
 		switch(event.GUIEvent.EventType) {
 		case irr::gui::EGET_ELEMENT_HOVERED: {
 			// Set cursor to an I-Beam if hovering over an edit box

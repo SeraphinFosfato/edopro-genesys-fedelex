@@ -239,6 +239,7 @@ int edopro_main(const args_t& args) {
 	if(!tournament_lock.Acquired())
 		ygo::ErrorLog("Il lock fedelex-tournament.lock non e' stato preso (un altro simulatore lo tiene, o la cartella non e' scrivibile): proseguo comunque.");
 #endif
+	ygo::DuelClient::StartDeepLinkListener(); // FASE 88 B
 	ygo::Utils::SetupCrashDumpLogging();
 	std::optional<ThreadsCleaner> cleaner;
 	try {

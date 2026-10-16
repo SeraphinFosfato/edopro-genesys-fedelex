@@ -111,6 +111,13 @@ public:
 	static void JoinFromDeepLink(const std::string& uri);
 	// Riprende un link messo in attesa perche' i dati di gioco non erano pronti.
 	static void RetryPendingDeepLink();
+	// FASE 88 B: listen on 127.0.0.1 for links forwarded by a second launch
+	// (gframe/deep_link_ipc.h). Silent no-op if the port is busy.
+	static void StartDeepLinkListener();
+	// The "leave this game for the link?" prompt (wQuery) is answered through
+	// ClientField::OnCommonEvent, which sees YES/NO whichever handler is active.
+	static bool ForfeitPromptOpen();
+	static void AnswerForfeitPrompt(bool yes);
 	// FASE 76b, design/server-duelli.md §13.6 punto 5: called every frame
 	// from Game::MainLoop while mainGame->dInfo.isAwaitingReconnect is
 	// true. Cheap when there is nothing to do (gframe/tournament_mode.h's
