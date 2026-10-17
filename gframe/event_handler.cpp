@@ -771,6 +771,8 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 								auto rawpos = mainGame->device->getCursorControl()->getPosition();
 								auto curpos = mainGame->Resize(rawpos.X, rawpos.Y, true);
 								ShowMenu(clicked_card->cmdFlag, curpos.X, curpos.Y);
+								// The list window was raised last, so it covers the menu and eats its clicks: raise the menu above it.
+								mainGame->wCmdMenu->getParent()->bringToFront(mainGame->wCmdMenu);
 							}
 						}
 						break;
