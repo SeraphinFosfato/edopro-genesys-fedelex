@@ -166,6 +166,7 @@ public:
 	ClientCard* command_card;
 	ClientCard* highlighting_card;
 	uint16_t list_command;
+	bool reopen_list_on_menu_close{ false }; // tournament pile menu: bring the list back if the menu closes with no action
 
 	bool OnEvent(const irr::SEvent& event) override;
 	bool OnCommonEvent(const irr::SEvent& event, bool& stopPropagation);

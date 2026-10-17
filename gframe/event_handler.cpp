@@ -770,9 +770,11 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 								// FASE 87a: ShowMenu scales its input, so it takes base coordinates (like the field click's Resize(..., true)), not raw pixels.
 								auto rawpos = mainGame->device->getCursorControl()->getPosition();
 								auto curpos = mainGame->Resize(rawpos.X, rawpos.Y, true);
+								// The list's card images are drawn over the GUI and would cover the menu: hide the list
+								// while the menu is up, and bring it back if the menu is dismissed without an action.
+								mainGame->HideElement(mainGame->wCardSelect);
 								ShowMenu(clicked_card->cmdFlag, curpos.X, curpos.Y);
-								// The list window was raised last, so it covers the menu and eats its clicks: raise the menu above it.
-								mainGame->wCmdMenu->getParent()->bringToFront(mainGame->wCmdMenu);
+								reopen_list_on_menu_close = true;
 							}
 						}
 						break;
@@ -1304,8 +1306,14 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 			}
 			if(x < 300)
 				break;
-			if(mainGame->wCmdMenu->isVisible() && !mainGame->wCmdMenu->getRelativePosition().isPointInside(mousepos))
+			if(mainGame->wCmdMenu->isVisible() && !mainGame->wCmdMenu->getRelativePosition().isPointInside(mousepos)) {
 				mainGame->wCmdMenu->setVisible(false);
+				if(reopen_list_on_menu_close) {
+					reopen_list_on_menu_close = false;
+					mainGame->PopupElement(mainGame->wCardSelect);
+					break;
+				}
+			}
 			if(panel && panel->isVisible())
 				break;
 			GetHoverField(mousepos);
@@ -2823,6 +2831,7 @@ void ClientField::GetHoverField(const irr::core::vector2d<irr::s32>& mouse) {
 	}
 }
 void ClientField::ShowMenu(int flag, int x, int y) {
+	reopen_list_on_menu_close = false;
 	if(!flag) {
 		mainGame->wCmdMenu->setVisible(false);
 		return;
