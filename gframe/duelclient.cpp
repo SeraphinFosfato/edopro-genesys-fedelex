@@ -1513,6 +1513,7 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 		mainGame->dInfo.lp[0] = 0;
 		mainGame->dInfo.lp[1] = 0;
 		mainGame->dInfo.turn = 0;
+		mainGame->dInfo.hud_phase = mainGame->dInfo.hud_action = mainGame->dInfo.hud_turn_player = 0;
 		mainGame->dInfo.time_left[0] = 0;
 		mainGame->dInfo.time_left[1] = 0;
 		mainGame->dInfo.time_player = 2;
@@ -2382,6 +2383,7 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 		extrac = BufferIO::Read<uint16_t>(pbuf);
 		mainGame->dField.Initial(mainGame->LocalPlayer(1), deckc, extrac);
 		mainGame->dInfo.turn = 0;
+		mainGame->dInfo.hud_phase = mainGame->dInfo.hud_action = mainGame->dInfo.hud_turn_player = 0;
 		mainGame->dInfo.is_shuffling = false;
 		return true;
 	}
@@ -3760,9 +3762,11 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 	}
 	case MSG_NEW_TURN: {
 		Play(SoundManager::SFX::NEXT_TURN);
-		/*const auto player = */mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
+		const auto player = mainGame->LocalPlayer(BufferIO::Read<uint8_t>(pbuf));
 		auto lock = LockIf();
 		mainGame->dInfo.turn++;
+		mainGame->dInfo.hud_turn_player = player;
+		mainGame->dInfo.hud_action = 0;
 		if(!mainGame->dInfo.isReplay && !mainGame->dInfo.isSingleMode && mainGame->dInfo.player_type < (mainGame->dInfo.team1 + mainGame->dInfo.team2)) {
 			mainGame->btnLeaveGame->setText(gDataManager->GetSysString(1351).data());
 			mainGame->btnLeaveGame->setVisible(true);
@@ -3825,6 +3829,11 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 		mainGame->showcarddif = 30;
 		mainGame->showcardp = 0;
 		switch (phase) {
+		{
+			const auto prev = mainGame->dInfo.hud_phase;
+			mainGame->dInfo.hud_phase = phase == PHASE_DRAW ? 1 : phase == PHASE_STANDBY ? 2 : phase == PHASE_MAIN1 ? 3 : (phase == PHASE_BATTLE_START || phase == PHASE_BATTLE) ? 4 : phase == PHASE_MAIN2 ? 5 : 6;
+			mainGame->dInfo.hud_action = phase == PHASE_BATTLE_START ? 7 : (phase == PHASE_MAIN2 && prev == 4) ? 8 : (phase == PHASE_END && prev == 5) ? 9 : 0;
+		}
 		case PHASE_DRAW:
 			event_string = gDataManager->GetSysString(20).data();
 			mainGame->btnDP->setVisible(true);
@@ -4112,6 +4121,7 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 		return true;
 	}
 	case MSG_SUMMONING: {
+		mainGame->dInfo.hud_action = 1;
 		const auto code = BufferIO::Read<uint32_t>(pbuf);
 		/*CoreUtils::loc_info info = CoreUtils::ReadLocInfo(pbuf, mainGame->dInfo.compat_mode);*/
 		if(!PlayChant(SoundManager::CHANT::SUMMON, code))
@@ -4130,10 +4140,12 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 		return true;
 	}
 	case MSG_SUMMONED: {
+		mainGame->dInfo.hud_action = 2;
 		event_string = gDataManager->GetSysString(1604).data();
 		return true;
 	}
 	case MSG_SPSUMMONING: {
+		mainGame->dInfo.hud_action = 1;
 		const auto code = BufferIO::Read<uint32_t>(pbuf);
 		/*CoreUtils::loc_info info = CoreUtils::ReadLocInfo(pbuf, mainGame->dInfo.compat_mode);*/
 		if(!code || !PlayChant(SoundManager::CHANT::SUMMON, code))
@@ -4153,10 +4165,12 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 		return true;
 	}
 	case MSG_SPSUMMONED: {
+		mainGame->dInfo.hud_action = 2;
 		event_string = gDataManager->GetSysString(1606).data();
 		return true;
 	}
 	case MSG_FLIPSUMMONING: {
+		mainGame->dInfo.hud_action = 1;
 		const auto code = BufferIO::Read<uint32_t>(pbuf);
 		CoreUtils::loc_info info = CoreUtils::ReadLocInfo(pbuf, mainGame->dInfo.compat_mode);
 		info.controler = mainGame->LocalPlayer(info.controler);
@@ -4181,6 +4195,7 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 		return true;
 	}
 	case MSG_FLIPSUMMONED: {
+		mainGame->dInfo.hud_action = 2;
 		event_string = gDataManager->GetSysString(1608).data();
 		return true;
 	}
@@ -4286,6 +4301,7 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 		return true;
 	}
 	case MSG_CHAIN_END: {
+		mainGame->dInfo.hud_action = 0;
 		for(const auto& chain : mainGame->dField.chains) {
 			for(const auto& target : chain.target)
 				target->is_showchaintarget = false;
@@ -4593,6 +4609,7 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 		return true;
 	}
 	case MSG_ATTACK: {
+		mainGame->dInfo.hud_action = 3;
 		CoreUtils::loc_info info1 = CoreUtils::ReadLocInfo(pbuf, mainGame->dInfo.compat_mode);
 		info1.controler = mainGame->LocalPlayer(info1.controler);
 		mainGame->dField.attacker = mainGame->dField.GetCard(info1.controler, info1.location, info1.sequence);
@@ -4632,6 +4649,7 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 		return true;
 	}
 	case MSG_BATTLE: {
+		mainGame->dInfo.hud_action = 5;
 		if(mainGame->dInfo.isCatchingUp)
 			return true;
 		CoreUtils::loc_info info1 = CoreUtils::ReadLocInfo(pbuf, mainGame->dInfo.compat_mode);
@@ -4672,10 +4690,12 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 		return true;
 	}
 	case MSG_DAMAGE_STEP_START: {
+		mainGame->dInfo.hud_action = 4;
 		mainGame->dField.in_damage_step = true;
 		return true;
 	}
 	case MSG_DAMAGE_STEP_END: {
+		mainGame->dInfo.hud_action = 6;
 		mainGame->dField.in_damage_step = false;
 		return true;
 	}

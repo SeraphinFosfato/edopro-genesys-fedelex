@@ -124,6 +124,10 @@ struct DuelInfo {
 	int duel_field;
 	uint64_t duel_params;
 	int turn;
+	// FASE 91: state of the top-right duel HUD box (Game::DrawDuelHud). hud_phase 0 none,1 DP,2 SP,3 M1,4 BP,5 M2,6 EP;
+	// hud_action 0 none,1 Summon,2 OnSummon,3 Attack,4 StartDMG,5 MiddleDMG,6 EndDMG,7 StartBattle,8 EndBattle,9 EndMain.
+	// hud_turn_player is the local-relative player (0 = you).
+	uint8_t hud_phase, hud_action, hud_turn_player;
 	uint8_t curMsg;
 	int team1;
 	int team2;
@@ -658,6 +662,7 @@ public:
 	void DrawCard(ClientCard* pcard);
 	void DrawMisc();
 	void DrawStatus(ClientCard* pcard);
+	void DrawDuelHud();
 	void DrawPendScale(ClientCard* pcard);
 	void DrawStackIndicator(epro::wstringview text, const Materials::QuadVertex v, bool opponent);
 	void DrawGUI();

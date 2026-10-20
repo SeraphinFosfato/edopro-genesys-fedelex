@@ -444,6 +444,31 @@ ForceInline void DrawShadowText(irr::gui::CGUITTFont* font, const T& text, const
 									shadowposition.LowerRightCorner.X + padding.LowerRightCorner.X, shadowposition.LowerRightCorner.Y + padding.LowerRightCorner.Y);
 	DrawShadowTextPos(font, text, shadowposition, position, std::forward<Args>(args)...);
 }
+// FASE 91: purple HUD box, top-right, always shown in a duel (replays too). Left of it (x 790-835) stays free for the future match clock.
+void Game::DrawDuelHud() {
+	static const wchar_t* const phases[] = { L"", L"Draw", L"Standby", L"Main 1", L"Battle", L"Main 2", L"End" };
+	static const wchar_t* const actions[] = { L"", L"Summon", L"OnSummon", L"Attack declaration", L"Start DMG", L"Middle DMG", L"End DMG", L"Start Battle", L"End Battle", L"End Main" };
+	const auto& oppo = dInfo.isTeam1 ? dInfo.opponames : dInfo.selfnames;
+	const irr::s32 y = 56 + static_cast<irr::s32>(23 * (oppo.empty() ? 0 : oppo.size() - 1));
+	driver->draw2DRectangle(0xe05a2d91, Resize(840, y, 1020, y + 58));
+	driver->draw2DRectangleOutline(Resize(840, y, 1020, y + 58), 0xffffffff);
+	std::wstring action;
+	if(!dField.chains.empty()) {
+		const auto& c = dField.chains.back();
+		const auto n = dField.chains.size();
+		action = (dField.in_chain_resolution ? L"Resolving CL" : L"Chain to CL") + std::to_wstring(n) + L": " + std::wstring(gDataManager->GetName(c.code));
+	} else {
+		action = actions[std::min<size_t>(dInfo.hud_action, 9)];
+	}
+	const auto turn = std::wstring(L"Turn ") + std::to_wstring(dInfo.turn) + (dInfo.hud_turn_player ? L" - Opponent" : L" - You");
+	const std::wstring lines[] = { turn, phases[std::min<size_t>(dInfo.hud_phase, 6)], action };
+	int i = 0;
+	for(const auto& l : lines) {
+		const auto r = Resize(844, y + 2 + 18 * i, 1016, y + 20 + 18 * i);
+		textFont->drawustring(l, r, 0xffffffff, false, true, &r);
+		++i;
+	}
+}
 void Game::DrawMisc() {
 	const float twoPI = 2.0f * irr::core::PI;
 	static float act_rot = 0.0f;
@@ -615,6 +640,7 @@ void Game::DrawMisc() {
 	/*driver->draw2DRectangle(Resize(632, 10, 688, 30), 0x00000000, 0x00000000, 0xffffffff, 0xffffffff);
 	driver->draw2DRectangle(Resize(632, 30, 688, 50), 0xffffffff, 0xffffffff, 0x00000000, 0x00000000);*/
 	DrawShadowText(lpcFont, gDataManager->GetNumString(dInfo.turn), Resize(635, 5, 685, 40), Resize(0, 0, 2, 0), skin::DUELFIELD_TURN_COUNT_VAL, 0x80000000, true);
+	DrawDuelHud();
 #undef DRAWRECT
 #undef LPCOLOR
 #undef SKCOLOR
