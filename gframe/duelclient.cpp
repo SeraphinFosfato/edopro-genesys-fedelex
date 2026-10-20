@@ -289,8 +289,18 @@ static void ProcessIncomingDeepLinks() {
 		DuelClient::JoinFromDeepLink(uri);
 		return;
 	}
-	if(g.dInfo.isTournamentRoom) {
+	// FASE 92: a spectator (player_type >= 7) has no match to finish; ForfeitTick
+	// leaves the room without sending a surrender, so no question is asked.
+	if(g.dInfo.isTournamentRoom && g.dInfo.player_type < 7) {
 		g.PopupMessage(L"Finisci prima la partita in corso");
+		return;
+	}
+	if(g.dInfo.player_type >= 7) {
+		forfeit_uri = std::move(uri);
+		forfeit_active = true;
+		forfeit_sent_this_duel = false;
+		forfeit_deck_sent = false;
+		forfeit_started = std::chrono::steady_clock::now();
 		return;
 	}
 	forfeit_uri = std::move(uri);
@@ -846,7 +856,8 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 				else mainGame->PopupMessage(gDataManager->GetSysString(1402));
 				if(mainGame->OnlineGateClosed())
 					mainGame->ShowOnlineGateWarning();
-			} else if(tournament_mode::ReconnectShouldActivate(mainGame->dInfo.isTournamentRoom, mainGame->dInfo.isInDuel)) {
+			} else if(mainGame->dInfo.player_type < 7 && tournament_mode::ReconnectShouldActivate(mainGame->dInfo.isTournamentRoom, mainGame->dInfo.isInDuel)) {
+				// FASE 92: a dropped spectator has nothing to rejoin: ordinary cleanup.
 				// FASE 76b, design/server-duelli.md §13.6 punto 5: a
 				// tournament-room connection loss mid-duel does NOT end the
 				// duel the way the plain `else` below does. Nothing here
