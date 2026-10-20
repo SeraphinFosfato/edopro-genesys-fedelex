@@ -663,6 +663,10 @@ public:
 	void DrawMisc();
 	void DrawStatus(ClientCard* pcard);
 	void DrawDuelHud();
+	void DrawMatchClock(irr::s32 cx, irr::s32 cy, irr::s32 r);
+	// Tournament match clock (STOC_MATCH_CLOCK): network thread writes, draw thread reads. deadline is steady-clock ms, -1 = no packet yet.
+	std::atomic<int64_t> match_clock_deadline_ms{ -1 };
+	std::atomic<uint32_t> match_clock_total{ 0 };
 	void DrawPendScale(ClientCard* pcard);
 	void DrawStackIndicator(epro::wstringview text, const Materials::QuadVertex v, bool opponent);
 	void DrawGUI();

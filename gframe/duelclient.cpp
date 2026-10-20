@@ -530,6 +530,7 @@ bool DuelClient::StartClient(const epro::Address& ip, uint16_t port, uint32_t ga
 	// is connected to next — JoinFromDeepLink() is the only place that sets
 	// it back to true, and only after this call returns successfully.
 	mainGame->dInfo.isTournamentRoom = false;
+	mainGame->match_clock_deadline_ms = -1;
 	// FASE 76b: same reasoning, same ordering — DuelClient::
 	// TournamentReconnectTick() is the only place that sets this back to
 	// true, and only after THIS call returns. Without this reset, an
@@ -584,6 +585,7 @@ void DuelClient::ConnectTimeout([[maybe_unused]] evutil_socket_t fd, [[maybe_unu
 	event_base_loopbreak(client_base);
 }
 void DuelClient::StopClient(bool is_exiting) {
+	mainGame->match_clock_deadline_ms = -1;
 	mainGame->frameSignal.SetNoWait(true);
 	if((connect_state & 0x7) != 0) {
 		is_closing = is_exiting;
@@ -1783,6 +1785,18 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 		for(uint16_t i = 0; i < n; ++i)
 			deck_zone_codes.push_back(BufferIO::Read<uint32_t>(pdata));
 		deck_zone_received = true;
+		break;
+	}
+	case STOC_MATCH_CLOCK: {
+		if(!mainGame->dInfo.isTournamentRoom)
+			break;
+		if(len < 2 * sizeof(uint32_t))
+			break;
+		const auto remaining = BufferIO::Read<uint32_t>(pdata);
+		const auto total = BufferIO::Read<uint32_t>(pdata);
+		const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+		mainGame->match_clock_total = total;
+		mainGame->match_clock_deadline_ms = now + static_cast<int64_t>(remaining) * 1000;
 		break;
 	}
 	case STOC_CATCHUP: {

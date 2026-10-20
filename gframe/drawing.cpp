@@ -468,6 +468,40 @@ void Game::DrawDuelHud() {
 		textFont->drawustring(l, r, 0xffffffff, false, true, &r);
 		++i;
 	}
+	DrawMatchClock(812, y + 29, 22);
+}
+// Circular match clock (cx, cy, r in virtual coords). Hidden outside tournament rooms or before the first STOC_MATCH_CLOCK.
+void Game::DrawMatchClock(irr::s32 cx, irr::s32 cy, irr::s32 r) {
+	const auto deadline = match_clock_deadline_ms.load();
+	const auto total = match_clock_total.load();
+	if(!dInfo.isTournamentRoom || deadline < 0 || total == 0)
+		return;
+	const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+	const auto left_ms = std::max<int64_t>(0, deadline - now);
+	const float frac = std::min(1.0f, left_ms / (1000.0f * total));
+	const bool low = left_ms < 5 * 60 * 1000;
+	const irr::video::SColor arc_col = low ? 0xffff5a1f : 0xffffffff;
+	const auto c = Resize(cx, cy, false);
+	const float R = ResizeX(static_cast<float>(r));
+	const int thick = std::max(2, static_cast<int>(ResizeX(4.0f)));
+	driver->draw2DPolygon(c, R + 2, 0xff000000, 40);
+	constexpr int N = 120;
+	const int arc_n = static_cast<int>(std::ceil(N * frac));
+	for(int k = 0; k < N; ++k) {
+		const bool on = k < arc_n;
+		const float a0 = -irr::core::PI / 2 + 2 * irr::core::PI * k / N;
+		const float a1 = -irr::core::PI / 2 + 2 * irr::core::PI * (k + 1) / N;
+		for(int t = 0; t < thick; ++t) {
+			const float rr = R - t;
+			driver->draw2DLine({ c.X + (irr::s32)std::lround(rr * std::cos(a0)), c.Y + (irr::s32)std::lround(rr * std::sin(a0)) },
+				{ c.X + (irr::s32)std::lround(rr * std::cos(a1)), c.Y + (irr::s32)std::lround(rr * std::sin(a1)) },
+				on ? arc_col : irr::video::SColor(0xff5a2d91));
+		}
+	}
+	const auto secs = static_cast<int>((left_ms + 999) / 1000);
+	const auto txt = epro::format(L"{:02}:{:02}", secs / 60, secs % 60);
+	const auto tr = irr::core::recti(c.X - (irr::s32)R, c.Y - (irr::s32)R, c.X + (irr::s32)R, c.Y + (irr::s32)R);
+	textFont->drawustring(txt, tr, arc_col, true, true, &tr);
 }
 void Game::DrawMisc() {
 	const float twoPI = 2.0f * irr::core::PI;
@@ -893,6 +927,8 @@ void Game::DrawGUI() {
 		}
 	}
 	env->drawAll();
+	if(dInfo.isInLobby && !dInfo.isInDuel)
+		DrawMatchClock(975, 55, 30);
 }
 void Game::DrawSpec() {
 	const auto drawrect2 = ResizeWin(574, 150, 574 + CARD_IMG_WIDTH, 150 + CARD_IMG_HEIGHT);

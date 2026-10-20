@@ -372,6 +372,7 @@ public:
 // FASE 85c: codici ancora nel proprio Deck, ordinati per codice, subito prima di una
 // SELECT_CARD/SELECT_UNSELECT_CARD con candidati dal Deck (solo server Fedelex).
 #define STOC_DECK_ZONE		0xf8
+#define STOC_MATCH_CLOCK	0xf9 // u32 LE remaining_s | u32 LE total_s, tournament rooms only
 
 #define STOC_NEW_REPLAY			0x30
 
