@@ -126,7 +126,7 @@ struct DuelInfo {
 	int turn;
 	// FASE 91: state of the top-right duel HUD box (Game::DrawDuelHud). hud_phase 0 none,1 DP,2 SP,3 M1,4 BP,5 M2,6 EP;
 	// hud_action 0 none,1 Summon,2 OnSummon,3 Attack,4 StartDMG,5 MiddleDMG,6 EndDMG,7 StartBattle,8 EndBattle,9 EndMain.
-	// hud_turn_player is the local-relative player (0 = you).
+	// hud_turn_player is the local-relative player (0 = you); no longer shown.
 	uint8_t hud_phase, hud_action, hud_turn_player;
 	uint8_t curMsg;
 	int team1;
@@ -663,7 +663,12 @@ public:
 	void DrawMisc();
 	void DrawStatus(ClientCard* pcard);
 	void DrawDuelHud();
-	void DrawMatchClock(irr::s32 cx, irr::s32 cy, irr::s32 r);
+	void DrawMatchClock();
+	void UpdateHudWindows(bool force = false);
+	void PlaceHudWindow(irr::gui::IGUIWindow* w, int& cx, int& cy, const irr::core::recti& def, irr::core::vector2di& last);
+	irr::gui::IGUIWindow* wPhaseHud{};
+	irr::gui::IGUIWindow* wMatchClock{};
+	irr::core::vector2di hudPhaseLast, hudClockLast;
 	// Tournament match clock (STOC_MATCH_CLOCK): network thread writes, draw thread reads. deadline is steady-clock ms, -1 = no packet yet.
 	std::atomic<int64_t> match_clock_deadline_ms{ -1 };
 	std::atomic<uint32_t> match_clock_total{ 0 };

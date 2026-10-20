@@ -565,6 +565,12 @@ void Game::Initialize() {
 	btnANNumberOK = env->addButton(Scale(80, 60, 150, 85), wANNumber, BUTTON_ANNUMBER_OK, gDataManager->GetSysString(1211).data());
 	defaultStrings.emplace_back(btnANNumberOK, 1211);
 	//announce card
+	wPhaseHud = env->addWindow(Scale(770, 56, 1020, 168), false, L"Fase / evento");
+	wPhaseHud->getCloseButton()->setVisible(false);
+	wPhaseHud->setVisible(false);
+	wMatchClock = env->addWindow(Scale(936, 172, 1020, 260), false, L"Match");
+	wMatchClock->getCloseButton()->setVisible(false);
+	wMatchClock->setVisible(false);
 	wANCard = env->addWindow(Scale(430, 170, 840, 370), false, L"");
 	wANCard->getCloseButton()->setVisible(false);
 	wANCard->setVisible(false);
@@ -4418,6 +4424,41 @@ void Game::ReloadElementsStrings() {
 
 	ReloadCBCurrentSkin();
 }
+void Game::PlaceHudWindow(irr::gui::IGUIWindow* w, int& cx, int& cy, const irr::core::recti& def, irr::core::vector2di& last) {
+	const auto W = static_cast<irr::s32>(window_size.Width), H = static_cast<irr::s32>(window_size.Height);
+	const auto sz = def.getSize();
+	irr::core::vector2di pos = cx >= 0 ? irr::core::vector2di(cx * W / 1000, cy * H / 1000) : def.UpperLeftCorner;
+	pos.X = std::max(0, std::min<irr::s32>(pos.X, W - sz.Width));
+	pos.Y = std::max(0, std::min<irr::s32>(pos.Y, H - sz.Height));
+	w->setRelativePosition(irr::core::recti(pos, sz));
+	last = pos;
+}
+// Shows/hides the two HUD windows, places them on first show (or force), and stores a drag into the config.
+void Game::UpdateHudWindows(bool force) {
+	const bool tour = dInfo.isTournamentRoom && match_clock_deadline_ms.load() >= 0 && match_clock_total.load() != 0 && (dInfo.isInDuel || dInfo.isInLobby);
+	const auto W = static_cast<irr::s32>(window_size.Width), H = static_cast<irr::s32>(window_size.Height);
+	const auto oppo = dInfo.isTeam1 ? dInfo.opponames.size() : dInfo.selfnames.size();
+	const irr::s32 y0 = 56 + static_cast<irr::s32>(23 * (oppo ? oppo - 1 : 0));
+	struct Item { irr::gui::IGUIWindow* w; bool vis; int& cx; int& cy; irr::core::recti def; irr::core::vector2di& last; };
+	const Item items[] = {
+		{ wPhaseHud, dInfo.isInDuel, gGameConfig->hudPhaseX, gGameConfig->hudPhaseY, ResizeWin(770, y0, 1020, y0 + 112), hudPhaseLast },
+		{ wMatchClock, tour, gGameConfig->hudClockX, gGameConfig->hudClockY, ResizeWin(936, y0 + 116, 1020, y0 + 204), hudClockLast },
+	};
+	for(const auto& it : items) {
+		if(it.vis != it.w->isVisible() || (force && it.vis)) {
+			it.w->setVisible(it.vis);
+			if(it.vis)
+				PlaceHudWindow(it.w, it.cx, it.cy, it.def, it.last);
+		} else if(it.vis) {
+			const auto cur = it.w->getRelativePosition().UpperLeftCorner;
+			if(cur != it.last) {
+				it.cx = cur.X * 1000 / std::max(1, W);
+				it.cy = cur.Y * 1000 / std::max(1, H);
+				it.last = cur;
+			}
+		}
+	}
+}
 void Game::OnResize() {
 	env->getRootGUIElement()->setRelativePosition(irr::core::recti(0, 0, window_size.Width, window_size.Height));
 	{
@@ -4481,6 +4522,7 @@ void Game::OnResize() {
 	wCardDisplay->setRelativePosition(ResizeWin(320, 100, 1000, 400));
 	wANNumber->setRelativePosition(ResizeWin(550, 200, 780, 295));
 	wANCard->setRelativePosition(ResizeWin(430, 170, 840, 370));
+	UpdateHudWindows(true);
 	wANAttribute->setRelativePosition(ResizeWin(500, 200, 830, 285));
 	wANRace->setRelativePosition(ResizeWin(480, 200, 850, 410));
 	wFileSave->setRelativePosition(ResizeWin(510, 200, 820, 320));

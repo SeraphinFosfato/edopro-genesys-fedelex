@@ -444,34 +444,70 @@ ForceInline void DrawShadowText(irr::gui::CGUITTFont* font, const T& text, const
 									shadowposition.LowerRightCorner.X + padding.LowerRightCorner.X, shadowposition.LowerRightCorner.Y + padding.LowerRightCorner.Y);
 	DrawShadowTextPos(font, text, shadowposition, position, std::forward<Args>(args)...);
 }
-// FASE 91: purple HUD box, top-right, always shown in a duel (replays too). Left of it (x 790-835) stays free for the future match clock.
+// FASE 91: phase/event window (draggable IGUIWindow wPhaseHud, drawn over its client rect after env->drawAll).
 void Game::DrawDuelHud() {
 	static const wchar_t* const phases[] = { L"", L"Draw", L"Standby", L"Main 1", L"Battle", L"Main 2", L"End" };
 	static const wchar_t* const actions[] = { L"", L"Summon", L"OnSummon", L"Attack declaration", L"Start DMG", L"Middle DMG", L"End DMG", L"Start Battle", L"End Battle", L"End Main" };
-	const auto& oppo = dInfo.isTeam1 ? dInfo.opponames : dInfo.selfnames;
-	const irr::s32 y = 56 + static_cast<irr::s32>(23 * (oppo.empty() ? 0 : oppo.size() - 1));
-	driver->draw2DRectangle(0xe05a2d91, Resize(840, y, 1020, y + 58));
-	driver->draw2DRectangleOutline(Resize(840, y, 1020, y + 58), 0xffffffff);
-	std::wstring action;
+	static const wchar_t* const expl[] = { L"", L"Evocazione in corso: si pu\u00f2 ancora negare (es. Solemn).",
+		L"Evocazione riuscita, ma si sta ancora rispondendo: gli effetti \"quando viene evocato\" non si sono ancora risolti.",
+		L"Attacco dichiarato: finestra di risposta prima del danno.", L"Inizio del Damage Step: pochi effetti attivabili.",
+		L"Calcolo del danno.", L"Fine del Damage Step.", L"Inizio della Battle Phase.", L"Fine della Battle Phase.", L"Fine della Main Phase." };
+	if(!wPhaseHud->isVisible())
+		return;
+	const auto cr = wPhaseHud->getClientRect() + wPhaseHud->getAbsolutePosition().UpperLeftCorner;
+	driver->draw2DRectangle(0xe05a2d91, cr);
+	std::wstring action, ex;
 	if(!dField.chains.empty()) {
 		const auto& c = dField.chains.back();
 		const auto n = dField.chains.size();
-		action = (dField.in_chain_resolution ? L"Resolving CL" : L"Chain to CL") + std::to_wstring(n) + L": " + std::wstring(gDataManager->GetName(c.code));
+		const bool res = dField.in_chain_resolution;
+		action = (res ? L"Resolving CL" : L"Chain to CL") + std::to_wstring(n) + L": " + std::wstring(gDataManager->GetName(c.code));
+		ex = res ? L"La catena si sta risolvendo, dall'ultimo anello." : L"Ti chiede se rispondere a questa carta.";
 	} else {
-		action = actions[std::min<size_t>(dInfo.hud_action, 9)];
+		const auto a = std::min<size_t>(dInfo.hud_action, 9);
+		action = actions[a];
+		ex = (a == 0 && dInfo.hud_phase == 1) ? L"Pescata del turno." : expl[a];
 	}
-	const auto turn = std::wstring(L"Turn ") + std::to_wstring(dInfo.turn) + (dInfo.hud_turn_player ? L" - Opponent" : L" - You");
-	const std::wstring lines[] = { turn, phases[std::min<size_t>(dInfo.hud_phase, 6)], action };
-	int i = 0;
-	for(const auto& l : lines) {
-		const auto r = Resize(844, y + 2 + 18 * i, 1016, y + 20 + 18 * i);
-		textFont->drawustring(l, r, 0xffffffff, false, true, &r);
-		++i;
+	const auto pad = ResizeX(5);
+	const auto lh = ResizeY(18);
+	auto ph = irr::core::recti(cr.UpperLeftCorner.X + pad, cr.UpperLeftCorner.Y + 1, cr.LowerRightCorner.X - pad, cr.UpperLeftCorner.Y + 1 + lh);
+	const std::wstring pname = phases[std::min<size_t>(dInfo.hud_phase, 6)];
+	textFont->drawustring(pname, ph, 0xffffffff, false, true, &ph);
+	ph += irr::core::vector2di(1, 0); // fake bold
+	textFont->drawustring(pname, ph, 0xffffffff, false, true, &ph);
+	auto ar = irr::core::recti(cr.UpperLeftCorner.X + pad, ph.LowerRightCorner.Y, cr.LowerRightCorner.X - pad, ph.LowerRightCorner.Y + lh);
+	textFont->drawustring(action, ar, 0xffffffff, false, true, &ar);
+	// explanation: greedy word wrap, max 3 lines
+	const auto maxw = static_cast<irr::u32>(cr.getWidth() - 2 * pad);
+	auto lr = irr::core::recti(ar.UpperLeftCorner.X, ar.LowerRightCorner.Y + 2, ar.LowerRightCorner.X, ar.LowerRightCorner.Y + 2 + lh);
+	std::wstring line;
+	size_t pos = 0;
+	int nlines = 0;
+	auto flush = [&] {
+		if(!line.empty() && nlines < 3) {
+			textFont->drawustring(line, lr, 0xffd8c8f0, false, true, &lr);
+			lr += irr::core::vector2di(0, lh - 2);
+			++nlines;
+		}
+		line.clear();
+	};
+	while(pos < ex.size()) {
+		auto e = ex.find(L' ', pos);
+		if(e == std::wstring::npos)
+			e = ex.size();
+		const auto word = ex.substr(pos, e - pos);
+		const auto cand = line.empty() ? word : line + L" " + word;
+		if(!line.empty() && textFont->getDimension(cand.data()).Width > maxw)
+			flush();
+		line = line.empty() ? word : line + L" " + word;
+		pos = e + 1;
 	}
-	DrawMatchClock(812, y + 29, 22);
+	flush();
 }
-// Circular match clock (cx, cy, r in virtual coords). Hidden outside tournament rooms or before the first STOC_MATCH_CLOCK.
-void Game::DrawMatchClock(irr::s32 cx, irr::s32 cy, irr::s32 r) {
+// Circular match clock inside wMatchClock. Hidden outside tournament rooms or before the first STOC_MATCH_CLOCK.
+void Game::DrawMatchClock() {
+	if(!wMatchClock->isVisible())
+		return;
 	const auto deadline = match_clock_deadline_ms.load();
 	const auto total = match_clock_total.load();
 	if(!dInfo.isTournamentRoom || deadline < 0 || total == 0)
@@ -481,8 +517,10 @@ void Game::DrawMatchClock(irr::s32 cx, irr::s32 cy, irr::s32 r) {
 	const float frac = std::min(1.0f, left_ms / (1000.0f * total));
 	const bool low = left_ms < 5 * 60 * 1000;
 	const irr::video::SColor arc_col = low ? 0xffff5a1f : 0xffffffff;
-	const auto c = Resize(cx, cy, false);
-	const float R = ResizeX(static_cast<float>(r));
+	const auto cr = wMatchClock->getClientRect() + wMatchClock->getAbsolutePosition().UpperLeftCorner;
+	driver->draw2DRectangle(0xe05a2d91, cr);
+	const auto c = cr.getCenter();
+	const float R = std::min(cr.getWidth(), cr.getHeight()) / 2.0f - 3;
 	const int thick = std::max(2, static_cast<int>(ResizeX(4.0f)));
 	driver->draw2DPolygon(c, R + 2, 0xff000000, 40);
 	constexpr int N = 120;
@@ -674,7 +712,6 @@ void Game::DrawMisc() {
 	/*driver->draw2DRectangle(Resize(632, 10, 688, 30), 0x00000000, 0x00000000, 0xffffffff, 0xffffffff);
 	driver->draw2DRectangle(Resize(632, 30, 688, 50), 0xffffffff, 0xffffffff, 0x00000000, 0x00000000);*/
 	DrawShadowText(lpcFont, gDataManager->GetNumString(dInfo.turn), Resize(635, 5, 685, 40), Resize(0, 0, 2, 0), skin::DUELFIELD_TURN_COUNT_VAL, 0x80000000, true);
-	DrawDuelHud();
 #undef DRAWRECT
 #undef LPCOLOR
 #undef SKCOLOR
@@ -926,9 +963,10 @@ void Game::DrawGUI() {
 			fit = fadingList.erase(fthis);
 		}
 	}
+	UpdateHudWindows();
 	env->drawAll();
-	if(dInfo.isInLobby && !dInfo.isInDuel)
-		DrawMatchClock(975, 55, 30);
+	DrawDuelHud();
+	DrawMatchClock();
 }
 void Game::DrawSpec() {
 	const auto drawrect2 = ResizeWin(574, 150, 574 + CARD_IMG_WIDTH, 150 + CARD_IMG_HEIGHT);

@@ -18,6 +18,11 @@ OPTION(std::wstring, nickname, L"Player")
 OPTION(std::wstring, gamename, L"Game")
 OPTION(std::wstring, lastdeck, L"")
 OPTION(uint32_t, lastlflist, 0)
+// FASE 91: HUD window positions, per-mille of the window size; -1 = default place.
+OPTION(int, hudPhaseX, -1)
+OPTION(int, hudPhaseY, -1)
+OPTION(int, hudClockX, -1)
+OPTION(int, hudClockY, -1)
 // The banlist format_version the "staging is ready" notification was last
 // shown for (design/banlist-distribution.md, "La notifica": "stato 'già
 // vista' persistente per format_version"). 0 means never notified.
