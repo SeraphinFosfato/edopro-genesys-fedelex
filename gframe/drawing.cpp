@@ -454,8 +454,7 @@ void Game::DrawDuelHud() {
 		L"Calcolo del danno.", L"Fine del Damage Step.", L"Inizio della Battle Phase.", L"Fine della Battle Phase.", L"Fine della Main Phase." };
 	if(!wPhaseHud->isVisible())
 		return;
-	const auto cr = wPhaseHud->getClientRect() + wPhaseHud->getAbsolutePosition().UpperLeftCorner;
-	driver->draw2DRectangle(0xe05a2d91, cr);
+	auto cr = wPhaseHud->getClientRect() + wPhaseHud->getAbsolutePosition().UpperLeftCorner;
 	std::wstring action, ex;
 	if(!dField.chains.empty()) {
 		const auto& c = dField.chains.back();
@@ -470,39 +469,55 @@ void Game::DrawDuelHud() {
 	}
 	const auto pad = ResizeX(5);
 	const auto lh = ResizeY(18);
+	const auto maxw = static_cast<irr::u32>(cr.getWidth() - 2 * pad);
+	// Greedy word wrap, so long card names and explanations never run outside the box.
+	auto wrap = [&](const std::wstring& text, size_t max_lines) {
+		std::vector<std::wstring> out;
+		std::wstring line;
+		size_t pos = 0;
+		while(pos < text.size() && out.size() < max_lines) {
+			auto e = text.find(L' ', pos);
+			if(e == std::wstring::npos)
+				e = text.size();
+			const auto word = text.substr(pos, e - pos);
+			const auto cand = line.empty() ? word : line + L" " + word;
+			if(!line.empty() && textFont->getDimension(cand.data()).Width > maxw) {
+				out.push_back(line);
+				line = word;
+			} else
+				line = cand;
+			pos = e + 1;
+		}
+		if(!line.empty() && out.size() < max_lines)
+			out.push_back(line);
+		return out;
+	};
+	const auto act_lines = wrap(action, 2);
+	const auto ex_lines = wrap(ex, 3);
+	// The box grows/shrinks to its content instead of clipping it (P-47: text was cut at the bottom).
+	const irr::s32 need = 2 + lh * static_cast<irr::s32>(1 + act_lines.size()) + 2 + (lh - 2) * static_cast<irr::s32>(ex_lines.size()) + pad;
+	if(need != cr.getHeight()) {
+		auto rel = wPhaseHud->getRelativePosition();
+		rel.LowerRightCorner.Y += need - cr.getHeight();
+		wPhaseHud->setRelativePosition(rel);
+		cr.LowerRightCorner.Y = cr.UpperLeftCorner.Y + need;
+	}
+	driver->draw2DRectangle(0xff5a2d91, cr);
 	auto ph = irr::core::recti(cr.UpperLeftCorner.X + pad, cr.UpperLeftCorner.Y + 1, cr.LowerRightCorner.X - pad, cr.UpperLeftCorner.Y + 1 + lh);
 	const std::wstring pname = phases[std::min<size_t>(dInfo.hud_phase, 6)];
 	textFont->drawustring(pname, ph, 0xffffffff, false, true, &ph);
 	ph += irr::core::vector2di(1, 0); // fake bold
 	textFont->drawustring(pname, ph, 0xffffffff, false, true, &ph);
-	auto ar = irr::core::recti(cr.UpperLeftCorner.X + pad, ph.LowerRightCorner.Y, cr.LowerRightCorner.X - pad, ph.LowerRightCorner.Y + lh);
-	textFont->drawustring(action, ar, 0xffffffff, false, true, &ar);
-	// explanation: greedy word wrap, max 3 lines
-	const auto maxw = static_cast<irr::u32>(cr.getWidth() - 2 * pad);
-	auto lr = irr::core::recti(ar.UpperLeftCorner.X, ar.LowerRightCorner.Y + 2, ar.LowerRightCorner.X, ar.LowerRightCorner.Y + 2 + lh);
-	std::wstring line;
-	size_t pos = 0;
-	int nlines = 0;
-	auto flush = [&] {
-		if(!line.empty() && nlines < 3) {
-			textFont->drawustring(line, lr, 0xffd8c8f0, false, true, &lr);
-			lr += irr::core::vector2di(0, lh - 2);
-			++nlines;
-		}
-		line.clear();
-	};
-	while(pos < ex.size()) {
-		auto e = ex.find(L' ', pos);
-		if(e == std::wstring::npos)
-			e = ex.size();
-		const auto word = ex.substr(pos, e - pos);
-		const auto cand = line.empty() ? word : line + L" " + word;
-		if(!line.empty() && textFont->getDimension(cand.data()).Width > maxw)
-			flush();
-		line = line.empty() ? word : line + L" " + word;
-		pos = e + 1;
+	auto lr = irr::core::recti(cr.UpperLeftCorner.X + pad, ph.LowerRightCorner.Y, cr.LowerRightCorner.X - pad, ph.LowerRightCorner.Y + lh);
+	for(const auto& l : act_lines) {
+		textFont->drawustring(l, lr, 0xffffffff, false, true, &lr);
+		lr += irr::core::vector2di(0, lh);
 	}
-	flush();
+	lr += irr::core::vector2di(0, 2);
+	for(const auto& l : ex_lines) {
+		textFont->drawustring(l, lr, 0xffd8c8f0, false, true, &lr);
+		lr += irr::core::vector2di(0, lh - 2);
+	}
 }
 // Circular match clock inside wMatchClock. Hidden outside tournament rooms or before the first STOC_MATCH_CLOCK.
 void Game::DrawMatchClock() {
@@ -518,7 +533,7 @@ void Game::DrawMatchClock() {
 	const bool low = left_ms < 5 * 60 * 1000;
 	const irr::video::SColor arc_col = low ? 0xffff5a1f : 0xffffffff;
 	const auto cr = wMatchClock->getClientRect() + wMatchClock->getAbsolutePosition().UpperLeftCorner;
-	driver->draw2DRectangle(0xe05a2d91, cr);
+	driver->draw2DRectangle(0xff5a2d91, cr);
 	const auto c = cr.getCenter();
 	const float R = std::min(cr.getWidth(), cr.getHeight()) / 2.0f - 3;
 	const int thick = std::max(2, static_cast<int>(ResizeX(4.0f)));
