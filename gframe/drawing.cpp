@@ -444,6 +444,15 @@ ForceInline void DrawShadowText(irr::gui::CGUITTFont* font, const T& text, const
 									shadowposition.LowerRightCorner.X + padding.LowerRightCorner.X, shadowposition.LowerRightCorner.Y + padding.LowerRightCorner.Y);
 	DrawShadowTextPos(font, text, shadowposition, position, std::forward<Args>(args)...);
 }
+// The client rect still includes the title bar here: start below the (hidden) close button so the purple fill doesn't cover the title.
+static irr::core::recti HudClientRect(irr::gui::IGUIWindow* w) {
+	auto r = w->getAbsolutePosition();
+	r.UpperLeftCorner.Y = w->getCloseButton()->getAbsolutePosition().LowerRightCorner.Y + 2;
+	r.UpperLeftCorner.X += 2;
+	r.LowerRightCorner.X -= 2;
+	r.LowerRightCorner.Y -= 2;
+	return r;
+}
 // FASE 91: phase/event window (draggable IGUIWindow wPhaseHud, drawn over its client rect after env->drawAll).
 void Game::DrawDuelHud() {
 	static const wchar_t* const phases[] = { L"", L"Draw", L"Standby", L"Main 1", L"Battle", L"Main 2", L"End" };
@@ -454,7 +463,7 @@ void Game::DrawDuelHud() {
 		L"Calcolo del danno.", L"Fine del Damage Step.", L"Inizio della Battle Phase.", L"Fine della Battle Phase.", L"Fine della Main Phase." };
 	if(!wPhaseHud->isVisible())
 		return;
-	auto cr = wPhaseHud->getClientRect() + wPhaseHud->getAbsolutePosition().UpperLeftCorner;
+	auto cr = HudClientRect(wPhaseHud);
 	std::wstring action, ex;
 	if(!dField.chains.empty()) {
 		const auto& c = dField.chains.back();
@@ -532,7 +541,7 @@ void Game::DrawMatchClock() {
 	const float frac = std::min(1.0f, left_ms / (1000.0f * total));
 	const bool low = left_ms < 5 * 60 * 1000;
 	const irr::video::SColor arc_col = low ? 0xffff5a1f : 0xffffffff;
-	const auto cr = wMatchClock->getClientRect() + wMatchClock->getAbsolutePosition().UpperLeftCorner;
+	const auto cr = HudClientRect(wMatchClock);
 	driver->draw2DRectangle(0xff5a2d91, cr);
 	const auto c = cr.getCenter();
 	const float R = std::min(cr.getWidth(), cr.getHeight()) / 2.0f - 3;
