@@ -734,6 +734,7 @@ public:
 	irr::gui::IGUIStaticText* stPlayerProfile;
 	irr::gui::IGUIStaticText* stPlayerSlots;
 	irr::gui::IGUIListBox* lstPlayerPubs;
+	irr::gui::IGUIButton* btnPubDeckSend;
 	irr::gui::IGUIStaticText* stPlayerStatus;
 	irr::gui::IGUIWindow* wPubDeck;
 	irr::gui::IGUIComboBox* cbPubDeckDeck;
@@ -759,6 +760,7 @@ public:
 	std::vector<bool> cloud_published;
 	std::vector<epro::path_string> pubdeck_replay_files, cloud_local_files;
 	std::string pubdeck_ydk;
+	std::string pubdeck_edit_id; // FASE 98L: non vuoto = la finestra Pubblica modifica questa pubblicazione
 	std::string forced_nickname;
 	bool player_profile_requested = false;
 	void QueuePlayerApi(std::string tag, std::string method, std::string path, std::string body = {});

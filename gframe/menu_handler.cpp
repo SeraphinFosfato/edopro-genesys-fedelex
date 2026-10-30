@@ -222,6 +222,7 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 			case BUTTON_PLAYER_PUBDECK:
 			case BUTTON_PLAYER_CLOUD:
 			case BUTTON_PLAYER_DELETE:
+			case BUTTON_PLAYER_EDIT:
 			case BUTTON_PLAYER_CLOSE:
 			case BUTTON_PUBDECK_SEND:
 			case BUTTON_PUBDECK_CLOSE:

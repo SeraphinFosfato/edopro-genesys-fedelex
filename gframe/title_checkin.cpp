@@ -242,7 +242,7 @@ bool TitleCheckin::StartPublicGet(const std::string& tag, const std::string& pat
 
 bool TitleCheckin::StartApi(const std::string& tag, const std::string& method, const std::string& path, const std::string& body_json, const std::string& credential) {
 	std::string payload;
-	if(method == "POST") {
+	if(method == "POST" || method == "PUT") { // PUT: modifica pubblicazione (98L)
 		nlohmann::json j = nlohmann::json::parse(body_json.empty() ? "{}" : body_json, nullptr, false);
 		if(!j.is_object())
 			return false;
@@ -377,6 +377,10 @@ bool TitleCheckin::HttpCall(const std::string& url, const std::string& method, c
 	curl_easy_setopt(curl_handle, CURLOPT_URL, url.data());
 	if(method == "POST") {
 		curl_easy_setopt(curl_handle, CURLOPT_POST, 1L);
+		curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, body.data());
+		curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
+	} else if(method == "PUT") {
+		curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, "PUT");
 		curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, body.data());
 		curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
 	} else if(method != "GET") {

@@ -24,6 +24,7 @@ namespace ygo {
 
 namespace {
 constexpr size_t MAX_ATTACHED_REPLAY = 64u * 1024u; // regole numeriche: replay allegato <= 64 KB .yrpX
+constexpr size_t EDIT_REMOVE = 1; // indici fissi nel combo replay in modifica (98L)
 const wchar_t* const GENERIC_ERROR = L"Qualcosa è andato storto, riprova";
 
 std::string JStr(const nlohmann::json& j, const char* key) {
@@ -43,7 +44,7 @@ std::wstring ErrorText(const TitleCheckin::ApiResult& r) {
 		auto j = nlohmann::json::parse(r.body, nullptr, false);
 		const auto code = JStr(j, "error");
 		const auto msg = JStr(j, "messaggio");
-		if((code == "limite_totale" || code == "limite_giornaliero" || code == "replay_non_pubblicabile") && !msg.empty())
+		if((code == "limite_totale" || code == "limite_giornaliero" || code == "replay_non_pubblicabile" || code == "troppo_presto") && !msg.empty())
 			return W(msg);
 	}
 	return GENERIC_ERROR;
@@ -66,9 +67,15 @@ bool ReadFile(const epro::path_string& path, std::string& out) {
 	return true;
 }
 
-void FillLocalReplays(irr::gui::IGUIComboBox* cb, std::vector<epro::path_string>& files, bool with_none, size_t max_bytes) {
+void FillLocalReplays(irr::gui::IGUIComboBox* cb, std::vector<epro::path_string>& files, bool with_none, size_t max_bytes, bool edit = false) {
 	cb->clear();
 	files.clear();
+	if(edit) { // due voci fisse davanti: file vuoto = nessun file da inviare
+		cb->addItem(L"(non cambiare il replay)");
+		cb->addItem(L"(togli il replay allegato)");
+		files.emplace_back();
+		files.emplace_back();
+	}
 	if(with_none) {
 		cb->addItem(L"(nessun replay allegato)");
 		files.emplace_back();
@@ -125,6 +132,7 @@ void Game::BuildPlayerPanel() {
 	env->addButton(Scale(20, 404, 150, 430), wPlayer, BUTTON_PLAYER_PUBDECK, L"Pubblica un deck");
 	env->addButton(Scale(160, 404, 290, 430), wPlayer, BUTTON_PLAYER_CLOUD, L"I miei replay");
 	env->addButton(Scale(300, 404, 420, 430), wPlayer, BUTTON_PLAYER_DELETE, L"Cancella");
+	env->addButton(Scale(300, 440, 420, 466), wPlayer, BUTTON_PLAYER_EDIT, L"Modifica");
 	env->addButton(Scale(150, 440, 290, 466), wPlayer, BUTTON_PLAYER_CLOSE, L"Chiudi");
 
 	wPubDeck = env->addWindow(Scale(300, 60, 740, 540), false, L"Pubblica un deck");
@@ -141,7 +149,7 @@ void Game::BuildPlayerPanel() {
 	env->addStaticText(L"Replay", Scale(20, 282, 100, 302), false, false, wPubDeck);
 	cbPubDeckReplay = env->addComboBox(Scale(100, 280, 420, 305), wPubDeck);
 	stPubDeckStatus = env->addStaticText(L"", Scale(20, 314, 420, 400), false, true, wPubDeck);
-	env->addButton(Scale(60, 410, 210, 435), wPubDeck, BUTTON_PUBDECK_SEND, L"Pubblica");
+	btnPubDeckSend = env->addButton(Scale(60, 410, 210, 435), wPubDeck, BUTTON_PUBDECK_SEND, L"Pubblica");
 	env->addButton(Scale(230, 410, 380, 435), wPubDeck, BUTTON_PUBDECK_CLOSE, L"Chiudi");
 
 	wCloud = env->addWindow(Scale(300, 60, 740, 540), false, L"I miei replay (cloud)");
@@ -327,6 +335,7 @@ void Game::OnPlayerApiResult(const TitleCheckin::ApiResult& r) {
 	struct Action { const char* tag; const wchar_t* done; irr::gui::IGUIStaticText* st; };
 	const Action actions[] = {
 		{ "deck_publish", L"Mazzo pubblicato.", stPubDeckStatus },
+		{ "deck_edit", L"Mazzo modificato.", stPubDeckStatus },
 		{ "deck_delete", L"Mazzo cancellato.", stPlayerStatus },
 		{ "replay_upload", L"Replay caricato sul cloud.", stCloudStatus },
 		{ "replay_publish", L"Replay pubblicato.", stCloudStatus },
@@ -405,6 +414,11 @@ void Game::OnPlayerPanelButton(int id) {
 		ShowElement(wMainMenu);
 		break;
 	case BUTTON_PLAYER_PUBDECK:
+		pubdeck_edit_id.clear();
+		wPubDeck->setText(L"Pubblica un deck");
+		cbPubDeckDeck->setVisible(true);
+		lstPubDeckCards->setVisible(true);
+		btnPubDeckSend->setText(L"Pubblica");
 		stPubDeckStatus->setText(L"");
 		RefreshDeck(cbPubDeckDeck);
 		FillLocalReplays(cbPubDeckReplay, pubdeck_replay_files, true, MAX_ATTACHED_REPLAY);
@@ -414,11 +428,51 @@ void Game::OnPlayerPanelButton(int id) {
 		HideElement(wPlayer);
 		ShowElement(wPubDeck);
 		break;
+	case BUTTON_PLAYER_EDIT: {
+		const auto sel = lstPlayerPubs->getSelected();
+		if(sel < 0 || static_cast<size_t>(sel) >= player_pubs.size() || !player_pubs[sel].is_deck || player_pubs[sel].id.empty()) {
+			stPlayerStatus->setText(L"Seleziona prima un mazzo pubblicato dall'elenco.");
+			break;
+		}
+		pubdeck_edit_id = player_pubs[sel].id;
+		wPubDeck->setText(L"Modifica pubblicazione");
+		cbPubDeckDeck->setVisible(false); // le carte non si modificano: per cambiarle si ripubblica
+		lstPubDeckCards->setVisible(false);
+		btnPubDeckSend->setText(L"Salva");
+		FillLocalReplays(cbPubDeckReplay, pubdeck_replay_files, false, MAX_ATTACHED_REPLAY, true);
+		ebPubDeckTitle->setText(L"");
+		ebPubDeckDesc->setText(L"");
+		stPubDeckStatus->setText(L"Campo vuoto = resta com'e'. Le carte non si modificano.");
+		HideElement(wPlayer);
+		ShowElement(wPubDeck);
+		break;
+	}
 	case BUTTON_PUBDECK_CLOSE:
 		HideElement(wPubDeck);
 		ShowElement(wPlayer);
 		break;
 	case BUTTON_PUBDECK_SEND: {
+		if(!pubdeck_edit_id.empty()) {
+			nlohmann::json body = nlohmann::json::object();
+			const std::string title = Utils::ToUTF8IfNeeded(std::wstring(ebPubDeckTitle->getText()));
+			const std::string desc = Utils::ToUTF8IfNeeded(std::wstring(ebPubDeckDesc->getText()));
+			if(!title.empty()) body["name"] = title;
+			if(!desc.empty()) body["description"] = desc;
+			const auto rsel = cbPubDeckReplay->getSelected();
+			if(rsel == static_cast<int>(EDIT_REMOVE)) {
+				body["replay"] = nullptr;
+			} else if(rsel > static_cast<int>(EDIT_REMOVE) && static_cast<size_t>(rsel) < pubdeck_replay_files.size()) {
+				std::string content;
+				if(!ReadFile(pubdeck_replay_files[rsel], content) || content.empty() || content.size() > MAX_ATTACHED_REPLAY) {
+					stPubDeckStatus->setText(L"Il replay allegato supera 64 KB o non si legge.");
+					break;
+				}
+				body["replay"] = base64_encode<std::string>(content);
+			}
+			stPubDeckStatus->setText(L"Invio in corso...");
+			QueuePlayerApi("deck_edit", "PUT", "/v1/client/decks/" + pubdeck_edit_id, body.dump());
+			break;
+		}
 		const std::string title = Utils::ToUTF8IfNeeded(std::wstring(ebPubDeckTitle->getText()));
 		if(pubdeck_ydk.empty() || title.empty()) {
 			stPubDeckStatus->setText(L"Scegli un mazzo e scrivi un titolo.");
