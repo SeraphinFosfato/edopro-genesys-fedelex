@@ -65,6 +65,7 @@ enum class ParseError {
 	PasswordTooLong, // decoded pass would not fit CTOS_JoinGame::pass[20]
 	NameTooLong,     // decoded nome would not fit CTOS_PlayerInfo::name[20]
 	BadTournament,   // lista: torneo empty, over 32 chars, or not alphanumeric/'-'
+	BadDeckId,       // mazzo: id is not exactly 12 URL-safe characters [A-Za-z0-9_-]
 };
 
 // FASE 88A: fedelex://lista?torneo=<CODE>. Same quirks tolerated as the
@@ -74,6 +75,19 @@ struct ListLink {
 	std::string tournament;
 };
 ParseError ParseListLink(const std::string& uri, ListLink& out);
+
+// FASE 98E-2: fedelex://mazzo?id=<id>. The id goes into a URL path, so it is
+// exactly 12 URL-safe characters or the link is refused. BadScheme = not this route.
+struct DeckLink {
+	std::string id;
+};
+ParseError ParseDeckLink(const std::string& uri, DeckLink& out);
+// Deck name -> a file stem safe on every OS: keeps letters, digits, space,
+// '_' and '-', trims, max 40 chars, "mazzo" if nothing is left.
+std::string SafeDeckFileName(const std::string& name);
+// Name from a `Content-Disposition: attachment; filename="X.ydk"` header value
+// (X, without the extension); empty if absent/unreadable.
+std::string DeckNameFromDisposition(const std::string& header);
 
 const char* ToString(ParseError error);
 

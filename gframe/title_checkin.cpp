@@ -27,6 +27,20 @@ struct FetchBuffer {
 	bool too_large = false;
 };
 
+size_t DispositionCallback(char* contents, size_t size, size_t nmemb, void* userp) {
+	const std::string line(contents, size * nmemb);
+	constexpr char key[] = "content-disposition:";
+	constexpr size_t klen = sizeof(key) - 1;
+	if(line.size() > klen && line.size() < 512) {
+		std::string head = line.substr(0, klen);
+		for(auto& c : head)
+			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+		if(head == key)
+			*static_cast<std::string*>(userp) = line.substr(klen);
+	}
+	return size * nmemb;
+}
+
 size_t FetchWriteCallback(char* contents, size_t size, size_t nmemb, void* userp) {
 	auto* buffer = static_cast<FetchBuffer*>(userp);
 	const size_t added = size * nmemb;
@@ -219,6 +233,14 @@ bool TitleCheckin::StartApiRequest(const std::string& tag, const std::string& me
 	const std::string credential = gGameConfig->titleCredential;
 	if(credential.empty())
 		return false;
+	return StartApi(tag, method, path, body_json, credential);
+}
+
+bool TitleCheckin::StartPublicGet(const std::string& tag, const std::string& path) {
+	return StartApi(tag, "GET", path, {}, {});
+}
+
+bool TitleCheckin::StartApi(const std::string& tag, const std::string& method, const std::string& path, const std::string& body_json, const std::string& credential) {
 	std::string payload;
 	if(method == "POST") {
 		nlohmann::json j = nlohmann::json::parse(body_json.empty() ? "{}" : body_json, nullptr, false);
@@ -271,6 +293,7 @@ void TitleCheckin::ApiTask(std::string tag, std::string method, std::string path
 	result.transport_ok = HttpCall(url, method, body, bearer, 20L, post);
 	result.status_code = post.status_code;
 	result.body = std::move(post.body);
+	result.disposition = std::move(post.disposition);
 	std::lock_guard<epro::mutex> lock(credential_mutex_);
 	api_result_ = std::move(result);
 	api_ready_ = true;
@@ -362,6 +385,8 @@ bool TitleCheckin::HttpCall(const std::string& url, const std::string& method, c
 	curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
 	curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, FetchWriteCallback);
 	curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, &buffer);
+	curl_easy_setopt(curl_handle, CURLOPT_HEADERFUNCTION, DispositionCallback);
+	curl_easy_setopt(curl_handle, CURLOPT_HEADERDATA, &out.disposition);
 	// Short timeouts on purpose (same reasoning as BanlistUpdater::Fetch):
 	// a background check-in must never make a player wait.
 	// CONNECTTIMEOUT non puo' superare il totale, altrimenti un connect che

@@ -111,6 +111,7 @@ const char* ToString(ParseError error) {
 	case ParseError::PasswordTooLong: return "PasswordTooLong";
 	case ParseError::NameTooLong: return "NameTooLong";
 	case ParseError::BadTournament: return "BadTournament";
+	case ParseError::BadDeckId: return "BadDeckId";
 	}
 	return "Unknown";
 }
@@ -222,6 +223,55 @@ ParseError ParseListLink(const std::string& uri, ListLink& out) {
 	}
 	out.tournament = code;
 	return ParseError::Ok;
+}
+
+ParseError ParseDeckLink(const std::string& uri, DeckLink& out) {
+	out = DeckLink{};
+	epro::stringview query;
+	if(!MatchRoute(uri, "fedelex://mazzo"sv, query))
+		return ParseError::BadScheme;
+	auto fields = ParseQuery(query);
+	auto it = fields.find("id");
+	if(it == fields.end())
+		return ParseError::MissingField;
+	const auto& id = it->second;
+	if(id.size() != 12)
+		return ParseError::BadDeckId;
+	for(char c : id) {
+		if(!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-')
+			return ParseError::BadDeckId;
+	}
+	out.id = id;
+	return ParseError::Ok;
+}
+
+std::string SafeDeckFileName(const std::string& name) {
+	std::string safe;
+	for(char c : name) {
+		if(std::isalnum(static_cast<unsigned char>(c)) || c == ' ' || c == '_' || c == '-')
+			safe += c;
+	}
+	const auto b = safe.find_first_not_of(' ');
+	if(b == std::string::npos)
+		return "mazzo";
+	safe = safe.substr(b, safe.find_last_not_of(' ') - b + 1).substr(0, 40);
+	while(!safe.empty() && safe.back() == ' ')
+		safe.pop_back();
+	return safe.empty() ? "mazzo" : safe;
+}
+
+std::string DeckNameFromDisposition(const std::string& header) {
+	const auto start = header.find("filename=\"");
+	if(start == std::string::npos)
+		return {};
+	const auto from = start + 10;
+	const auto end = header.find('"', from);
+	if(end == std::string::npos)
+		return {};
+	auto name = header.substr(from, end - from);
+	if(name.size() > 4 && name.compare(name.size() - 4, 4, ".ydk") == 0)
+		name.resize(name.size() - 4);
+	return name;
 }
 
 ParseError ParseTableLink(const std::string& uri, TableLink& out) {

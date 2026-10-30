@@ -705,6 +705,12 @@ public:
 	std::string pending_title_credential;
 	// FASE 88A. Opens the upload window for `tournament` (already validated by
 	// deep_link::ParseListLink). Refuses with a message if there is no credential.
+	// FASE 98E-2: fedelex://mazzo?id=<id> — download the public deck, save it
+	// in deck/, open it in the editor.
+	void OpenDeckFromLink(const std::string& id);
+	void FinishDeckFromLink(const TitleCheckin::ApiResult& r);
+	std::string deck_link_id; // set while the download is waiting to start or running
+	bool deck_link_started = false;
 	void OpenDecklistUpload(const std::string& tournament);
 	void UpdateDecklistPreview();
 	void OnDecklistSend(); // first click asks for confirmation, second sends

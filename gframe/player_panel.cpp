@@ -9,6 +9,7 @@
 #include "Base64.h"
 #include "data_manager.h"
 #include "deck_manager.h"
+#include "deep_link.h"
 #include "file_stream.h"
 #include "fmt.h"
 #include "game.h"
@@ -179,8 +180,21 @@ void Game::PlayerPanelFrame() {
 	if(!gTitleCheckin)
 		return;
 	TitleCheckin::ApiResult result;
-	if(gTitleCheckin->TakeApiResult(result))
-		OnPlayerApiResult(result);
+	if(gTitleCheckin->TakeApiResult(result)) {
+		if(result.tag == "deepdeck")
+			FinishDeckFromLink(result);
+		else
+			OnPlayerApiResult(result);
+	}
+	if(!deck_link_id.empty() && !deck_link_started && !gTitleCheckin->ApiRequestRunning()) {
+		// The id was validated by ParseDeckLink: it is 12 URL-safe chars.
+		if(gTitleCheckin->StartPublicGet("deepdeck", "/v1/public/decks/" + deck_link_id + "/ydk"))
+			deck_link_started = true;
+		else {
+			deck_link_id.clear();
+			PopupMessage(L"Mazzo non trovato o non raggiungibile.");
+		}
+	}
 	if(!player_api_queue.empty() && !gTitleCheckin->ApiRequestRunning()) {
 		auto call = std::move(player_api_queue.front());
 		player_api_queue.pop_front();
@@ -190,6 +204,43 @@ void Game::PlayerPanelFrame() {
 			OnPlayerApiResult(failed);
 		}
 	}
+}
+
+void Game::OpenDeckFromLink(const std::string& id) {
+	deck_link_id = id;
+	deck_link_started = false;
+}
+
+void Game::FinishDeckFromLink(const TitleCheckin::ApiResult& r) {
+	deck_link_id.clear();
+	deck_link_started = false;
+	const auto fail = [&] { PopupMessage(L"Mazzo non trovato o non raggiungibile."); };
+	if(!r.transport_ok || r.status_code != 200 || r.body.empty())
+		return fail();
+	auto name = ygo::deep_link::SafeDeckFileName(ygo::deep_link::DeckNameFromDisposition(r.disposition));
+	const auto folder = epro::path_string(DeckManager::GetDeckFolder());
+	epro::path_string path;
+	for(int n = 1; n < 1000; n++) {
+		path = folder + EPRO_TEXT("/") + Utils::ToPathString(n == 1 ? name : epro::format("{} ({})", name, n)) + EPRO_TEXT(".ydk");
+		if(!Utils::FileExists(path))
+			break;
+	}
+	{
+		FileStream f{ path, FileStream::out | FileStream::binary | FileStream::trunc };
+		if(f.fail())
+			return fail();
+		f.write(r.body.data(), r.body.size());
+		if(f.fail())
+			return fail();
+	}
+	// Same sequence as BUTTON_DECK_EDIT with a dropped .ydk (menu_handler.cpp).
+	if(!wMainMenu->isVisible() || !deckBuilder.SetCurrentDeckFromFile(path, true))
+		return fail();
+	RefreshDeck(cbDBDecks);
+	ebDeckname->setText(Utils::ToUnicodeIfNeeded(Utils::GetFileName(path)).data());
+	cbDBDecks->setSelected(-1);
+	HideElement(wMainMenu);
+	deckBuilder.Initialize();
 }
 
 void Game::OnPlayerApiResult(const TitleCheckin::ApiResult& r) {

@@ -286,7 +286,27 @@ void test_list_link() {
 
 }
 
+void test_deck_link() {
+	DeckLink d;
+	check(ParseDeckLink("fedelex://mazzo?id=aB3_-9xYz012", d) == ParseError::Ok && d.id == "aB3_-9xYz012", "valid deck link parses");
+	check(ParseDeckLink("FEDELEX://Mazzo/?id=abcdefghijkl/", d) == ParseError::Ok, "deck link tolerates case and slashes");
+	check(ParseDeckLink("fedelex://lista?torneo=x", d) == ParseError::BadScheme && d.id.empty(), "other route is BadScheme");
+	check(ParseDeckLink("fedelex://mazzo?x=1", d) == ParseError::MissingField, "missing id");
+	check(ParseDeckLink("fedelex://mazzo?id=abcdefghijk", d) == ParseError::BadDeckId, "11 chars refused");
+	check(ParseDeckLink("fedelex://mazzo?id=abcdefghijklm", d) == ParseError::BadDeckId && d.id.empty(), "13 chars refused");
+	check(ParseDeckLink("fedelex://mazzo?id=abcdefghij%2Fk", d) == ParseError::BadDeckId, "slash refused");
+	check(ParseDeckLink("fedelex://mazzo?id=abcdefghij..", d) == ParseError::BadDeckId, "dots refused");
+	TableLink t;
+	check(ParseTableLink("fedelex://mazzo?id=abcdefghijkl", t) == ParseError::BadScheme, "tavolo parser refuses the mazzo route");
+	check(SafeDeckFileName("Snake-Eyes: ../Build!") == "Snake-Eyes Build", "unsafe chars dropped");
+	check(SafeDeckFileName("  ../  ") == "mazzo", "empty falls back to mazzo");
+	check(SafeDeckFileName(std::string(60, 'a')).size() == 40, "name capped at 40");
+	check(DeckNameFromDisposition("attachment; filename=\"Mio Mazzo.ydk\"") == "Mio Mazzo", "name from header");
+	check(DeckNameFromDisposition("attachment") == "", "no filename");
+}
+
 int RunDeepLinkTests() {
+	test_deck_link();
 	test_list_link();
 	test_well_formed_link_parses();
 	test_percent_encoded_name_decodes();

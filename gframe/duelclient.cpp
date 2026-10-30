@@ -342,6 +342,26 @@ void DuelClient::JoinFromDeepLink(const std::string& uri) {
 		mainGame->OpenDecklistUpload(list.tournament);
 		return;
 	}
+	// FASE 98E-2: fedelex://mazzo?id=<id> — public deck into the editor.
+	deep_link::DeckLink deck;
+	const auto deck_error = deep_link::ParseDeckLink(uri, deck);
+	if(deck_error != deep_link::ParseError::BadScheme) {
+		if(deck_error != deep_link::ParseError::Ok) {
+			ErrorLog("Link fedelex://mazzo scartato ({}).", deep_link::ToString(deck_error));
+			mainGame->PopupMessage(L"Mazzo non trovato o non raggiungibile.");
+			return;
+		}
+		if(!mainGame->IsGameDataReady()) {
+			pending_deep_link = uri;
+			return;
+		}
+		if(!mainGame->wMainMenu->isVisible() || mainGame->dInfo.isInDuel || mainGame->dInfo.isInLobby || mainGame->dInfo.isReplay) {
+			mainGame->PopupMessage(L"Finisci prima la partita in corso");
+			return;
+		}
+		mainGame->OpenDeckFromLink(deck.id);
+		return;
+	}
 	// Same early-out as OnJoin()/JoinFromDiscord() in discord_wrapper.cpp:
 	// a link that arrives while we are already doing something (siding, in
 	// a duel, in a lobby, watching a replay, already preparing a host) is

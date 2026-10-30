@@ -119,7 +119,11 @@ public:
 		bool transport_ok = false;
 		long status_code = 0;
 		std::string body;
+		std::string disposition; // Content-Disposition header, if any
 	};
+	// FASE 98E-2: GET on a public route, no credential needed or sent. Same
+	// worker and result slot as StartApiRequest (one at a time).
+	bool StartPublicGet(const std::string& tag, const std::string& path);
 	bool StartApiRequest(const std::string& tag, const std::string& method, const std::string& path, const std::string& body_json = {});
 	bool ApiRequestRunning() const;
 	bool TakeApiResult(ApiResult& out);
@@ -136,6 +140,7 @@ private:
 		bool transport_ok = false;
 		long status_code = 0;
 		std::string body;
+		std::string disposition;
 	};
 	// POSTs {"credential": credential} as application/json to `url`.
 	// transport_ok is false only for a transport-level failure (DNS,
@@ -153,6 +158,7 @@ private:
 	void DecklistTask(std::string body);
 	// Same transport as PostBody for any method: GET/DELETE have no body.
 	static bool HttpCall(const std::string& url, const std::string& method, const std::string& body, const std::string& bearer, long timeout_seconds, PostResult& out);
+	bool StartApi(const std::string& tag, const std::string& method, const std::string& path, const std::string& body_json, const std::string& credential);
 	void ApiTask(std::string tag, std::string method, std::string path, std::string body, std::string bearer);
 
 	void CredentialCheckTask(std::string credential);
