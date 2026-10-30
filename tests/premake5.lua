@@ -43,6 +43,7 @@ project "banlist_tests"
 		"single_instance_lock_tests.cpp",
 		"deep_link_ipc_tests.cpp",
 		"bufferio_tests.cpp",
+		"replay_oscura_tests.cpp",
 		"../gframe/banlist_verify.cpp",
 		"../gframe/banlist_diff.cpp",
 		"../gframe/title_verify.cpp",
@@ -57,6 +58,12 @@ project "banlist_tests"
 		"../gframe/tls_roots.cpp",
 		"../gframe/sha256.cpp",
 		"../gframe/tweetnacl/*.c",
+		"../gframe/replay_oscura.cpp",
+		"../gframe/lzma/Alloc.c",
+		"../gframe/lzma/LzFind.c",
+		"../gframe/lzma/LzmaDec.c",
+		"../gframe/lzma/LzmaEnc.c",
+		"../gframe/lzma/LzmaLib.c",
 	}
 
 	-- Only server_tls_tests.cpp: the SHA-256 of the embedded TLS roots is

@@ -5,6 +5,8 @@
 #include "utils.h"
 #include "file_stream.h"
 #include "fmt.h"
+#include "logging.h"
+#include "replay_oscura.h"
 
 namespace ygo {
 void Replay::BeginRecord(bool write, epro::path_string name) {
@@ -76,13 +78,25 @@ void Replay::EndRecord(size_t size) {
 	comp_data.resize(comp_size);
 	is_recording = false;
 }
-void Replay::SaveReplay(const epro::path_string& name) {
+void Replay::SaveReplay(const epro::path_string& name, int obscure_seat) {
+	auto header_len = (pheader.base.flag & REPLAY_EXTENDED_HEADER) ? sizeof(ExtendedReplayHeader) : sizeof(ReplayHeader);
+	std::vector<uint8_t> blob(header_len);
+	memcpy(blob.data(), &pheader, header_len);
+	blob.insert(blob.end(), comp_data.begin(), comp_data.end());
+	if(obscure_seat >= 0) {
+		std::vector<uint8_t> obscured;
+		const auto res = replay_oscura::Obscure(blob, obscure_seat, obscured);
+		if(res == replay_oscura::Result::Malformed) {
+			ErrorLog("Replay non salvato: impossibile oscurarlo (file incoerente)");
+			return;
+		}
+		if(res == replay_oscura::Result::Ok)
+			blob = std::move(obscured);
+	}
 	auto replay_file = fileopen(GetReplayFilePath(epro::format(EPRO_TEXT("{}.yrpX"), name)).data(), "wb");
 	if(replay_file == nullptr)
 		return;
-	auto header_len = (pheader.base.flag & REPLAY_EXTENDED_HEADER) ? sizeof(ExtendedReplayHeader) : sizeof(ReplayHeader);
-	fwrite(&pheader, 1, header_len, replay_file);
-	fwrite(comp_data.data(), 1, comp_data.size(), replay_file);
+	fwrite(blob.data(), 1, blob.size(), replay_file);
 	fclose(replay_file);
 }
 static inline bool IsReplayValid(uint32_t id) {
