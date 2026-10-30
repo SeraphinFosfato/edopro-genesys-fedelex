@@ -107,6 +107,23 @@ public:
 	bool StartDecklistUpload(const std::string& tournament, const std::string& ydk);
 	bool TakeDecklistResult(DecklistResult& out);
 
+	// FASE 98C: rotte /v1/client/* (profilo, pubblicazioni, mazzi, replay cloud).
+	// Una richiesta alla volta su un worker; la credenziale di licenza viene
+	// letta qui, parte come `Authorization: Bearer` e, per i POST, anche nel
+	// corpo JSON come "credential" (stessa forma di /v1/decklist e
+	// /v1/client/decks). Non la si scrive mai nei log. `tag` torna uguale nel
+	// risultato e dice al chiamante a cosa rispondeva. false = non partita
+	// (credenziale assente, richiesta gia' in corso, corpo oltre 1 MiB).
+	struct ApiResult {
+		std::string tag;
+		bool transport_ok = false;
+		long status_code = 0;
+		std::string body;
+	};
+	bool StartApiRequest(const std::string& tag, const std::string& method, const std::string& path, const std::string& body_json = {});
+	bool ApiRequestRunning() const;
+	bool TakeApiResult(ApiResult& out);
+
 private:
 	void Loop();
 	// One check-in attempt: POSTs the stored credential, and — only for a
@@ -134,6 +151,9 @@ private:
 	// Same transport, caller-built JSON body.
 	static bool PostBody(const std::string& url, const std::string& body, long timeout_seconds, PostResult& out);
 	void DecklistTask(std::string body);
+	// Same transport as PostBody for any method: GET/DELETE have no body.
+	static bool HttpCall(const std::string& url, const std::string& method, const std::string& body, const std::string& bearer, long timeout_seconds, PostResult& out);
+	void ApiTask(std::string tag, std::string method, std::string path, std::string body, std::string bearer);
 
 	void CredentialCheckTask(std::string credential);
 
@@ -144,6 +164,10 @@ private:
 	bool decklist_running_ = false; // guarded by credential_mutex_
 	bool decklist_ready_ = false;   // guarded by credential_mutex_
 	DecklistResult decklist_result_; // guarded by credential_mutex_
+	epro::thread api_worker_;
+	bool api_running_ = false; // guarded by credential_mutex_
+	bool api_ready_ = false;   // guarded by credential_mutex_
+	ApiResult api_result_;     // guarded by credential_mutex_
 	mutable epro::mutex credential_mutex_;
 	bool credential_running_ = false; // guarded by credential_mutex_
 	bool credential_ready_ = false;   // guarded by credential_mutex_

@@ -71,6 +71,8 @@ void TitleCheckin::Join() {
 		credential_worker_.join();
 	if(decklist_worker_.joinable())
 		decklist_worker_.join();
+	if(api_worker_.joinable())
+		api_worker_.join();
 }
 
 void TitleCheckin::SetInDuel(bool in_duel) {
@@ -211,6 +213,70 @@ void TitleCheckin::CredentialCheckTask(std::string credential) {
 	credential_running_ = false;
 }
 
+bool TitleCheckin::StartApiRequest(const std::string& tag, const std::string& method, const std::string& path, const std::string& body_json) {
+	// FASE 98C. The credential never leaves this function except in the
+	// request itself: not logged, not stored.
+	const std::string credential = gGameConfig->titleCredential;
+	if(credential.empty())
+		return false;
+	std::string payload;
+	if(method == "POST") {
+		nlohmann::json j = nlohmann::json::parse(body_json.empty() ? "{}" : body_json, nullptr, false);
+		if(!j.is_object())
+			return false;
+		j["credential"] = credential;
+		payload = j.dump();
+		// Ceiling for a base64 replay + deck: the server refuses more.
+		if(payload.size() >= 1024u * 1024u)
+			return false;
+	}
+	{
+		std::lock_guard<epro::mutex> lock(credential_mutex_);
+		if(api_running_)
+			return false;
+		api_running_ = true;
+		api_ready_ = false;
+	}
+	if(api_worker_.joinable())
+		api_worker_.join();
+	api_worker_ = epro::thread(&TitleCheckin::ApiTask, this, tag, method, path, std::move(payload), credential);
+	return true;
+}
+
+bool TitleCheckin::ApiRequestRunning() const {
+	std::lock_guard<epro::mutex> lock(credential_mutex_);
+	return api_running_;
+}
+
+bool TitleCheckin::TakeApiResult(ApiResult& out) {
+	std::lock_guard<epro::mutex> lock(credential_mutex_);
+	if(!api_ready_)
+		return false;
+	api_ready_ = false;
+	out = std::move(api_result_);
+	api_result_ = ApiResult{};
+	return true;
+}
+
+void TitleCheckin::ApiTask(std::string tag, std::string method, std::string path, std::string body, std::string bearer) {
+	Utils::SetThreadName("Client API");
+	// Same host as the title endpoint, only the path changes.
+	static const std::string title_path = "/v1/title";
+	std::string url = base_url;
+	if(url.size() >= title_path.size() && url.compare(url.size() - title_path.size(), title_path.size(), title_path) == 0)
+		url.replace(url.size() - title_path.size(), title_path.size(), path);
+	PostResult post;
+	ApiResult result;
+	result.tag = std::move(tag);
+	result.transport_ok = HttpCall(url, method, body, bearer, 20L, post);
+	result.status_code = post.status_code;
+	result.body = std::move(post.body);
+	std::lock_guard<epro::mutex> lock(credential_mutex_);
+	api_result_ = std::move(result);
+	api_ready_ = true;
+	api_running_ = false;
+}
+
 bool TitleCheckin::StartDecklistUpload(const std::string& tournament, const std::string& ydk) {
 	// FASE 88A. The credential is read here and goes straight into the body:
 	// it is never logged and never stored anywhere else.
@@ -271,18 +337,28 @@ bool TitleCheckin::Post(const std::string& url, const std::string& credential, l
 }
 
 bool TitleCheckin::PostBody(const std::string& url, const std::string& body, long timeout_seconds, PostResult& out) {
+	return HttpCall(url, "POST", body, {}, timeout_seconds, out);
+}
+
+bool TitleCheckin::HttpCall(const std::string& url, const std::string& method, const std::string& body, const std::string& bearer, long timeout_seconds, PostResult& out) {
 	out = PostResult{};
 	char error_buffer[CURL_ERROR_SIZE]{};
 	auto curl_handle = curl_easy_init();
 	FetchBuffer buffer{ &out.body };
 
 	curl_slist* headers = curl_slist_append(nullptr, "Content-Type: application/json");
+	if(!bearer.empty())
+		headers = curl_slist_append(headers, ("Authorization: Bearer " + bearer).data());
 
 	curl_easy_setopt(curl_handle, CURLOPT_ERRORBUFFER, error_buffer);
 	curl_easy_setopt(curl_handle, CURLOPT_URL, url.data());
-	curl_easy_setopt(curl_handle, CURLOPT_POST, 1L);
-	curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, body.data());
-	curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
+	if(method == "POST") {
+		curl_easy_setopt(curl_handle, CURLOPT_POST, 1L);
+		curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, body.data());
+		curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
+	} else if(method != "GET") {
+		curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, method.data());
+	}
 	curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
 	curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, FetchWriteCallback);
 	curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, &buffer);

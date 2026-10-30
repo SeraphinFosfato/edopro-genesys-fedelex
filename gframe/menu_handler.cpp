@@ -183,6 +183,7 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 					if(gTitleStore)
 						gTitleStore->ClearForLogout();
 					mainGame->UpdateTitleAuthButton();
+					mainGame->ClearPlayerProfile();
 					mainGame->ebTitleCredential->setText(L"");
 					mainGame->stTitleAuthStatus->setText(L"");
 					mainGame->stMessage->setText(L"Disconnesso: la chiave di licenza è stata cancellata da questo client.\n"
@@ -215,6 +216,21 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 			case BUTTON_DECKLIST_CANCEL: {
 				mainGame->HideElement(mainGame->wDecklist);
 				mainGame->ShowElement(mainGame->wMainMenu);
+				break;
+			}
+			case BUTTON_PLAYER_ICON:
+			case BUTTON_PLAYER_PUBDECK:
+			case BUTTON_PLAYER_CLOUD:
+			case BUTTON_PLAYER_DELETE:
+			case BUTTON_PLAYER_CLOSE:
+			case BUTTON_PUBDECK_SEND:
+			case BUTTON_PUBDECK_CLOSE:
+			case BUTTON_CLOUD_UPLOAD:
+			case BUTTON_CLOUD_PUBLISH:
+			case BUTTON_CLOUD_UNPUBLISH:
+			case BUTTON_CLOUD_DELETE:
+			case BUTTON_CLOUD_CLOSE: {
+				mainGame->OnPlayerPanelButton(id);
 				break;
 			}
 			case BUTTON_ONLINE_MULTIPLAYER: {
@@ -1087,6 +1103,10 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 			switch (id) {
 			case COMBOBOX_DECKLIST_DECK: {
 				mainGame->UpdateDecklistPreview();
+				break;
+			}
+			case COMBOBOX_PUBDECK_DECK: {
+				mainGame->OnPubDeckDeckChanged();
 				break;
 			}
 			case COMBOBOX_DUEL_RULE: {
