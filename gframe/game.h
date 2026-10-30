@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <vector>
 #include <list>
+#include <deque>
 #include <atomic>
 #include <chrono>
 #include <optional>
@@ -711,6 +712,50 @@ public:
 	std::string decklist_tournament;
 	std::string decklist_ydk;
 	bool decklist_confirming = false;
+	// FASE 98C (player_panel.cpp): profilo, pubblicazioni, mazzi pubblicati e
+	// replay cloud, sulle rotte /v1/client/* (contratto in PHASES.md FASE 98).
+	void BuildPlayerPanel();
+	void PlayerPanelFrame(); // MainLoop: coda delle richieste, risultati, icona
+	void OnPlayerPanelButton(int id);
+	void OnPubDeckDeckChanged();
+	void RequestPlayerProfile();
+	void ClearPlayerProfile(); // logout: il nickname torna modificabile
+	irr::gui::IGUIWindow* wBtnPlayer;
+	irr::gui::IGUIButton* btnPlayerIcon;
+	irr::gui::IGUIWindow* wPlayer;
+	irr::gui::IGUIStaticText* stPlayerProfile;
+	irr::gui::IGUIStaticText* stPlayerSlots;
+	irr::gui::IGUIListBox* lstPlayerPubs;
+	irr::gui::IGUIStaticText* stPlayerStatus;
+	irr::gui::IGUIWindow* wPubDeck;
+	irr::gui::IGUIComboBox* cbPubDeckDeck;
+	irr::gui::IGUIListBox* lstPubDeckCards;
+	irr::gui::IGUIEditBox* ebPubDeckTitle;
+	irr::gui::IGUIEditBox* ebPubDeckDesc;
+	irr::gui::IGUIComboBox* cbPubDeckReplay;
+	irr::gui::IGUIStaticText* stPubDeckStatus;
+	irr::gui::IGUIWindow* wCloud;
+	irr::gui::IGUIListBox* lstCloud;
+	irr::gui::IGUIComboBox* cbCloudLocal;
+	irr::gui::IGUIEditBox* ebCloudTitle;
+	irr::gui::IGUIEditBox* ebCloudDesc;
+	irr::gui::IGUIStaticText* stCloudStatus;
+	struct PlayerApiCall {
+		std::string tag, method, path;
+		std::string body; // JSON object text, empty for GET/DELETE
+	};
+	std::deque<PlayerApiCall> player_api_queue;
+	struct PlayerPub { bool is_deck; std::string id; bool published; };
+	std::vector<PlayerPub> player_pubs; // same order as lstPlayerPubs
+	std::vector<std::string> cloud_ids; // same order as lstCloud
+	std::vector<bool> cloud_published;
+	std::vector<epro::path_string> pubdeck_replay_files, cloud_local_files;
+	std::string pubdeck_ydk;
+	std::string forced_nickname;
+	bool player_profile_requested = false;
+	void QueuePlayerApi(std::string tag, std::string method, std::string path, std::string body = {});
+	void OnPlayerApiResult(const TitleCheckin::ApiResult& result);
+	void RefreshPublications();
 	struct RepoGui {
 		std::string path;
 		IProgressBar* progress1;

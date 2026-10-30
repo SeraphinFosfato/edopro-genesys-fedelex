@@ -97,7 +97,11 @@ public:
 	void WriteData(const void* data, size_t length, bool flush = true);
 	void Flush();
 	void EndRecord(size_t size = 0x20000);
-	void SaveReplay(const epro::path_string& name);
+	// obscure_seat >= 0 (FASE 98C): salva la versione oscurata vista da quel posto
+	// (0/1, 2 = spettatore) con replay_oscura.h. Se non e' oscurabile in modo
+	// affidabile (file malformato) NON salva; per i formati non coperti (compat,
+	// single/hand test) salva com'e'.
+	void SaveReplay(const epro::path_string& name, int obscure_seat = -1);
 	bool OpenReplay(const epro::path_string& name);
 	bool OpenReplayFromBuffer(std::vector<uint8_t>&& contents);
 	bool IsExportable();

@@ -344,6 +344,7 @@ void Game::Initialize() {
 	stDecklistStatus = env->addStaticText(L"", Scale(20, 306, 460, 390), false, true, wDecklist);
 	btnDecklistSend = env->addButton(Scale(90, 400, 250, 425), wDecklist, BUTTON_DECKLIST_SEND, L"Invia lista");
 	btnDecklistCancel = env->addButton(Scale(270, 400, 390, 425), wDecklist, BUTTON_DECKLIST_CANCEL, L"Chiudi");
+	BuildPlayerPanel(); // FASE 98C
 	//lan mode
 	wLanWindow = env->addWindow(Scale(220, 100, 800, 520), false, gDataManager->GetSysString(1200).data());
 	defaultStrings.emplace_back(wLanWindow, 1200);
@@ -1215,6 +1216,7 @@ void Game::Initialize() {
 		ApplyLocale(selectedLocale, true);
 
 	env->getRootGUIElement()->bringToFront(wBtnSettings);
+	env->getRootGUIElement()->bringToFront(wBtnPlayer);
 	env->getRootGUIElement()->bringToFront(mTopMenu);
 	env->setFocus(wMainMenu);
 }
@@ -2541,6 +2543,8 @@ bool Game::MainLoop() {
 		}
 		wBtnSettings->setVisible(!(is_building || is_siding || dInfo.isInDuel || open_file));
 		EnableMaterial2D(true);
+		if(wBtnPlayer->isVisible()) // FASE 98C: icona player viola (il bottone e' senza bordo)
+			driver->draw2DRectangle(irr::video::SColor(255, 112, 48, 190), wBtnPlayer->getAbsolutePosition());
 		DrawGUI();
 		DrawSpec();
 		EnableMaterial2D(false);
@@ -2630,6 +2634,10 @@ bool Game::MainLoop() {
 				std::lock_guard<epro::mutex> lock(gMutex);
 				FinishDecklistUpload(upload);
 			}
+		}
+		{
+			std::lock_guard<epro::mutex> lock(gMutex);
+			PlayerPanelFrame(); // FASE 98C
 		}
 		if(gTitleStore) {
 			const auto generation = gTitleStore->Generation();
@@ -4474,6 +4482,9 @@ void Game::OnResize() {
 	wMainMenu->setRelativePosition(ResizeWin(mainMenuLeftX, 200, mainMenuRightX, 485));
 	wTitleAuth->setRelativePosition(ResizeWinFromCenter(0, 0, wTitleAuth->getRelativePosition().getWidth(), wTitleAuth->getRelativePosition().getHeight(), 135));
 	wDecklist->setRelativePosition(ResizeWinFromCenter(0, 0, wDecklist->getRelativePosition().getWidth(), wDecklist->getRelativePosition().getHeight(), 135));
+	for(auto* w : { wPlayer, wPubDeck, wCloud })
+		w->setRelativePosition(ResizeWinFromCenter(0, 0, w->getRelativePosition().getWidth(), w->getRelativePosition().getHeight(), 135));
+	wBtnPlayer->setRelativePosition(Scale(984, 566, 1024, 606));
 	wBtnSettings->setRelativePosition(ResizeWin(0, 610, 30, 640));
 	SetCentered(wCommitsLog);
 	SetCentered(updateWindow, false);

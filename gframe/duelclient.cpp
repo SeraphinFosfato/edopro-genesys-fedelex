@@ -5535,9 +5535,12 @@ void DuelClient::ReplayPrompt(bool local_stream) {
 	mainGame->PopupSaveWindow(gDataManager->GetSysString(1340), epro::format(L"{:%Y-%m-%d %H-%M-%S}", epro::localtime(now)), gDataManager->GetSysString(1342));
 	mainGame->replaySignal.Wait(lock);
 	if(mainGame->saveReplay || !is_local_host) {
+		// FASE 98C: si salva sempre la versione oscurata dal proprio posto
+		// (spettatore = 2), anche fuori dal nostro server.
+		const int seat = mainGame->dInfo.player_type >= 7 ? 2 : (mainGame->dInfo.isFirst ? 0 : 1);
 		if(mainGame->saveReplay)
-			last_replay.SaveReplay(Utils::ToPathString(mainGame->ebFileSaveName->getText()));
-		else last_replay.SaveReplay(EPRO_TEXT("_LastReplay"));
+			last_replay.SaveReplay(Utils::ToPathString(mainGame->ebFileSaveName->getText()), seat);
+		else last_replay.SaveReplay(EPRO_TEXT("_LastReplay"), seat);
 	}
 }
 }

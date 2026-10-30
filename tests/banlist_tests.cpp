@@ -71,6 +71,8 @@ int RunSingleInstanceLockTests();
 int RunDeepLinkIpcTests();
 // Finding 52: BufferIO read limit (bufferio_tests.cpp).
 int RunBufferIOTests();
+// FASE 98C: oscuramento replay (replay_oscura_tests.cpp).
+int RunReplayOscuraTests();
 
 using namespace ygo;
 
@@ -779,5 +781,6 @@ int main() {
 	const int single_instance_lock_failures = RunSingleInstanceLockTests();
 	const int deep_link_ipc_failures = RunDeepLinkIpcTests();
 	const int bufferio_failures = RunBufferIOTests();
-	return (failures == 0 && bufferio_failures == 0 && diff_failures == 0 && title_failures == 0 && update_failures == 0 && game_data_ready_failures == 0 && online_gate_failures == 0 && updater_managed_files_failures == 0 && launcher_logic_failures == 0 && deep_link_failures == 0 && tournament_mode_failures == 0 && server_tls_failures == 0 && single_instance_lock_failures == 0 && deep_link_ipc_failures == 0) ? 0 : 1;
+	const int replay_oscura_failures = RunReplayOscuraTests();
+	return (failures == 0 && bufferio_failures == 0 && replay_oscura_failures == 0 && diff_failures == 0 && title_failures == 0 && update_failures == 0 && game_data_ready_failures == 0 && online_gate_failures == 0 && updater_managed_files_failures == 0 && launcher_logic_failures == 0 && deep_link_failures == 0 && tournament_mode_failures == 0 && server_tls_failures == 0 && single_instance_lock_failures == 0 && deep_link_ipc_failures == 0) ? 0 : 1;
 }
