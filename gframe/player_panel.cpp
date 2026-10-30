@@ -35,13 +35,13 @@ std::wstring W(const std::string& s) {
 }
 
 // Contratto: il client mostra `messaggio` solo per limite_totale e
-// limite_giornaliero; ogni altro errore e' la frase generica.
+// limite_giornaliero e replay_non_di_torneo; ogni altro errore e' la frase generica.
 std::wstring ErrorText(const TitleCheckin::ApiResult& r) {
 	if(r.transport_ok) {
 		auto j = nlohmann::json::parse(r.body, nullptr, false);
 		const auto code = JStr(j, "error");
 		const auto msg = JStr(j, "messaggio");
-		if((code == "limite_totale" || code == "limite_giornaliero") && !msg.empty())
+		if((code == "limite_totale" || code == "limite_giornaliero" || code == "replay_non_di_torneo") && !msg.empty())
 			return W(msg);
 	}
 	return GENERIC_ERROR;
