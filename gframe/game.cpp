@@ -2544,7 +2544,12 @@ bool Game::MainLoop() {
 		wBtnSettings->setVisible(!(is_building || is_siding || dInfo.isInDuel || open_file));
 		EnableMaterial2D(true);
 		if(wBtnPlayer->isVisible()) // FASE 98C: icona player viola (il bottone e' senza bordo)
-			driver->draw2DRectangle(irr::video::SColor(255, 112, 48, 190), wBtnPlayer->getAbsolutePosition());
+		{
+			const auto r = wBtnPlayer->getAbsolutePosition();
+			const bool hover = r.isPointInside(device->getCursorControl()->getPosition());
+			const auto* t = texPlayerIcon[hover];
+			driver->draw2DImage(t, r, irr::core::recti(irr::core::vector2di(0, 0), t->getSize()), nullptr, nullptr, true);
+		}
 		DrawGUI();
 		DrawSpec();
 		EnableMaterial2D(false);
@@ -4467,6 +4472,12 @@ void Game::UpdateHudWindows(bool force) {
 		}
 	}
 }
+// Ancorata al angolo in basso a destra della finestra, margine fisso in pixel.
+irr::core::recti Game::PlayerIconRect() const {
+	const int sz = Scale(40), m = Scale(8);
+	return irr::core::recti(window_size.Width - m - sz, window_size.Height - m - sz, window_size.Width - m, window_size.Height - m);
+}
+
 void Game::OnResize() {
 	env->getRootGUIElement()->setRelativePosition(irr::core::recti(0, 0, window_size.Width, window_size.Height));
 	{
@@ -4484,7 +4495,7 @@ void Game::OnResize() {
 	wDecklist->setRelativePosition(ResizeWinFromCenter(0, 0, wDecklist->getRelativePosition().getWidth(), wDecklist->getRelativePosition().getHeight(), 135));
 	for(auto* w : { wPlayer, wPubDeck, wCloud })
 		w->setRelativePosition(ResizeWinFromCenter(0, 0, w->getRelativePosition().getWidth(), w->getRelativePosition().getHeight(), 135));
-	wBtnPlayer->setRelativePosition(Scale(984, 566, 1024, 606));
+	wBtnPlayer->setRelativePosition(PlayerIconRect());
 	wBtnSettings->setRelativePosition(ResizeWin(0, 610, 30, 640));
 	SetCentered(wCommitsLog);
 	SetCentered(updateWindow, false);

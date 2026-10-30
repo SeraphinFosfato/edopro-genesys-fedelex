@@ -1,3 +1,5 @@
+#include <cmath>
+#include <algorithm>
 // FASE 98C: pannello del player (profilo, pubblicazioni, "Pubblica un deck",
 // replay cloud). Contratto client -> bot: PHASES.md FASE 98 "Contratto bot ->
 // client/web". Tutti i testi sono letterali (niente strings.conf, stessa
@@ -86,16 +88,32 @@ void FillLocalReplays(irr::gui::IGUIComboBox* cb, std::vector<epro::path_string>
 }
 
 void Game::BuildPlayerPanel() {
-	// Icona in basso a destra, viola: un bottone senza bordo con un rettangolo
-	// viola disegnato sotto (MainLoop), nessuna texture nuova.
-	wBtnPlayer = env->addWindow(Scale(984, 566, 1024, 606));
+	// Icona utente viola in basso a destra: bottone senza bordo, sagoma disegnata
+	// da MainLoop con due texture generate qui in memoria (nessun file da distribuire).
+	for(int hover = 0; hover < 2; hover++) {
+		constexpr int N = 64;
+		auto* img = driver->createImage(irr::video::ECF_A8R8G8B8, irr::core::dimension2du(N, N));
+		for(int y = 0; y < N; y++)
+			for(int x = 0; x < N; x++) {
+				// testa: cerchio; spalle: semiellisse; bordo sfumato di ~1.5px
+				const float dh = std::sqrt(float((x - 32) * (x - 32) + (y - 20) * (y - 20))) - 13.f;
+				const float ds = std::sqrt(float((x - 32) * (x - 32)) / (26.f * 26.f) + float((y - 60) * (y - 60)) / (22.f * 22.f)) * 22.f - 22.f;
+				const float d = std::min(dh, y <= 60 ? ds : 99.f);
+				const float a = std::clamp(0.5f - d / 1.5f, 0.f, 1.f);
+				img->setPixel(x, y, hover ? irr::video::SColor(irr::u32(a * 255), 190, 150, 255) : irr::video::SColor(irr::u32(a * 255), 155, 107, 255));
+			}
+		texPlayerIcon[hover] = driver->addTexture(hover ? "player_icon_hover" : "player_icon", img);
+		img->drop();
+	}
+	wBtnPlayer = env->addWindow(PlayerIconRect());
 	wBtnPlayer->getCloseButton()->setVisible(false);
 	wBtnPlayer->setDraggable(false);
 	wBtnPlayer->setDrawTitlebar(false);
 	wBtnPlayer->setDrawBackground(false);
 	wBtnPlayer->setVisible(false);
-	btnPlayerIcon = env->addButton(Scale(0, 0, 40, 40), wBtnPlayer, BUTTON_PLAYER_ICON, L"P");
+	btnPlayerIcon = env->addButton(Scale(0, 0, 40, 40), wBtnPlayer, BUTTON_PLAYER_ICON, L"");
 	btnPlayerIcon->setDrawBorder(false);
+	btnPlayerIcon->setToolTipText(L"Profilo");
 
 	wPlayer = env->addWindow(Scale(300, 60, 740, 540), false, L"Il mio profilo");
 	wPlayer->getCloseButton()->setVisible(false);

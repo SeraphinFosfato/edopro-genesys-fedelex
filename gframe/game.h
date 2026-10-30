@@ -728,6 +728,8 @@ public:
 	void ClearPlayerProfile(); // logout: il nickname torna modificabile
 	irr::gui::IGUIWindow* wBtnPlayer;
 	irr::gui::IGUIButton* btnPlayerIcon;
+	irr::video::ITexture* texPlayerIcon[2]{};
+	irr::core::recti PlayerIconRect() const;
 	irr::gui::IGUIWindow* wPlayer;
 	irr::gui::IGUIStaticText* stPlayerProfile;
 	irr::gui::IGUIStaticText* stPlayerSlots;
