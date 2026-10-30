@@ -754,7 +754,7 @@ public:
 		std::string body; // JSON object text, empty for GET/DELETE
 	};
 	std::deque<PlayerApiCall> player_api_queue;
-	struct PlayerPub { bool is_deck; std::string id; bool published; };
+	struct PlayerPub { bool is_deck; std::string id; bool published; std::string name, description; }; // 98N: name/description dei mazzi precompilano la modifica
 	std::vector<PlayerPub> player_pubs; // same order as lstPlayerPubs
 	std::vector<std::string> cloud_ids; // same order as lstCloud
 	std::vector<bool> cloud_published;

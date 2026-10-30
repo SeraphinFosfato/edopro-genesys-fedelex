@@ -312,7 +312,7 @@ void Game::OnPlayerApiResult(const TitleCheckin::ApiResult& r) {
 				auto name = JStr(d, "name");
 				if(name.empty()) name = JStr(d, "title");
 				lstPlayerPubs->addItem(epro::format(L"[Mazzo] {}", W(name)).data());
-				player_pubs.push_back({ true, JStr(d, "id"), true });
+				player_pubs.push_back({ true, JStr(d, "id"), true, name, JStr(d, "description") });
 			}
 		}
 		if(j.contains("replays") && j["replays"].is_array()) {
@@ -440,9 +440,9 @@ void Game::OnPlayerPanelButton(int id) {
 		lstPubDeckCards->setVisible(false);
 		btnPubDeckSend->setText(L"Salva");
 		FillLocalReplays(cbPubDeckReplay, pubdeck_replay_files, false, MAX_ATTACHED_REPLAY, true);
-		ebPubDeckTitle->setText(L"");
-		ebPubDeckDesc->setText(L"");
-		stPubDeckStatus->setText(L"Campo vuoto = resta com'e'. Le carte non si modificano.");
+		ebPubDeckTitle->setText(W(player_pubs[sel].name).data());
+		ebPubDeckDesc->setText(W(player_pubs[sel].description).data());
+		stPubDeckStatus->setText(L"Descrizione vuota = la cancella. Le carte non si modificano.");
 		HideElement(wPlayer);
 		ShowElement(wPubDeck);
 		break;
@@ -457,7 +457,7 @@ void Game::OnPlayerPanelButton(int id) {
 			const std::string title = Utils::ToUTF8IfNeeded(std::wstring(ebPubDeckTitle->getText()));
 			const std::string desc = Utils::ToUTF8IfNeeded(std::wstring(ebPubDeckDesc->getText()));
 			if(!title.empty()) body["name"] = title;
-			if(!desc.empty()) body["description"] = desc;
+			body["description"] = desc; // 98N: campo precompilato, vuoto = svuota
 			const auto rsel = cbPubDeckReplay->getSelected();
 			if(rsel == static_cast<int>(EDIT_REMOVE)) {
 				body["replay"] = nullptr;
