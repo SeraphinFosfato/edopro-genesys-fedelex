@@ -45,6 +45,7 @@
 //     honoured. Rejecting beats silently mangling a credential.
 
 #include <cstdint>
+#include <functional>
 #include <string>
 
 namespace ygo::deep_link {
@@ -85,6 +86,10 @@ ParseError ParseDeckLink(const std::string& uri, DeckLink& out);
 // Deck name -> a file stem safe on every OS: keeps letters, digits, space,
 // '_' and '-', trims, max 40 chars, "mazzo" if nothing is left.
 std::string SafeDeckFileName(const std::string& name);
+// First free stem among "name", "name (2)" ... "name (999)"; empty if all 999
+// are taken (the caller must refuse, never overwrite). `taken` says whether a
+// stem is already in use.
+std::string FirstFreeDeckStem(const std::string& name, const std::function<bool(const std::string&)>& taken);
 // Name from a `Content-Disposition: attachment; filename="X.ydk"` header value
 // (X, without the extension); empty if absent/unreadable.
 std::string DeckNameFromDisposition(const std::string& header);

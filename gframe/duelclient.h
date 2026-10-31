@@ -108,7 +108,9 @@ public:
 	// password, and the permit's name set as this client's own nickname
 	// before connecting (StartClient()'s CTOS_PLAYER_INFO sends whatever
 	// ebNickName holds).
-	static void JoinFromDeepLink(const std::string& uri);
+	// `confirmed`: the user already said yes to the table prompt (audit 2026-10-31 #41).
+	static void JoinFromDeepLink(const std::string& uri, bool confirmed = false);
+	static void ConfirmTableLink(bool yes);
 	// Riprende un link messo in attesa perche' i dati di gioco non erano pronti.
 	static void RetryPendingDeepLink();
 	// FASE 88 B: listen on 127.0.0.1 for links forwarded by a second launch

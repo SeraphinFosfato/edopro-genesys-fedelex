@@ -16,6 +16,7 @@
 #include "fmt.h"
 #include "game.h"
 #include "game_config.h"
+#include "menu_handler.h"
 #include "replay.h"
 #include "title_checkin.h"
 #include "utils.h"
@@ -243,19 +244,36 @@ void Game::FinishDeckFromLink(const TitleCheckin::ApiResult& r) {
 	const auto fail = [&] { PopupMessage(L"Mazzo non trovato o non raggiungibile."); };
 	if(!r.transport_ok || r.status_code != 200 || r.body.empty())
 		return fail();
-	auto name = ygo::deep_link::SafeDeckFileName(ygo::deep_link::DeckNameFromDisposition(r.disposition));
+	deck_link_name = ygo::deep_link::SafeDeckFileName(ygo::deep_link::DeckNameFromDisposition(r.disposition));
+	deck_link_body = r.body;
+	// A link must not write into the deck folder on its own: ask first.
+	menuHandler.prev_operation = ACTION_CONFIRM_DECK_LINK;
+	stQMessage->setText(epro::format(L"Un link vuole salvare il mazzo \"{}\" nella tua cartella dei mazzi e aprirlo nell'editor. Vuoi continuare?", Utils::ToUnicodeIfNeeded(deck_link_name)).data());
+	SetCentered(wQuery);
+	PopupElement(wQuery);
+}
+
+void Game::ConfirmDeckFromLink(bool yes) {
+	const auto name = std::move(deck_link_name);
+	const auto body = std::move(deck_link_body);
+	deck_link_name.clear();
+	deck_link_body.clear();
+	if(!yes)
+		return;
+	const auto fail = [&] { PopupMessage(L"Mazzo non trovato o non raggiungibile."); };
 	const auto folder = epro::path_string(DeckManager::GetDeckFolder());
-	epro::path_string path;
-	for(int n = 1; n < 1000; n++) {
-		path = folder + EPRO_TEXT("/") + Utils::ToPathString(n == 1 ? name : epro::format("{} ({})", name, n)) + EPRO_TEXT(".ydk");
-		if(!Utils::FileExists(path))
-			break;
+	const auto path_of = [&](const std::string& stem) { return folder + EPRO_TEXT("/") + Utils::ToPathString(stem) + EPRO_TEXT(".ydk"); };
+	const auto stem = ygo::deep_link::FirstFreeDeckStem(name, [&](const std::string& s) { return Utils::FileExists(path_of(s)); });
+	if(stem.empty()) {
+		PopupMessage(L"Nella cartella dei mazzi non c'e' un nome libero per questo mazzo: rinomina o elimina qualche mazzo e riprova.");
+		return;
 	}
+	const auto path = path_of(stem);
 	{
 		FileStream f{ path, FileStream::out | FileStream::binary | FileStream::trunc };
 		if(f.fail())
 			return fail();
-		f.write(r.body.data(), r.body.size());
+		f.write(body.data(), body.size());
 		if(f.fail())
 			return fail();
 	}

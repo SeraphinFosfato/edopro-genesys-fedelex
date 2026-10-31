@@ -116,6 +116,8 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 		   prev_operation != ACTION_UPDATE_PROMPT
 		   && prev_operation != ACTION_SHOW_CHANGELOG
 		   && prev_operation != ACTION_ACKNOWLEDGE_HOST
+		   && prev_operation != ACTION_CONFIRM_DECK_LINK
+		   && prev_operation != ACTION_CONFIRM_TABLE_LINK
 #if EDOPRO_LINUX && (IRRLICHT_VERSION_MAJOR==1 && IRRLICHT_VERSION_MINOR==9)
 		   && prev_operation != ACTION_TRY_WAYLAND
 #endif
@@ -711,6 +713,14 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 					DuelClient::JoinFromDiscord();
 					break;
 				}
+				case ACTION_CONFIRM_DECK_LINK: {
+					mainGame->ConfirmDeckFromLink(true);
+					break;
+				}
+				case ACTION_CONFIRM_TABLE_LINK: {
+					DuelClient::ConfirmTableLink(true);
+					break;
+				}
 				case ACTION_BANLIST_UPDATE_PROMPT: {
 					// PromoteStaged() itself only runs at the next start
 					// (data_handler.cpp) — this just gets there sooner. The
@@ -741,6 +751,12 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 					mainGame->SaveConfig();
 					break;
 #endif
+				case ACTION_CONFIRM_DECK_LINK:
+					mainGame->ConfirmDeckFromLink(false);
+					break;
+				case ACTION_CONFIRM_TABLE_LINK:
+					DuelClient::ConfirmTableLink(false);
+					break;
 				case ACTION_UPDATE_PROMPT:
 				case ACTION_SHOW_CHANGELOG:
 				case ACTION_BANLIST_UPDATE_PROMPT:
