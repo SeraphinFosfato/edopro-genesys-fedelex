@@ -8,6 +8,8 @@
 #include "logging.h"
 #include "file_stream.h"
 #include "fmt.h"
+#include <sstream>
+#include "title_store.h"
 
 namespace ygo {
 
@@ -280,15 +282,14 @@ bool GameConfig::Load(const epro::path_stringview filename) {
 }
 
 bool GameConfig::Save(const epro::path_stringview filename) {
-	FileStream conf_file{ filename.data(), FileStream::out };
-	if(conf_file.fail())
-		return false;
+	// Serialized in memory, then tmp+rename (0600): system.conf holds titleCredential.
+	std::ostringstream conf_file;
 	conf_file << "# Project Ignis: EDOPro system.conf\n";
 	conf_file << "# Overwritten on normal game exit\n";
 #define OPTION_ALIASED_TAGGED(_type, tag, name, alias, ...) conf_file << #alias " = " << serializeOption(name) << "\n";
 #include "game_config.inl"
 #undef OPTION_ALIASED_TAGGED
-	return true;
+	return TitleStore::AtomicWrite(filename, conf_file.str());
 }
 
 }
