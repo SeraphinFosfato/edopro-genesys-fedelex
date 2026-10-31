@@ -365,6 +365,10 @@ bool TitleCheckin::PostBody(const std::string& url, const std::string& body, lon
 
 bool TitleCheckin::HttpCall(const std::string& url, const std::string& method, const std::string& body, const std::string& bearer, long timeout_seconds, PostResult& out) {
 	out = PostResult{};
+	if(url.compare(0, 8, "https://") != 0) {
+		ErrorLog("Title check-in: refusing non-https URL");
+		return false;
+	}
 	char error_buffer[CURL_ERROR_SIZE]{};
 	auto curl_handle = curl_easy_init();
 	FetchBuffer buffer{ &out.body };
@@ -404,6 +408,11 @@ bool TitleCheckin::HttpCall(const std::string& url, const std::string& method, c
 	// redirect must never be followed (it could send it to another host).
 	// A 3xx comes back as a status that is neither 200 nor 403 and is ignored.
 	curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 0L);
+#if LIBCURL_VERSION_NUM >= 0x075500 // 7.85.0: CURLOPT_PROTOCOLS_STR
+	curl_easy_setopt(curl_handle, CURLOPT_PROTOCOLS_STR, "https");
+#else
+	curl_easy_setopt(curl_handle, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
+#endif
 	ApplyCurlCertificateConfig(curl_handle, gGameConfig->ssl_certificate_path,
 								Utils::FileExists(Utils::ToPathString(gGameConfig->ssl_certificate_path)));
 
