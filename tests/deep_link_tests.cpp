@@ -301,6 +301,9 @@ void test_deck_link() {
 	check(SafeDeckFileName("Snake-Eyes: ../Build!") == "Snake-Eyes Build", "unsafe chars dropped");
 	check(SafeDeckFileName("  ../  ") == "mazzo", "empty falls back to mazzo");
 	check(SafeDeckFileName(std::string(60, 'a')).size() == 40, "name capped at 40");
+	check(FirstFreeDeckStem("A", [](const std::string&) { return false; }) == "A", "free name taken as is");
+	check(FirstFreeDeckStem("A", [](const std::string& s) { return s == "A"; }) == "A (2)", "second slot");
+	check(FirstFreeDeckStem("A", [](const std::string&) { return true; }).empty(), "all 999 taken: empty, never overwrite");
 	check(DeckNameFromDisposition("attachment; filename=\"Mio Mazzo.ydk\"") == "Mio Mazzo", "name from header");
 	check(DeckNameFromDisposition("attachment") == "", "no filename");
 }

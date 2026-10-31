@@ -709,6 +709,10 @@ public:
 	// in deck/, open it in the editor.
 	void OpenDeckFromLink(const std::string& id);
 	void FinishDeckFromLink(const TitleCheckin::ApiResult& r);
+	// Audit 2026-10-31 #40: the downloaded deck is held here until the user confirms.
+	void ConfirmDeckFromLink(bool yes);
+	std::string deck_link_body;
+	std::string deck_link_name;
 	std::string deck_link_id; // set while the download is waiting to start or running
 	bool deck_link_started = false;
 	void OpenDecklistUpload(const std::string& tournament);

@@ -31,6 +31,7 @@
 #include "utils.h"
 #include "porting.h"
 #include "fmt.h"
+#include "menu_handler.h"
 #include "localtime.h"
 #include "room_list_notice.h"
 #include "server_lobby.h"
@@ -318,7 +319,16 @@ void DuelClient::RetryPendingDeepLink() {
 	JoinFromDeepLink(uri);
 }
 
-void DuelClient::JoinFromDeepLink(const std::string& uri) {
+static std::string pending_table_uri;
+
+void DuelClient::ConfirmTableLink(bool yes) {
+	auto uri = std::move(pending_table_uri);
+	pending_table_uri.clear();
+	if(yes && !uri.empty())
+		JoinFromDeepLink(uri, true);
+}
+
+void DuelClient::JoinFromDeepLink(const std::string& uri, bool confirmed) {
 	// FASE 88A: fedelex://lista?torneo=CODE — upload of the locked decklist.
 	// BadScheme just means "not this route": fall through to the table link.
 	deep_link::ListLink list;
@@ -423,6 +433,17 @@ void DuelClient::JoinFromDeepLink(const std::string& uri) {
 	} catch(const std::exception& e) {
 		ErrorLog("Link fedelex:// : impossibile risolvere il server '{}': {}.", link.host, e.what());
 		mainGame->PopupMessage(L"Impossibile raggiungere il server del link: controlla la connessione e riprova.");
+		return;
+	}
+	// A link must not put the player in a room on its own: ask first, showing
+	// where it goes (never the password).
+	if(!confirmed) {
+		pending_table_uri = uri;
+		mainGame->menuHandler.prev_operation = ACTION_CONFIRM_TABLE_LINK;
+		mainGame->stQMessage->setText(epro::format(L"Un link vuole farti entrare nella stanza del server {}:{} con il nome \"{}\". Vuoi entrare?",
+			Utils::ToUnicodeIfNeeded(link.host), link.port, link.nome).data());
+		mainGame->SetCentered(mainGame->wQuery);
+		mainGame->PopupElement(mainGame->wQuery);
 		return;
 	}
 	mainGame->isHostingOnline = true;

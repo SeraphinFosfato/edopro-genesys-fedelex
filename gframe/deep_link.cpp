@@ -245,6 +245,15 @@ ParseError ParseDeckLink(const std::string& uri, DeckLink& out) {
 	return ParseError::Ok;
 }
 
+std::string FirstFreeDeckStem(const std::string& name, const std::function<bool(const std::string&)>& taken) {
+	for(int n = 1; n < 1000; n++) {
+		auto stem = n == 1 ? name : name + " (" + std::to_string(n) + ")";
+		if(!taken(stem))
+			return stem;
+	}
+	return {};
+}
+
 std::string SafeDeckFileName(const std::string& name) {
 	std::string safe;
 	for(char c : name) {
