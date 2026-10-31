@@ -98,6 +98,9 @@ public:
 	// check-ins repeat for the life of the process.
 	uint64_t Generation() const { return generation_.load(std::memory_order_relaxed); }
 
+	// tmp + rename, owner-only (0600) on POSIX. Also used for system.conf.
+	static bool AtomicWrite(epro::path_stringview path, const std::string& bytes);
+
 private:
 	// Shared by ApplyResponse (live, persist=true) and LoadFromDisk (bytes
 	// already came FROM disk, persist=false — re-writing them back is
@@ -108,7 +111,6 @@ private:
 	// call after.
 	bool BindOrCheck(const std::string& user_ref);
 
-	static bool AtomicWrite(epro::path_stringview path, const std::string& bytes);
 	static bool AtomicReplace(epro::path_stringview from, epro::path_stringview to);
 
 	mutable epro::mutex mutex_;

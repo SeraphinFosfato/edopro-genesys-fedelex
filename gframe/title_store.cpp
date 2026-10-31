@@ -12,6 +12,8 @@
 #if EDOPRO_WINDOWS
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
+#else
+#include <sys/stat.h>
 #endif
 
 namespace ygo {
@@ -217,6 +219,10 @@ bool TitleStore::AtomicWrite(epro::path_stringview path, const std::string& byte
 		FileStream out{ tmp_path, FileStream::out | FileStream::binary | FileStream::trunc };
 		if(out.fail())
 			return false;
+#if !EDOPRO_WINDOWS
+		// Owner-only before any byte lands (credential / title cache); rename keeps the mode.
+		chmod(tmp_path.data(), S_IRUSR | S_IWUSR);
+#endif
 		out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
 		if(out.fail())
 			return false;
