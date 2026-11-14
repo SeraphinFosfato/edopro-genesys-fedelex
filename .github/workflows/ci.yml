@@ -23,6 +23,38 @@ jobs:
       - uses: actions/checkout@v4
       - run: python3 tools/release/check_artifacts_manifest.py
 
+  check-android-sources:
+    # FASE 119 (design/fork-edopro/android.md §4): ogni sorgente di gframe/ e'
+    # in android/jni/Android.mk oppure in tools/release/solo_desktop.txt.
+    name: Sorgenti Android allineati (FASE 119)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/release/check_android_sources.py
+      - run: python3 -m unittest discover -s tools/release -p "test_*.py"
+
+  build-android:
+    # APK debug a ogni push: non dichiara environment, non vede segreti e non
+    # firma con la nostra chiave (quella e' solo in release.yml).
+    name: Build Android (APK debug)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends lua5.3
+      - run: tools/release/build_android.sh debug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fedelex-android-debug
+          path: tools/release/out/fedelex-android-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
   test:
     name: Test (banlist_tests)
     runs-on: ubuntu-latest

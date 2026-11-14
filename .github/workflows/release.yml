@@ -325,9 +325,47 @@ jobs:
           path: tools/release/out/edopro-custom-windows-x86-package.zip
           if-no-files-found: error
 
+  # FASE 119 (design/fork-edopro/android.md §4-5): l'APK si compila e si firma
+  # qui, in un job con `environment: android-release` — l'UNICO posto in cui i
+  # segreti della chiave esistono (limitati ai tag v*). Se l'APK non compila,
+  # `publish` non parte e non esce nessun rilascio.
+  build-android:
+    name: Build Android (APK firmato)
+    runs-on: ubuntu-latest
+    environment: android-release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4.8.0
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Installa lua
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends lua5.3
+
+      - name: Build e firma
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+        run: |
+          export ANDROID_KEYSTORE_FILE="$RUNNER_TEMP/fedelex-release.jks"
+          echo "$ANDROID_KEYSTORE_B64" | base64 -d > "$ANDROID_KEYSTORE_FILE"
+          tools/release/build_android.sh release
+          rm -f "$ANDROID_KEYSTORE_FILE"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android-apk
+          path: tools/release/out/fedelex-android.apk
+          if-no-files-found: error
+          retention-days: 14
+
   publish:
     name: Pubblica la Release
-    needs: [build-linux, build-windows]
+    needs: [build-linux, build-windows, build-android]
     # Guard per workflow_dispatch (vedi commento in cima al file): solo un
     # push di tag v* arriva a pubblicare davvero.
     if: startsWith(github.ref, 'refs/tags/')
@@ -373,6 +411,11 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: fedelex-conf
+          path: dist/
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: android-apk
           path: dist/
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -423,7 +466,7 @@ jobs:
             edopro-custom-linux-x64.zip edopro-custom-windows-x86.zip \
             edopro-custom-windows-x86-package.zip \
             fedelex-launcher ygoprodll.exe fedelex.conf \
-            ygoprodll.debug > SHA256SUMS
+            ygoprodll.debug fedelex-android.apk > SHA256SUMS
           cat SHA256SUMS
 
       - name: Crea la Release
@@ -436,7 +479,7 @@ jobs:
             dist/edopro-custom-linux-x64.zip dist/edopro-custom-windows-x86.zip \
             dist/edopro-custom-windows-x86-package.zip \
             dist/fedelex-launcher dist/ygoprodll.exe dist/fedelex.conf \
-            dist/ygoprodll.debug dist/SHA256SUMS \
+            dist/ygoprodll.debug dist/fedelex-android.apk dist/SHA256SUMS \
             --title "$TAG" \
             --notes "$(cat <<EOF
           **Se giochi su Windows:** questa volta scarica e reinstalla il
