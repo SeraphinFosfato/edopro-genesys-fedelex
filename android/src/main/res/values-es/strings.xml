@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+	<string name="preparing_media">Preparando archivos&#8230;</string>
+	<string name="not_granted">Permiso requerido no fue otorgado, Project Ignis: EDOPro no puede correr sin el</string>
+	<string name="default_path">Elejiste un directorio en el almacenaje externo, debido a una limitación de Android, la dirección de los archivos del juego será: %s</string>
+	<string name="default_dir">Usando %s como directorio de trabajo</string>
+	<string name="default_dir_changeable">Usando %s como directorio de trabajo. ¿Deseas cambiarlo?</string>
+	<string name="separate_data_dir">Using %s as working directory. This folder will be deleted automatically when you uninstall the app. Do you want to select a different folder to store your decks and replays?</string>
+	<string name="reconfirm_data_dir">The folder configured as data directory is no longer accessible. Please give access to the same folder again or a new one.</string>
+	<string name="open_work_dir">Manage app files</string>
+	<string name="keep_game_folder">Mantener</string>
+	<string name="change_game_folder">Cambiar</string>
+	<string name="assets_prompt">¿Copiar archivos internos?</string>
+	<string name="copying_update">Copiando archivos de la actualización</string>
+	<string name="no_matching">No se pudo encontrar almacenaje seleccionado</string>
+</resources>

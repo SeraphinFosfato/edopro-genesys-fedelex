@@ -1,0 +1,99 @@
+buildscript {
+	repositories {
+		mavenCentral()
+		google()
+	}
+	dependencies {
+		classpath 'com.android.tools.build:gradle:9.1.0'
+	}
+}
+
+// FASE 119: versionCode = CLIENT_UPDATE_VERSION, letto dal sorgente del gioco
+// (mai scritto a mano): Android rifiuta un versionCode piu' basso, quindi
+// coincide con l'anti-rollback del manifesto (design/fork-edopro/android.md §2).
+def clientUpdateVersion = {
+	def m = (file("../gframe/client_update_version.h").text =~ /CLIENT_UPDATE_VERSION\s*=\s*(\d+)\s*;/)
+	if (!m.find()) throw new GradleException("CLIENT_UPDATE_VERSION non trovato in gframe/client_update_version.h")
+	return m.group(1).toInteger()
+}()
+
+allprojects {
+	repositories {
+		mavenCentral()
+		google()
+	}
+}
+
+apply plugin: "com.android.application"
+
+android {
+	lint {
+		abortOnError = false
+		disable 'OldTargetApi', 'GoogleAppIndexingWarning', 'ExpiredTargetSdkVersion'
+	}
+	compileOptions {
+		sourceCompatibility JavaVersion.VERSION_17
+		targetCompatibility JavaVersion.VERSION_17
+	}
+
+	compileSdk = 36
+
+	defaultConfig {
+		versionCode clientUpdateVersion
+		versionName "build ${clientUpdateVersion}"
+		minSdkVersion 16
+		targetSdkVersion 36
+		// Identita' dell'app per Android: fissa, non si cambia (design android.md §5). Il package Java resta quello della scatola (namespace).
+		applicationId "io.github.seraphinfosfato.fedelex"
+		manifestPlaceholders = [project: project.name]
+		ndk {
+			//noinspection ChromeOsAbiSupport
+			abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86'//, 'x86_64'
+		}
+	}
+
+	sourceSets{
+		main{
+			jniLibs.srcDirs 'libs'
+		}
+	}
+
+
+	Properties props = new Properties()
+	namespace = 'io.github.edo9300.edopro'
+	androidResources {
+		ignoreAssetsPattern = '!.svn:!.git:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*.scc:*~'
+		noCompress += ['dll', 'config']
+	}
+	buildFeatures {
+		buildConfig = true
+	}
+	props.load(new FileInputStream(file("local.properties")))
+
+	if (props.getProperty("keystore") != null) {
+		signingConfigs {
+			release {
+				storeFile file(props["keystore"])
+				storePassword props["keystore.password"]
+				keyAlias props["key"]
+				keyPassword props["key.password"]
+			}
+		}
+
+		buildTypes {
+			release {
+				signingConfig signingConfigs.release
+			}
+		}
+	}
+}
+
+dependencies {
+	//noinspection GradleDependency
+	implementation 'androidx.appcompat:appcompat:1.6.1'
+	//noinspection GradleDependency
+	implementation 'androidx.localbroadcastmanager:localbroadcastmanager:1.1.0'
+	//noinspection GradleDependency
+	implementation "androidx.documentfile:documentfile:1.0.1"
+	implementation(files("libs/libWindbot.aar"))
+}

@@ -1,0 +1,15 @@
+build/
+libs/
+obj/
+release/
+bugreports/
+src/main/assets/**
+|src/main/assets/cacert.pem
+.gradle/
+.id*/
+*vs/
+local.properties
+*.iml
+*.directory
+.DS_Store
+bundled_font.cpp

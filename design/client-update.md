@@ -377,6 +377,29 @@ filtro (non ancora pubblicata in una release alla scrittura di questa nota).
 <!-- verifica: grep -q "kThisClientPlatform" EdoproForkGSY/edopro_custom/gframe/client_updater.cpp -->
 <!-- verifica: grep -q "ALLEGATO_OS" banlist/scripts/build_update_manifest.py -->
 
+**Terzo valore, `"android"` (FASE 119, ramo `fase-119`, non ancora in `master`
+né in una release alla scrittura, 2026-11-14).** Il manifesto guadagna una voce
+`files[]` con `os: "android"`, `name: "fedelex-android.apk"`: l'APK **non è uno
+zip da scompattare**, è il file stesso, che il client Android passa
+all'installatore di sistema (finestra di conferma di Android, sempre).
+`ygo::update::PlatformAndroid` (`update_verify.h`) è il terzo valore di
+`kThisClientPlatform`, sotto `EDOPRO_ANDROID`. Stesso dominio di firma, stessa
+chiave, nessun campo nuovo: `os` esisteva già. `StartUpdate()` è attivo
+**solo** sotto `EDOPRO_ANDROID` (scarica, confronta lo SHA-256 del manifesto,
+poi `StartUnzipper()` chiama `porting::installUpdate`); su desktop resta
+`return false`, quindi la frase in cima al documento («non installa più
+niente da solo») vale ancora per Linux e Windows e **non** per Android.
+Chi pubblica: `ALLEGATO_OS["fedelex-android.apk"] = "android"` e l'APK è fra
+gli allegati installabili, quindi una release senza APK **non produce il
+manifesto** (build fallita col nome dell'allegato). `versionCode` dell'APK =
+`CLIENT_UPDATE_VERSION`, letto dal sorgente da `android/build.gradle`: Android
+rifiuta un `versionCode` più basso, e il suo anti-rollback coincide col nostro.
+**Non provato su un telefono**: l'installazione senza conferma e il flusso
+reale sono in SOSPESI (P-58..P-60). Forma: `design/fork-edopro/android.md`
+nel vault.
+<!-- verifica: grep -q "PlatformAndroid" EdoproForkGSY/edopro_custom/gframe/update_verify.h -->
+<!-- verifica: grep -q '"fedelex-android.apk": "android"' banlist/scripts/build_update_manifest.py -->
+
 ### 6quinquies. La versione installata si registra prima di installare — CORRETTO il 2026-10-02 (D238)
 
 **Trovato il 2026-10-02.** `DownloadUpdate` scriveva `.edopro_update_version`

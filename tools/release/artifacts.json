@@ -56,6 +56,12 @@
       "contenuto": "Informazioni di debug del simulatore Linux (FASE 66, D247 punto 6), staccate dal binario distribuito per farlo scendere da 67 a ~10 MB. Non serve per giocare: scaricalo solo se devi leggere un crash con gdb (va messo accanto al binario che e' andato in crash, stesso nome con .debug)."
     },
     {
+      "file": "fedelex-android.apk",
+      "sistema": "android",
+      "destinatario": "persona",
+      "contenuto": "Client Android (FASE 119, design/fork-edopro/android.md): APK firmato, da installare a mano la prima volta (serve consentire l'installazione da questa fonte); poi si aggiorna da solo dal manifesto firmato, con la finestra di conferma di Android. Il nome e' lo stesso del manifesto (os \"android\"). Gli aggiornamenti sono accettati da Android solo se firmati con la stessa chiave: non cambia mai."
+    },
+    {
       "file": "SHA256SUMS",
       "sistema": "tutti",
       "destinatario": "persona",

@@ -1,5 +1,14 @@
 # Il launcher — forma (D236)
 
+> **Android non ha launcher (FASE 119, 2026-11-14, ramo `fase-119`).** Il
+> client Android (`android/`, forma in `design/fork-edopro/android.md` del
+> vault) si aggiorna da solo: `StartUpdate()` è attivo sotto `EDOPRO_ANDROID` e
+> passa l'APK all'installatore di sistema (vedi `client-update.md` §6quater).
+> `launcher/` e le sue decisioni pure (`gframe/launcher_logic.cpp`: compilato
+> anche su Android solo perché `gframe.cpp` ne chiama la guardia
+> `SimulatorShouldRelaunchLauncher`, che lì non rilancia niente) restano
+> desktop. Questo documento descrive Linux e Windows.
+
 ## Stato dell'implementazione (FASE 64)
 
 **Aggiornato il 2026-10-02.** Non e' un'intenzione: dice cosa esiste DAVVERO

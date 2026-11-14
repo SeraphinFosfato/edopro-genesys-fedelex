@@ -691,7 +691,8 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 					break;
 				}
 				case ACTION_UPDATE_PROMPT: {
-					// D244 point 6: StartUpdate() always returns false now
+					// D244 point 6: StartUpdate() returns false on desktop (only the
+					// EDOPRO_ANDROID build downloads, FASE 119)
 					// (gframe/client_updater.cpp) — the simulator no longer
 					// installs anything itself. Showing the download-progress
 					// popup on a call that will never progress would be a
