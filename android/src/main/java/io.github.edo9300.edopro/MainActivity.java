@@ -128,7 +128,13 @@ public class MainActivity extends Activity {
 				return;
 			}
 			Uri data = intent.getData();
-			if (data != null) {
+			if (data != null && "fedelex".equals(data.getScheme())) {
+				// FASE 119: il link fedelex:// arriva al nativo come `-deep-link <uri>`,
+				// la stessa opzione che il launcher desktop passa (cli_args.h).
+				intent.setData(null);
+				parameter.add("-deep-link");
+				parameter.add(data.toString());
+			} else if (data != null) {
 				intent.setData(null);
 				try {
 					Log.e("Edopro", data.getPath());

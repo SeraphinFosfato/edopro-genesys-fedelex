@@ -7,7 +7,7 @@ OUTPUT=("libocgcorev7.so" "libocgcorev8.so" "libocgcorex86.so" "libocgcorex64.so
 mkdir -p $ASSETS
 mkdir -p $UPDATES
 for i in {0..3}; do
-	CORE="deps/ocgcore/libs/${ARCH[i]}/libocgcore.so"
+	CORE="libs/${ARCH[i]}/libocgcore.so"
 	if [[ -f "$CORE" ]]; then
 		cp $CORE "$ASSETS/${OUTPUT[i]}"
 		cp $CORE "$UPDATES/${OUTPUT[i]}"

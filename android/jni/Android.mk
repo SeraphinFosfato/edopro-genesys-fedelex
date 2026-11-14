@@ -138,6 +138,7 @@ LOCAL_SRC_FILES := $(GFRAME_PATH)/Android/COSAndroidOperator.cpp \
 				   $(GFRAME_PATH)/banlist_updater.cpp \
 				   $(GFRAME_PATH)/banlist_verify.cpp \
 				   $(GFRAME_PATH)/deep_link.cpp \
+				   $(GFRAME_PATH)/launcher_logic.cpp \
 				   $(GFRAME_PATH)/player_panel.cpp \
 				   $(GFRAME_PATH)/replay_oscura.cpp \
 				   $(GFRAME_PATH)/server_tls.cpp \

@@ -11,7 +11,7 @@
 
         <intent
             android:action="io.github.edo9300.edopro.intent.action.MANAGE_WORKDIR"
-            android:targetPackage="io.github.edo9300.edopro">
+            android:targetPackage="io.github.seraphinfosfato.fedelex">
             <extra
                 android:name="manageFiles"
                 android:value="yes" />

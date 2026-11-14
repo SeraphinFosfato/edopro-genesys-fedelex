@@ -4,4 +4,3 @@
 # Le eccezioni sono quelle decise dall'utente il 2026-11-14 (design/fork-edopro/android.md §4).
 deep_link_ipc.cpp	inoltro dei link fedelex:// sulla porta locale: su Android il link lo apre il sistema (intent-filter), duelclient.cpp lo esclude sotto EDOPRO_ANDROID
 single_instance_lock.cpp	lucchetto di istanza unica: gframe.cpp lo prende solo sotto EDOPRO_WINDOWS || EDOPRO_LINUX
-launcher_logic.cpp	decisioni pure del launcher (launcher/progress.cpp): il launcher e' desktop e Android non ne ha uno (design/launcher.md)

@@ -44,6 +44,13 @@
 				<action android:name="android.intent.action.MAIN" />
 				<category android:name="android.intent.category.LAUNCHER" />
 			</intent-filter>
+			<!-- FASE 119: link fedelex:// (design/fork-edopro/android.md §4); MainActivity lo passa al nativo come -deep-link -->
+			<intent-filter>
+				<action android:name="android.intent.action.VIEW" />
+				<category android:name="android.intent.category.DEFAULT" />
+				<category android:name="android.intent.category.BROWSABLE" />
+				<data android:scheme="fedelex" />
+			</intent-filter>
 			<intent-filter>
 				<action android:name="io.github.edo9300.edopro.intent.action.MANAGE_WORKDIR" />
 				<category android:name="android.intent.category.DEFAULT" />
