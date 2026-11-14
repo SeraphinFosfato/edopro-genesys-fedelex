@@ -36,7 +36,10 @@
 #include "room_list_notice.h"
 #include "server_lobby.h"
 #include "deep_link.h"
+#include "compiler_features.h"
+#if !EDOPRO_ANDROID // su Android il link lo apre il sistema (intent-filter), non la porta locale
 #include "deep_link_ipc.h"
+#endif
 #include <memory>
 #include <mutex>
 #include "tournament_mode.h"
@@ -131,7 +134,9 @@ std::string pending_deep_link;
 // queues; everything that touches the GUI happens in ProcessIncomingDeepLinks()
 // on the main thread (called from RetryPendingDeepLink, once per frame).
 namespace {
+#if !EDOPRO_ANDROID
 std::unique_ptr<deep_link_ipc::Listener> deep_link_listener;
+#endif
 std::mutex incoming_mutex;
 std::vector<std::string> incoming_links;
 // Link waiting for the player's answer / for the current game to be left.
@@ -172,6 +177,9 @@ void ForfeitFinished() {
 bool DuelClient::ForfeitPromptOpen() { return forfeit_prompt_open; }
 
 void DuelClient::StartDeepLinkListener() {
+#if EDOPRO_ANDROID
+	return; // deep_link_ipc.cpp e' solo desktop (tools/release/solo_desktop.txt)
+#else
 	auto l = std::make_unique<deep_link_ipc::Listener>();
 	if(!l->Start([](std::string m) {
 		std::lock_guard<std::mutex> lock(incoming_mutex);
@@ -182,6 +190,7 @@ void DuelClient::StartDeepLinkListener() {
 		return;
 	}
 	deep_link_listener = std::move(l);
+#endif
 }
 
 void DuelClient::AnswerForfeitPrompt(bool yes) {
