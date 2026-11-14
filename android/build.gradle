@@ -1,0 +1,89 @@
+buildscript {
+	repositories {
+		mavenCentral()
+		google()
+	}
+	dependencies {
+		classpath 'com.android.tools.build:gradle:9.1.0'
+	}
+}
+
+allprojects {
+	repositories {
+		mavenCentral()
+		google()
+	}
+}
+
+apply plugin: "com.android.application"
+
+android {
+	lint {
+		abortOnError = false
+		disable 'OldTargetApi', 'GoogleAppIndexingWarning', 'ExpiredTargetSdkVersion'
+	}
+	compileOptions {
+		sourceCompatibility JavaVersion.VERSION_17
+		targetCompatibility JavaVersion.VERSION_17
+	}
+
+	compileSdk = 36
+
+	defaultConfig {
+		versionCode 21
+		versionName "41.0.2"
+		minSdkVersion 16
+		targetSdkVersion 36
+		applicationId "io.github.edo9300.edopro"
+		manifestPlaceholders = [project: project.name]
+		ndk {
+			//noinspection ChromeOsAbiSupport
+			abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86'//, 'x86_64'
+		}
+	}
+
+	sourceSets{
+		main{
+			jniLibs.srcDirs 'libs'
+		}
+	}
+
+
+	Properties props = new Properties()
+	namespace = 'io.github.edo9300.edopro'
+	androidResources {
+		ignoreAssetsPattern = '!.svn:!.git:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*.scc:*~'
+		noCompress += ['dll', 'config']
+	}
+	buildFeatures {
+		buildConfig = true
+	}
+	props.load(new FileInputStream(file("local.properties")))
+
+	if (props.getProperty("keystore") != null) {
+		signingConfigs {
+			release {
+				storeFile file(props["keystore"])
+				storePassword props["keystore.password"]
+				keyAlias props["key"]
+				keyPassword props["key.password"]
+			}
+		}
+
+		buildTypes {
+			release {
+				signingConfig signingConfigs.release
+			}
+		}
+	}
+}
+
+dependencies {
+	//noinspection GradleDependency
+	implementation 'androidx.appcompat:appcompat:1.6.1'
+	//noinspection GradleDependency
+	implementation 'androidx.localbroadcastmanager:localbroadcastmanager:1.1.0'
+	//noinspection GradleDependency
+	implementation "androidx.documentfile:documentfile:1.0.1"
+	implementation(files("libs/libWindbot.aar"))
+}
