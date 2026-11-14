@@ -114,6 +114,9 @@ private:
 	// already writes.
 	bool FetchVerifiedManifest(ygo::update::Manifest& out_manifest);
 	void Unzip(void* payload, unzip_callback callback);
+#if EDOPRO_ANDROID
+	void DownloadUpdate(void* payload, update_callback callback);
+#endif
 	struct DownloadInfo {
 		std::string name;
 		std::string url;
@@ -142,6 +145,7 @@ private:
 	std::atomic<bool> has_update{ false };
 	std::atomic<bool> downloaded{ false };
 	std::atomic<bool> failed{ false };
+	std::atomic<bool> downloading{ false };
 	std::string update_url{ UPDATE_URL };
 	std::string status_message;
 	// See GetLastMinSupported() above. 0 ("absent", Manifest::min_supported's

@@ -43,6 +43,8 @@
 static constexpr const char* kThisClientPlatform = ygo::update::PlatformLinux;
 #elif EDOPRO_WINDOWS
 static constexpr const char* kThisClientPlatform = ygo::update::PlatformWindows;
+#elif EDOPRO_ANDROID
+static constexpr const char* kThisClientPlatform = ygo::update::PlatformAndroid;
 #else
 static constexpr const char* kThisClientPlatform = "";
 #endif
@@ -148,7 +150,8 @@ static void WriteStoredMinSupported(int value) {
 
 void ClientUpdater::StartUnzipper(unzip_callback callback, void* payload) {
 #if EDOPRO_ANDROID
-	porting::installUpdate(epro::format("{}" UPDATES_FOLDER ".apk", Utils::GetWorkingDirectory(), update_urls.front().name));
+	// Il nome del file del manifesto e' gia' "....apk": e' il file scaricato da DownloadUpdate().
+	porting::installUpdate(epro::format("{}" UPDATES_FOLDER, Utils::GetWorkingDirectory(), update_urls.front().name));
 #else
 	if(Lock.acquired())
 		epro::thread(&ClientUpdater::Unzip, this, payload, callback).detach();
@@ -181,9 +184,63 @@ bool ClientUpdater::StartUpdate(update_callback callback, void* payload) {
 	// it (a dev build, a manual run) must never silently rewrite its own
 	// executable out from under itself, the exact class of bug this whole
 	// component exists to retire (design/launcher.md §1).
+#if EDOPRO_ANDROID
+	// FASE 119 (design/fork-edopro/android.md §2): su Android non c'e' un
+	// launcher che installa, quindi l'unico ramo attivo e' questo: scarica,
+	// verifica lo SHA-256 del manifesto firmato, passa l'APK all'installatore
+	// di sistema (StartUnzipper). Il desktop resta com'e' qui sotto.
+	if(!Lock.acquired() || !has_update || downloading.exchange(true))
+		return false;
+	epro::thread(&ClientUpdater::DownloadUpdate, this, payload, callback).detach();
+	return true;
+#else
 	(void)callback; (void)payload;
 	return false;
+#endif
 }
+#if EDOPRO_ANDROID
+void ClientUpdater::DownloadUpdate(void* payload, update_callback callback) {
+	Utils::SetThreadName("DownloadUpdate");
+	Payload cbpayload{};
+	cbpayload.callback = callback;
+	cbpayload.total = static_cast<int>(update_urls.size());
+	cbpayload.payload = payload;
+	int i = 1;
+	for(const auto& file : update_urls) {
+		cbpayload.current = i++;
+		cbpayload.is_new = true;
+		cbpayload.previous_percent = 0;
+		cbpayload.filename = file.name.data();
+		const auto name = epro::format(UPDATES_FOLDER, Utils::ToPathString(file.name));
+		bool ok = Utils::CreatePath(name);
+		if(ok) {
+			FileStream stream{ name, FileStream::out | FileStream::binary | FileStream::trunc };
+			WritePayload wp{};
+			wp.outstream = &stream;
+			ok = !stream.fail() && curlPerform(file.url.data(), &wp, &cbpayload) == CURLE_OK;
+		}
+		if(ok) {
+			// Intero in memoria: ponytail, un APK di centinaia di MB su un telefono
+			// scarso e' il limite noto; passare a un SHA-256 incrementale se serve.
+			FileStream in{ name, FileStream::in | FileStream::binary };
+			const std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+			ok = !in.fail() && Sha256Hex(data) == file.sha256;
+			if(!ok)
+				ygo::ErrorLog("Aggiornamento: SHA-256 di {} diverso da quello del manifesto firmato, file scartato.", file.name);
+		}
+		if(!ok) {
+			Utils::FileDelete(name);
+			failed = true;
+			status_message = "Aggiornamento: download o verifica falliti, il client attuale e' stato mantenuto.";
+			downloaded = true; // sblocca il ciclo principale, che mostra l'errore
+			downloading = false;
+			return;
+		}
+	}
+	downloaded = true;
+	downloading = false;
+}
+#endif
 void ClientUpdater::Unzip(void* payload, unzip_callback callback) {
 	Utils::SetThreadName("Unzip");
 #if EDOPRO_WINDOWS || EDOPRO_LINUX

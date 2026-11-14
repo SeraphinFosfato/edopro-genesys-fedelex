@@ -158,6 +158,9 @@ VerifyStatus VerifyAndParse(const std::string& document, const std::string& sign
 // never drift on the exact spelling.
 inline constexpr const char* PlatformLinux = "linux";
 inline constexpr const char* PlatformWindows = "windows";
+// FASE 119 (design/fork-edopro/android.md §2): the APK is a file of the same
+// signed manifest, passed whole to the system installer (never unzipped).
+inline constexpr const char* PlatformAndroid = "android";
 
 // Pure filter: keeps only the entries whose `os` matches `platform` BYTE
 // FOR BYTE. An entry with an empty `os` (field absent from the manifest) or

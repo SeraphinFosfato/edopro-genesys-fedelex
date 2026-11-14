@@ -605,6 +605,47 @@ void test_select_files_for_platform_discarded_count_is_optional() {
 	check(selected.size() == 1, "passing nullptr for discarded_count must still filter correctly");
 }
 
+// FASE 119 (design/fork-edopro/android.md §2): one manifest carrying all three
+// platforms; each client keeps exactly its own entry, so adding "android"
+// leaves the desktop selection untouched.
+void test_select_files_for_platform_android_keeps_only_the_apk() {
+	std::vector<ManifestFile> files;
+	files.push_back(ManifestFile{"linux.zip", "https://example.invalid/l", std::string(64, 'a'), "", "linux"});
+	files.push_back(ManifestFile{"windows.zip", "https://example.invalid/w", std::string(64, 'b'), "", "windows"});
+	files.push_back(ManifestFile{"fedelex-android.apk", "https://example.invalid/a", std::string(64, 'c'), "", "android"});
+	size_t discarded = 0;
+	const auto android = SelectFilesForPlatform(files, PlatformAndroid, &discarded);
+	check(android.size() == 1 && android[0].name == "fedelex-android.apk", "android must keep only the android-tagged entry");
+	check(discarded == 2, "android must discard the linux and the windows entry");
+	const auto linux_sel = SelectFilesForPlatform(files, PlatformLinux, nullptr);
+	check(linux_sel.size() == 1 && linux_sel[0].name == "linux.zip", "desktop selection must not change with an android entry present");
+	const auto win_sel = SelectFilesForPlatform(files, PlatformWindows, nullptr);
+	check(win_sel.size() == 1 && win_sel[0].name == "windows.zip", "windows selection must not change with an android entry present");
+}
+
+// Structural, same style as test_no_installed_version_file_remains_in_source:
+// client_updater.cpp cannot link here. The desktop StartUpdate() must stay
+// `return false` (D244 point 6); only the EDOPRO_ANDROID branch may download.
+void test_start_update_is_android_only() {
+	std::ifstream f("gframe/client_updater.cpp", std::ios::binary);
+	if(!f) {
+		check(false, "test_start_update_is_android_only: gframe/client_updater.cpp unreadable (run from the repository root)");
+		return;
+	}
+	const std::string source((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+	const auto start = source.find("bool ClientUpdater::StartUpdate(");
+	const auto end = source.find("\n}\n", start);
+	check(start != std::string::npos && end != std::string::npos, "StartUpdate definition must be found");
+	const std::string body = source.substr(start, end - start);
+	const auto android = body.find("#if EDOPRO_ANDROID");
+	const auto download = body.find("DownloadUpdate");
+	const auto desktop = body.find("#else");
+	check(android != std::string::npos && download != std::string::npos && android < download && download < desktop,
+		 "the download in StartUpdate() must sit inside the #if EDOPRO_ANDROID branch");
+	check(desktop != std::string::npos && body.find("return false;", desktop) != std::string::npos,
+		 "the desktop branch of StartUpdate() must still return false");
+}
+
 void test_update_domain_signature_does_not_verify_under_title_domain() {
 	const auto key = LoadTestKey();
 	if(!key.loaded) {
@@ -809,6 +850,8 @@ int RunUpdateTests() {
 	test_select_files_for_platform_discards_unrecognized_os();
 	test_select_files_for_platform_empty_result_when_nothing_matches();
 	test_select_files_for_platform_discarded_count_is_optional();
+	test_select_files_for_platform_android_keeps_only_the_apk();
+	test_start_update_is_android_only();
 	test_python_signed_manifest_verifies_in_cpp();
 	test_python_banlist_style_signature_does_not_verify_as_update();
 	test_update_signature_does_not_verify_as_banlist();
