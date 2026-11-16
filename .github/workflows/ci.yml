@@ -109,7 +109,7 @@ jobs:
     name: Build Linux (client)
     needs: test
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/master')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -159,6 +159,11 @@ jobs:
 
       - name: Build
         run: tools/release/build_linux.sh release
+
+      # FASE 120 guardia A: i NEEDED di ygoprodll devono stare nella lib/ delle
+      # installazioni esistenti (il launcher non aggiorna mai lib/).
+      - name: Guardia librerie Linux
+        run: python3 tools/release/check_linux_libs.py bin/x64/release/ygoprodll
 
       - name: Carica il binario come artefatto
         uses: actions/upload-artifact@v4
