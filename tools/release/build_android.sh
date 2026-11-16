@@ -16,7 +16,7 @@ set -euo pipefail
 CONFIG="${1:-debug}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-LIBWINDBOT_URL="https://github.com/ProjectIgnis/windbot/releases/download/20250412/libWindbot.aar"
+LIBWINDBOT_URL="https://github.com/ProjectIgnis/windbot/releases/download/20260711/libWindbot.aar"
 
 [[ "$CONFIG" == debug || "$CONFIG" == release ]] || { echo "uso: $0 [debug|release]" >&2; exit 2; }
 [[ -f "$REPO_ROOT/ocgcore/Android.mk" ]] || { echo "ERRORE: ocgcore non inizializzato (git submodule update --init --recursive)" >&2; exit 1; }
