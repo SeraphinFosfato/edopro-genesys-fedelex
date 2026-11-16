@@ -24,7 +24,7 @@ permissions:
 jobs:
   build-linux:
     name: Build Linux (client)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -60,6 +60,11 @@ jobs:
 
       - name: Build
         run: tools/release/build_linux.sh release
+
+      # FASE 120 guardia A: i NEEDED di ygoprodll devono stare nella lib/ delle
+      # installazioni esistenti (il launcher non aggiorna mai lib/).
+      - name: Guardia librerie Linux
+        run: python3 tools/release/check_linux_libs.py bin/x64/release/ygoprodll
 
       - name: Carica il binario Linux
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
