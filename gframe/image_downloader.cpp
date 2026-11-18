@@ -7,6 +7,7 @@
 #include "file_stream.h"
 #include "fmt.h"
 #include "curl.h"
+#include "game.h"
 
 namespace ygo {
 
@@ -160,6 +161,15 @@ void ImageDownloader::DownloadPic() {
 				if(!Utils::FileMove(name, dest_folder))
 					Utils::FileDelete(name);
 				break;
+			}
+			// D-122C: some networks (school, work) drop the pic server's non-standard port.
+			// Accepted limit; tell the player once per session instead of failing silently.
+			if(res == CURLE_OPERATION_TIMEDOUT || res == CURLE_COULDNT_CONNECT) {
+				static std::atomic<bool> warned{ false };
+				if(!warned.exchange(true))
+					mainGame->PopupMessage(L"Le immagini delle carte non si scaricano: la rete a cui sei collegato "
+										   L"blocca il server delle immagini.\nProva con un'altra rete (per esempio i dati mobili). "
+										   L"Il gioco funziona lo stesso.");
 			}
 			if(gGameConfig->logDownloadErrors) {
 				ygo::ErrorLog("Failed downloading pic for {}", code);
