@@ -510,12 +510,12 @@ void Game::UpdateCloudDeckButtons() {
 	btnCloudDeckDelete->setEnabled(!secs && used);
 }
 
-// Regola 3 della forma (cloud-mazzi.md): mai cancellare file locali, mai toccare la radice di deck/.
+// Regola 3 della forma (cloud-mazzi.md): mai cancellare file locali, i file stanno nella radice di deck/ come "[Cloud] <slot>.ydk".
 void Game::ApplyCloudDecks(const std::string& body, bool manual) {
 	const auto j = nlohmann::json::parse(body, nullptr, false);
 	if(!j.is_array())
 		return;
-	const auto folder = epro::path_string(DeckManager::GetDeckFolder()) + EPRO_TEXT("/Cloud");
+	const auto folder = epro::path_string(DeckManager::GetDeckFolder());
 	int downloaded = 0, kept = 0, same = 0, failed = 0;
 	for(const auto& d : j) {
 		const auto name = JStr(d, "name");
@@ -525,7 +525,7 @@ void Game::ApplyCloudDecks(const std::string& body, bool manual) {
 			continue;
 		}
 		const auto ydk = d["ydk"].get<std::string>();
-		const auto path = folder + EPRO_TEXT("/") + Utils::ToPathString(name) + EPRO_TEXT(".ydk");
+		const auto path = folder + EPRO_TEXT("/") + Utils::ToPathString(CloudDeckFileName(name)) + EPRO_TEXT(".ydk");
 		long long mtime = 0;
 		std::string current;
 		const bool exists = LocalMtime(path, mtime) && ReadFile(path, current);
@@ -534,7 +534,6 @@ void Game::ApplyCloudDecks(const std::string& body, bool manual) {
 		case CloudDeckAction::KeepLocal: kept++; continue;
 		case CloudDeckAction::Download: break;
 		}
-		Utils::MakeDirectory(folder);
 		{
 			FileStream f{ path, FileStream::out | FileStream::binary | FileStream::trunc };
 			if(f.fail()) { failed++; continue; }
@@ -548,7 +547,7 @@ void Game::ApplyCloudDecks(const std::string& body, bool manual) {
 	if(downloaded)
 		RefreshDeck(cbDBDecks);
 	if(manual)
-		stCloudDeckStatus->setText(epro::format(L"Scaricati {} mazzi in deck/Cloud ({} già aggiornati o più recenti qui).", downloaded, same + kept).data());
+		stCloudDeckStatus->setText(epro::format(L"Scaricati {} mazzi in deck/ come \"[Cloud] ...\" ({} già aggiornati o più recenti qui).", downloaded, same + kept).data());
 }
 
 void Game::OnPubDeckDeckChanged() {
@@ -734,9 +733,8 @@ void Game::OnPlayerPanelButton(int id) {
 			stCloudDeckStatus->setText(L"Scegli uno slot e un mazzo locale.");
 			break;
 		}
-		// dall'elenco puo' arrivare anche "Cloud/nome": lo slot si chiama come il file.
-		auto name = Utils::ToUTF8IfNeeded(std::wstring(cbCloudDeckLocal->getItem(dsel)));
-		name = name.substr(name.find_last_of('/') + 1);
+		// lo slot si chiama come il mazzo, senza il prefisso "[Cloud] ".
+		auto name = CloudDeckSlotName(Utils::ToUTF8IfNeeded(std::wstring(cbCloudDeckLocal->getItem(dsel))));
 		std::string ydk;
 		if(!ReadFile(DeckManager::GetDeckPath(Utils::ToPathString(cbCloudDeckLocal->getItem(dsel))), ydk) || ydk.empty()) {
 			stCloudDeckStatus->setText(L"Impossibile leggere questo mazzo.");

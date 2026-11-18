@@ -26,6 +26,12 @@ long long ParseCloudTimestamp(const std::string& iso);
 // Linux e Android (niente separatori, caratteri riservati, punto iniziale).
 bool CloudDeckNameIsSafeFileName(const std::string& name);
 
+// Nome del file locale (senza .ydk) di uno slot: "[Cloud] <slot>".
+std::string CloudDeckFileName(const std::string& slot);
+
+// Nome dello slot per un mazzo locale: toglie il prefisso "[Cloud] " se c'e', altrimenti invariato.
+std::string CloudDeckSlotName(const std::string& deck_name);
+
 }
 
 #endif //CLOUD_DECKS_H

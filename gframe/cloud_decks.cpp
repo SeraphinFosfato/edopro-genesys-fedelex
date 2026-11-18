@@ -37,4 +37,18 @@ bool CloudDeckNameIsSafeFileName(const std::string& name) {
 	return true;
 }
 
+namespace {
+const std::string kCloudPrefix = "[Cloud] ";
+}
+
+std::string CloudDeckFileName(const std::string& slot) {
+	return kCloudPrefix + slot;
+}
+
+std::string CloudDeckSlotName(const std::string& deck_name) {
+	if(deck_name.compare(0, kCloudPrefix.size(), kCloudPrefix) == 0)
+		return deck_name.substr(kCloudPrefix.size());
+	return deck_name;
+}
+
 }

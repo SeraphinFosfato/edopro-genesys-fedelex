@@ -35,6 +35,10 @@ int RunCloudDecksTests() {
 	check(CloudDeckNameIsSafeFileName("Mio mazzo 1"), "nome normale");
 	check(!CloudDeckNameIsSafeFileName("") && !CloudDeckNameIsSafeFileName("a/b") && !CloudDeckNameIsSafeFileName("..") && !CloudDeckNameIsSafeFileName("a:b"), "nomi pericolosi");
 	check(!CloudDeckNameIsSafeFileName(std::string(65, 'a')), "oltre 64");
+	check(CloudDeckFileName("Mio mazzo") == "[Cloud] Mio mazzo", "slot -> file");
+	check(CloudDeckSlotName("[Cloud] Mio mazzo") == "Mio mazzo", "file -> slot");
+	check(CloudDeckSlotName("Altro") == "Altro" && CloudDeckSlotName("[Cloud]x") == "[Cloud]x", "senza prefisso: invariato");
+	check(CloudDeckSlotName(CloudDeckFileName("a b")) == "a b", "andata e ritorno");
 	std::printf("cloud_decks_tests: %d failures\n", failures);
 	return failures;
 }
