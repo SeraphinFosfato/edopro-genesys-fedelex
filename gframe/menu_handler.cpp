@@ -151,6 +151,7 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 		case irr::gui::EGET_BUTTON_CLICKED: {
 			switch(id) {
 			case BUTTON_MODE_EXIT: {
+				mainGame->quit_requested = true;
 				mainGame->device->closeDevice();
 				break;
 			}
@@ -743,6 +744,7 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 					if(mainGame->RestartAllowedNow()) {
 #if EDOPRO_ANDROID
 						// Reboot() is a no-op on Android: OK just froze. Close like the Exit button.
+						mainGame->quit_requested = true;
 						mainGame->device->closeDevice();
 #else
 						Utils::Reboot(false);

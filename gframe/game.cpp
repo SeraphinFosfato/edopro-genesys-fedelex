@@ -2339,7 +2339,7 @@ bool Game::MainLoop() {
 		bool currentlyFullscreen = false;
 		GUIUtils::ToggleFullscreen(device, currentlyFullscreen);
 	}
-	while(!restart && device->run()) {
+	while(!restart && !quit_requested && device->run()) {
 		DispatchQueue();
 		if(should_reload_skin) {
 			should_reload_skin = false;

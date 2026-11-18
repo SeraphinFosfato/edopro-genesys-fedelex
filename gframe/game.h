@@ -921,6 +921,8 @@ public:
 	std::optional<std::chrono::steady_clock::time_point> gate_closed_since;
 	ygo::GraceWarningLatch grace_warning_latch;
 	bool restart = false;
+	// Android: closeDevice() only asks the activity to finish; on some phones (MIUI) run() never returns false.
+	bool quit_requested = false;
 	std::list<FadingUnit> fadingList;
 	std::vector<int> logParam;
 	std::wstring chatMsg[8];
