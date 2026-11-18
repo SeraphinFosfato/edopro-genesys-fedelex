@@ -187,6 +187,7 @@ void BanlistUpdater::CheckTask() {
 		active_payload = staged_payload;
 		staged_payload = banlist::Payload{};
 		staged_ready = false;
+		promoted_unloaded = true;
 	}
 }
 

@@ -85,6 +85,9 @@ public:
 	void Join();
 
 	bool HasStagedUpdate() const { return staged_ready; }
+	// FASE 121d: lista scritta su disco in questa sessione ma non caricata in memoria
+	// (installazione nuova): serve un riavvio per vederla, senza uno staged da notificare.
+	bool NeedsRestartToLoad() const { return promoted_unloaded; }
 	bool CheckFailed() const { return failed; }
 	// True when the active payload is past its expires_at. Advisory only —
 	// it produces a discreet persistent notice and never blocks play.
@@ -123,6 +126,7 @@ private:
 	banlist::Payload staged_payload;
 	epro::thread worker;
 	std::atomic<bool> staged_ready{ false };
+	std::atomic<bool> promoted_unloaded{ false };
 	std::atomic<bool> failed{ false };
 };
 

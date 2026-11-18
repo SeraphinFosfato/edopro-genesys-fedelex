@@ -2748,6 +2748,23 @@ bool Game::MainLoop() {
 				show_changelog = false;
 			}
 #endif
+			// FASE 121d: installazione nuova, lista scritta su disco ma non caricata:
+			// nessuno staged, quindi il ramo sopra non scatta mai. Prima faceva
+			// riaprire l'app a mano senza dire perche'.
+			else if(!banlist_update_prompted && gBanlistUpdater && gBanlistUpdater->NeedsRestartToLoad() &&
+					gTitleStore && gTitleStore->CurrentAccess(std::time(nullptr)) == title::AccessState::Active &&
+					RestartAllowedNow()) {
+				std::lock_guard<epro::mutex> lock(gMutex);
+				menuHandler.prev_operation = ACTION_BANLIST_UPDATE_PROMPT;
+#if EDOPRO_ANDROID
+				stQMessage->setText(L"La point list è stata scaricata.\nChiudi e riapri l'app per applicarla.");
+#else
+				stQMessage->setText(L"La point list è stata scaricata.\nRiavviare ora per applicarla?");
+#endif
+				SetCentered(wQuery);
+				PopupElement(wQuery);
+				banlist_update_prompted = true;
+			}
 			// FASE 4f, §12: startup prompt for a missing credential.
 			// wMainMenu->isVisible() is the guard that keeps this from ever
 			// interrupting a duel, a lobby, or any other screen — it only
