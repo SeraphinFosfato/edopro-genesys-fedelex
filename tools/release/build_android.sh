@@ -39,6 +39,7 @@ mkdir -p libs
 } > local.properties
 echo "org.gradle.jvmargs=-Xmx8192M" >> gradle.properties
 
+"$SCRIPT_DIR/android_assets.sh"
 ./ci/touch-assets.sh
 OS_NAME=linux USE_BUNDLED_FONT=1 ./ci/build-android.sh
 ./ci/finalize-assets.sh

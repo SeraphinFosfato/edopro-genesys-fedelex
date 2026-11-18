@@ -361,6 +361,9 @@ jobs:
           tools/release/build_android.sh release
           rm -f "$ANDROID_KEYSTORE_FILE"
 
+      - name: Guardia APK (FASE 121)
+        run: python3 tools/release/check_android_apk.py tools/release/out/fedelex-android.apk
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: android-apk
