@@ -2546,7 +2546,9 @@ bool Game::MainLoop() {
 		if(wBtnPlayer->isVisible()) // FASE 98C: icona player viola (il bottone e' senza bordo)
 		{
 			const auto r = wBtnPlayer->getAbsolutePosition();
-			const bool hover = r.isPointInside(device->getCursorControl()->getPosition());
+			// Su Android (touch) il device non ha un cursore: getCursorControl() e' nullo, niente hover.
+			const auto* cursor = device->getCursorControl();
+			const bool hover = cursor && r.isPointInside(cursor->getPosition());
 			const auto* t = texPlayerIcon[hover];
 			driver->draw2DImage(t, r, irr::core::recti(irr::core::vector2di(0, 0), t->getSize()), nullptr, nullptr, true);
 		}
