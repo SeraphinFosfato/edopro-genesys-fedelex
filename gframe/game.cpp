@@ -2547,7 +2547,7 @@ bool Game::MainLoop() {
 		{
 			const auto r = wBtnPlayer->getAbsolutePosition();
 			// Su Android (touch) il device non ha un cursore: getCursorControl() e' nullo, niente hover.
-			const auto* cursor = device->getCursorControl();
+			auto* cursor = device->getCursorControl();
 			const bool hover = cursor && r.isPointInside(cursor->getPosition());
 			const auto* t = texPlayerIcon[hover];
 			driver->draw2DImage(t, r, irr::core::recti(irr::core::vector2di(0, 0), t->getSize()), nullptr, nullptr, true);
