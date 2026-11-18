@@ -740,8 +740,14 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 					// FASE 86b: Reboot -> launcher -> client update; never from a room.
 					// Entered one (e.g. fedelex:// link) after the popup: do nothing,
 					// the banlist is promoted at the next start anyway.
-					if(mainGame->RestartAllowedNow())
+					if(mainGame->RestartAllowedNow()) {
+#if EDOPRO_ANDROID
+						// Reboot() is a no-op on Android: OK just froze. Close like the Exit button.
+						mainGame->device->closeDevice();
+#else
 						Utils::Reboot(false);
+#endif
+					}
 					break;
 				}
 				}
