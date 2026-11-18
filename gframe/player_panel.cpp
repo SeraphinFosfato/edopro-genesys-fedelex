@@ -27,6 +27,7 @@
 #include "fmt.h"
 #include "game.h"
 #include "game_config.h"
+#include "logging.h"
 #include "menu_handler.h"
 #include "replay.h"
 #include "title_checkin.h"
