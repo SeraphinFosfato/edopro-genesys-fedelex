@@ -41,6 +41,11 @@ echo "org.gradle.jvmargs=-Xmx8192M" >> gradle.properties
 
 "$SCRIPT_DIR/android_assets.sh"
 ./ci/touch-assets.sh
+# Gli stessi URL di "default" che premake5.lua da' al desktop: senza, Android.mk non
+# definisce DEFAULT_PIC_URL e l'app non scarica nessuna immagine (prova POCO 2026-11-18).
+export PICS_URL="https://pics.projectignis.org:2096/pics/{}.jpg"
+export FIELDS_URL="https://pics.projectignis.org:2096/field/{}.png"
+export COVERS_URL="https://pics.projectignis.org:2096/pics/cover/{}.jpg"
 OS_NAME=linux USE_BUNDLED_FONT=1 ./ci/build-android.sh
 ./ci/finalize-assets.sh
 

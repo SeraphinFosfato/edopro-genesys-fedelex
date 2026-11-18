@@ -19,6 +19,13 @@ def problemi(apk):
         for f in ("assets/index.txt", "assets/filelist.txt"):
             if f not in info or info[f].file_size == 0:
                 out.append(f"{f} assente o vuoto")
+        # Senza DEFAULT_PIC_URL compilato l'app non scarica le immagini (configs.json dice "default").
+        so = [n for n in info if n.endswith("/libEDOProClient.so")]
+        if not so:
+            out.append("libEDOProClient.so assente")
+        for n in so:
+            if b"pics.projectignis.org" not in z.read(n):
+                out.append(f"{n}: URL immagini non compilato (DEFAULT_PIC_URL)")
     return out
 
 
