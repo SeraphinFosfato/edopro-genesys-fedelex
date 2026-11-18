@@ -766,6 +766,23 @@ public:
 	std::string pubdeck_ydk;
 	std::string pubdeck_edit_id; // FASE 98L: non vuoto = la finestra Pubblica modifica questa pubblicazione
 	std::string forced_nickname;
+	// FASE 122B (player_panel.cpp): mazzi nel cloud
+	struct CloudSlot { bool used = false; std::string name, updated_at; };
+	CloudSlot cloud_slots[10];
+	irr::gui::IGUIWindow* wCloudDecks;
+	irr::gui::IGUIListBox* lstCloudDecks;
+	irr::gui::IGUIComboBox* cbCloudDeckLocal;
+	irr::gui::IGUIButton* btnCloudDeckPut;
+	irr::gui::IGUIButton* btnCloudDeckDelete;
+	irr::gui::IGUIButton* btnCloudDeckSync;
+	irr::gui::IGUICheckBox* chkCloudDeckOnStart;
+	irr::gui::IGUIStaticText* stCloudDeckStatus;
+	long long cloud_wait_until_ms = 0; // freno 10 s: solo mostrato, lo fa rispettare il server
+	int cloud_wait_shown = -1;
+	bool cloud_delete_confirming = false;
+	void FillCloudDeckList();
+	void UpdateCloudDeckButtons();
+	void ApplyCloudDecks(const std::string& body, bool manual);
 	bool player_profile_requested = false;
 	void QueuePlayerApi(std::string tag, std::string method, std::string path, std::string body = {});
 	void OnPlayerApiResult(const TitleCheckin::ApiResult& result);

@@ -51,6 +51,7 @@ int RunUpdateTests();
 // "game data ready" gate (PHASES.md).
 int RunGameDataReadyTests();
 int RunOnlineGateTests();
+int RunCloudDecksTests();
 int RunUpdaterManagedFilesTests();
 // Defined in launcher_logic_tests.cpp — same reasoning, for the FASE 64
 // launcher's pure decision functions (design/launcher.md, D244).
@@ -773,6 +774,7 @@ int main() {
 	const int update_failures = RunUpdateTests();
 	const int game_data_ready_failures = RunGameDataReadyTests();
 	const int online_gate_failures = RunOnlineGateTests();
+	const int cloud_decks_failures = RunCloudDecksTests();
 	const int updater_managed_files_failures = RunUpdaterManagedFilesTests();
 	const int launcher_logic_failures = RunLauncherLogicTests();
 	const int deep_link_failures = RunDeepLinkTests();
@@ -782,5 +784,5 @@ int main() {
 	const int deep_link_ipc_failures = RunDeepLinkIpcTests();
 	const int bufferio_failures = RunBufferIOTests();
 	const int replay_oscura_failures = RunReplayOscuraTests();
-	return (failures == 0 && bufferio_failures == 0 && replay_oscura_failures == 0 && diff_failures == 0 && title_failures == 0 && update_failures == 0 && game_data_ready_failures == 0 && online_gate_failures == 0 && updater_managed_files_failures == 0 && launcher_logic_failures == 0 && deep_link_failures == 0 && tournament_mode_failures == 0 && server_tls_failures == 0 && single_instance_lock_failures == 0 && deep_link_ipc_failures == 0) ? 0 : 1;
+	return (failures == 0 && bufferio_failures == 0 && replay_oscura_failures == 0 && diff_failures == 0 && title_failures == 0 && update_failures == 0 && game_data_ready_failures == 0 && online_gate_failures == 0 && cloud_decks_failures == 0 && updater_managed_files_failures == 0 && launcher_logic_failures == 0 && deep_link_failures == 0 && tournament_mode_failures == 0 && server_tls_failures == 0 && single_instance_lock_failures == 0 && deep_link_ipc_failures == 0) ? 0 : 1;
 }

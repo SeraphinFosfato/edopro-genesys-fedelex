@@ -8,7 +8,18 @@
 #include <algorithm>
 #include <nlohmann/json.hpp>
 #include <irrlicht.h>
+#include <chrono>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <string>
+#if defined(_WIN32)
+#include <sys/utime.h>
+#else
+#include <utime.h>
+#endif
 #include "Base64.h"
+#include "cloud_decks.h"
+#include "sha256.h"
 #include "data_manager.h"
 #include "deck_manager.h"
 #include "deep_link.h"
@@ -53,6 +64,33 @@ std::wstring ErrorText(const TitleCheckin::ApiResult& r) {
 
 bool Ok(const TitleCheckin::ApiResult& r) {
 	return r.transport_ok && r.status_code >= 200 && r.status_code < 300;
+}
+
+long long NowMs() {
+	return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+bool LocalMtime(const epro::path_string& path, long long& out) {
+#if defined(_WIN32)
+	struct _stat64i32 st;
+	if(_wstat(path.data(), &st) != 0)
+#else
+	struct stat st;
+	if(stat(path.data(), &st) != 0)
+#endif
+		return false;
+	out = static_cast<long long>(st.st_mtime);
+	return true;
+}
+
+void SetLocalMtime(const epro::path_string& path, long long t) {
+#if defined(_WIN32)
+	struct _utimbuf b { static_cast<time_t>(t), static_cast<time_t>(t) };
+	_wutime(path.data(), &b);
+#else
+	struct utimbuf b { static_cast<time_t>(t), static_cast<time_t>(t) };
+	utime(path.data(), &b);
+#endif
 }
 
 std::wstring Slot(const nlohmann::json& slots, const char* key, const wchar_t* label) {
@@ -134,6 +172,7 @@ void Game::BuildPlayerPanel() {
 	env->addButton(Scale(160, 404, 290, 430), wPlayer, BUTTON_PLAYER_CLOUD, L"I miei replay");
 	env->addButton(Scale(300, 404, 420, 430), wPlayer, BUTTON_PLAYER_DELETE, L"Cancella");
 	env->addButton(Scale(300, 440, 420, 466), wPlayer, BUTTON_PLAYER_EDIT, L"Modifica");
+	env->addButton(Scale(20, 440, 140, 466), wPlayer, BUTTON_PLAYER_CLOUDDECKS, L"Mazzi nel cloud");
 	env->addButton(Scale(150, 440, 290, 466), wPlayer, BUTTON_PLAYER_CLOSE, L"Chiudi");
 
 	wPubDeck = env->addWindow(Scale(300, 60, 740, 540), false, L"Pubblica un deck");
@@ -152,6 +191,20 @@ void Game::BuildPlayerPanel() {
 	stPubDeckStatus = env->addStaticText(L"", Scale(20, 314, 420, 400), false, true, wPubDeck);
 	btnPubDeckSend = env->addButton(Scale(60, 410, 210, 435), wPubDeck, BUTTON_PUBDECK_SEND, L"Pubblica");
 	env->addButton(Scale(230, 410, 380, 435), wPubDeck, BUTTON_PUBDECK_CLOSE, L"Chiudi");
+
+	wCloudDecks = env->addWindow(Scale(300, 60, 740, 540), false, L"Mazzi nel cloud");
+	wCloudDecks->getCloseButton()->setVisible(false);
+	wCloudDecks->setVisible(false);
+	lstCloudDecks = env->addListBox(Scale(20, 30, 420, 200), wCloudDecks, LISTBOX_CLOUDDECK_SLOT, true);
+	env->addStaticText(L"Mazzo locale da caricare:", Scale(20, 208, 420, 228), false, false, wCloudDecks);
+	cbCloudDeckLocal = env->addComboBox(Scale(20, 230, 420, 255), wCloudDecks);
+	cbCloudDeckLocal->setMaxSelectionRows(10);
+	btnCloudDeckPut = env->addButton(Scale(20, 264, 210, 290), wCloudDecks, BUTTON_CLOUDDECK_PUT, L"Carica");
+	btnCloudDeckDelete = env->addButton(Scale(230, 264, 420, 290), wCloudDecks, BUTTON_CLOUDDECK_DELETE, L"Cancella");
+	chkCloudDeckOnStart = env->addCheckBox(gGameConfig->cloudDecksOnStart, Scale(20, 300, 420, 322), wCloudDecks, CHECKBOX_CLOUDDECK_ONSTART, L"Aggiorna i mazzi dal cloud all'avvio");
+	btnCloudDeckSync = env->addButton(Scale(20, 328, 210, 354), wCloudDecks, BUTTON_CLOUDDECK_SYNC, L"Scarica ora");
+	stCloudDeckStatus = env->addStaticText(L"", Scale(20, 362, 420, 430), false, true, wCloudDecks);
+	env->addButton(Scale(150, 438, 290, 462), wCloudDecks, BUTTON_CLOUDDECK_CLOSE, L"Chiudi");
 
 	wCloud = env->addWindow(Scale(300, 60, 740, 540), false, L"I miei replay (cloud)");
 	wCloud->getCloseButton()->setVisible(false);
@@ -189,7 +242,7 @@ void Game::ClearPlayerProfile() {
 	player_api_queue.clear();
 	ebNickName->setEnabled(true);
 	ebNickNameOnline->setEnabled(true);
-	for(auto* w : { wPlayer, wPubDeck, wCloud })
+	for(auto* w : { wPlayer, wPubDeck, wCloud, wCloudDecks })
 		if(w->isVisible())
 			HideElement(w);
 	if(!wMainMenu->isVisible())
@@ -202,8 +255,12 @@ void Game::PlayerPanelFrame() {
 	if(logged && !player_profile_requested) {
 		player_profile_requested = true;
 		RequestPlayerProfile();
+		// FASE 122B: sincronizzazione all'apertura, dopo la richiesta del profilo (stessa credenziale, stessa coda).
+		if(gGameConfig->cloudDecksOnStart)
+			QueuePlayerApi("cloud_sync", "GET", "/v1/client/me/cloud-decks");
 	}
 	wBtnPlayer->setVisible(logged && wMainMenu->isVisible());
+	UpdateCloudDeckButtons();
 	if(!gTitleCheckin)
 		return;
 	TitleCheckin::ApiResult result;
@@ -349,6 +406,46 @@ void Game::OnPlayerApiResult(const TitleCheckin::ApiResult& r) {
 		stPlayerSlots->setText(epro::format(L"{}   {}   {}", Slot(slots, "decks", L"Mazzi"), Slot(slots, "cloud", L"Replay cloud"), Slot(slots, "published", L"Replay pubblicati")).data());
 		return;
 	}
+	if(tag == "cloud_list" || tag == "cloud_sync" || tag == "cloud_sync_manual") {
+		const bool manual = tag == "cloud_sync_manual";
+		if(!Ok(r) || !j.is_array()) {
+			if(tag != "cloud_sync") // all'avvio un fallimento di rete non fa rumore
+				say(stCloudDeckStatus, GENERIC_ERROR);
+			return;
+		}
+		for(auto& c : cloud_slots)
+			c = CloudSlot{};
+		for(const auto& d : j) {
+			const auto n = JNum(d, "slot");
+			if(n >= 1 && n <= 10)
+				cloud_slots[n - 1] = { true, JStr(d, "name"), JStr(d, "updated_at") };
+		}
+		FillCloudDeckList();
+		if(tag != "cloud_list")
+			ApplyCloudDecks(r.body, manual);
+		return;
+	}
+	if(tag == "cloud_put" || tag == "cloud_del") {
+		if(Ok(r)) {
+			cloud_wait_until_ms = NowMs() + 10000;
+			say(stCloudDeckStatus, tag == "cloud_put" ? L"Mazzo salvato nel cloud." : L"Slot svuotato.");
+			QueuePlayerApi("cloud_list", "GET", "/v1/client/me/cloud-decks");
+			return;
+		}
+		const auto err = r.transport_ok ? nlohmann::json::parse(r.body, nullptr, false) : nlohmann::json();
+		if(r.status_code == 429) {
+			const auto secs = std::clamp(JNum(err, "retry_after_s"), 1LL, 60LL);
+			cloud_wait_until_ms = NowMs() + secs * 1000;
+			say(stCloudDeckStatus, epro::format(L"Aspetta ancora {} secondi e riprova.", secs));
+		} else if(r.status_code == 409) {
+			say(stCloudDeckStatus, L"Hai già un altro slot con questo nome.");
+		} else if(r.status_code == 400) {
+			say(stCloudDeckStatus, L"Questo mazzo non si può caricare: controlla nome e contenuto.");
+		} else {
+			say(stCloudDeckStatus, GENERIC_ERROR);
+		}
+		return;
+	}
 	// Azioni: esito in una frase, poi si rilegge l'elenco.
 	struct Action { const char* tag; const wchar_t* done; irr::gui::IGUIStaticText* st; };
 	const Action actions[] = {
@@ -377,6 +474,80 @@ void Game::OnPlayerApiResult(const TitleCheckin::ApiResult& r) {
 		}
 		RefreshPublications();
 	}
+}
+
+void Game::FillCloudDeckList() {
+	const auto sel = lstCloudDecks->getSelected();
+	lstCloudDecks->clear();
+	for(int i = 0; i < 10; i++) {
+		const auto& c = cloud_slots[i];
+		std::string when = c.updated_at.substr(0, 16);
+		std::replace(when.begin(), when.end(), 'T', ' ');
+		lstCloudDecks->addItem(c.used ? epro::format(L"{}. {}  ({})", i + 1, W(c.name), W(when)).data() : epro::format(L"{}. (vuoto)", i + 1).data());
+	}
+	lstCloudDecks->setSelected(sel >= 0 ? sel : 0);
+	cloud_delete_confirming = false;
+	UpdateCloudDeckButtons();
+}
+
+// Ogni frame: i testi dei pulsanti seguono lo slot scelto e il conto alla rovescia.
+void Game::UpdateCloudDeckButtons() {
+	if(!wCloudDecks->isVisible())
+		return;
+	const auto sel = lstCloudDecks->getSelected();
+	const bool used = sel >= 0 && sel < 10 && cloud_slots[sel].used;
+	const long long left_ms = cloud_wait_until_ms - NowMs();
+	const int secs = left_ms > 0 ? static_cast<int>((left_ms + 999) / 1000) : 0;
+	const int state = secs * 4 + (used ? 1 : 0) + (cloud_delete_confirming ? 2 : 0);
+	if(state == cloud_wait_shown)
+		return;
+	cloud_wait_shown = state;
+	const std::wstring wait = secs ? epro::format(L" ({} s)", secs) : std::wstring{};
+	btnCloudDeckPut->setText(((used ? L"Sostituisci" : L"Carica") + wait).data());
+	btnCloudDeckDelete->setText(((cloud_delete_confirming ? L"Conferma cancellazione" : L"Cancella") + wait).data());
+	btnCloudDeckPut->setEnabled(!secs);
+	btnCloudDeckDelete->setEnabled(!secs && used);
+}
+
+// Regola 3 della forma (cloud-mazzi.md): mai cancellare file locali, mai toccare la radice di deck/.
+void Game::ApplyCloudDecks(const std::string& body, bool manual) {
+	const auto j = nlohmann::json::parse(body, nullptr, false);
+	if(!j.is_array())
+		return;
+	const auto folder = epro::path_string(DeckManager::GetDeckFolder()) + EPRO_TEXT("/Cloud");
+	int downloaded = 0, kept = 0, same = 0, failed = 0;
+	for(const auto& d : j) {
+		const auto name = JStr(d, "name");
+		const auto cloud_time = ParseCloudTimestamp(JStr(d, "updated_at"));
+		if(!d.contains("ydk") || !d["ydk"].is_string() || cloud_time < 0 || !CloudDeckNameIsSafeFileName(name)) {
+			failed++;
+			continue;
+		}
+		const auto ydk = d["ydk"].get<std::string>();
+		const auto path = folder + EPRO_TEXT("/") + Utils::ToPathString(name) + EPRO_TEXT(".ydk");
+		long long mtime = 0;
+		std::string current;
+		const bool exists = LocalMtime(path, mtime) && ReadFile(path, current);
+		switch(DecideCloudDeck(exists, mtime, cloud_time, exists && current == ydk)) {
+		case CloudDeckAction::Skip: same++; continue;
+		case CloudDeckAction::KeepLocal: kept++; continue;
+		case CloudDeckAction::Download: break;
+		}
+		Utils::MakeDirectory(folder);
+		{
+			FileStream f{ path, FileStream::out | FileStream::binary | FileStream::trunc };
+			if(f.fail()) { failed++; continue; }
+			f.write(ydk.data(), ydk.size());
+			if(f.fail()) { failed++; continue; }
+		}
+		SetLocalMtime(path, cloud_time);
+		downloaded++;
+	}
+	ErrorLog("Cloud decks: {} scaricati, {} locali piu' recenti, {} uguali, {} non applicati.", downloaded, kept, same, failed);
+	if(downloaded)
+		RefreshDeck(cbDBDecks);
+	if(manual)
+		stCloudDeckStatus->setText(epro::format(L"Scaricati {} mazzi in deck/Cloud ({} già aggiornati o più recenti qui).", downloaded, same + kept).data());
 }
 
 void Game::OnPubDeckDeckChanged() {
@@ -532,6 +703,64 @@ void Game::OnPlayerPanelButton(int id) {
 		HideElement(wPlayer);
 		ShowElement(wCloud);
 		break;
+	case BUTTON_PLAYER_CLOUDDECKS:
+		stCloudDeckStatus->setText(L"");
+		cloud_delete_confirming = false;
+		cloud_wait_shown = -1;
+		chkCloudDeckOnStart->setChecked(gGameConfig->cloudDecksOnStart);
+		RefreshDeck(cbCloudDeckLocal);
+		FillCloudDeckList();
+		QueuePlayerApi("cloud_list", "GET", "/v1/client/me/cloud-decks");
+		HideElement(wPlayer);
+		ShowElement(wCloudDecks);
+		break;
+	case BUTTON_CLOUDDECK_CLOSE:
+		HideElement(wCloudDecks);
+		ShowElement(wPlayer);
+		break;
+	case CHECKBOX_CLOUDDECK_ONSTART:
+		gGameConfig->cloudDecksOnStart = chkCloudDeckOnStart->isChecked();
+		SaveConfig();
+		break;
+	case BUTTON_CLOUDDECK_SYNC:
+		stCloudDeckStatus->setText(L"Scarico...");
+		QueuePlayerApi("cloud_sync_manual", "GET", "/v1/client/me/cloud-decks");
+		break;
+	case BUTTON_CLOUDDECK_PUT: {
+		const auto slot = lstCloudDecks->getSelected();
+		const auto dsel = cbCloudDeckLocal->getSelected();
+		if(slot < 0 || slot >= 10 || dsel < 0) {
+			stCloudDeckStatus->setText(L"Scegli uno slot e un mazzo locale.");
+			break;
+		}
+		// dall'elenco puo' arrivare anche "Cloud/nome": lo slot si chiama come il file.
+		auto name = Utils::ToUTF8IfNeeded(std::wstring(cbCloudDeckLocal->getItem(dsel)));
+		name = name.substr(name.find_last_of('/') + 1);
+		std::string ydk;
+		if(!ReadFile(DeckManager::GetDeckPath(Utils::ToPathString(cbCloudDeckLocal->getItem(dsel))), ydk) || ydk.empty()) {
+			stCloudDeckStatus->setText(L"Impossibile leggere questo mazzo.");
+			break;
+		}
+		stCloudDeckStatus->setText(L"Caricamento in corso...");
+		QueuePlayerApi("cloud_put", "PUT", "/v1/client/cloud-decks/" + std::to_string(slot + 1), nlohmann::json{ { "name", name }, { "ydk", ydk } }.dump());
+		break;
+	}
+	case BUTTON_CLOUDDECK_DELETE: {
+		const auto slot = lstCloudDecks->getSelected();
+		if(slot < 0 || slot >= 10 || !cloud_slots[slot].used)
+			break;
+		if(!cloud_delete_confirming) {
+			cloud_delete_confirming = true;
+			cloud_wait_shown = -1;
+			stCloudDeckStatus->setText(L"Cancella solo lo slot nel cloud: i file sui dispositivi restano. Premi di nuovo per confermare.");
+			break;
+		}
+		cloud_delete_confirming = false;
+		cloud_wait_shown = -1;
+		stCloudDeckStatus->setText(L"Cancellazione in corso...");
+		QueuePlayerApi("cloud_del", "DELETE", "/v1/client/cloud-decks/" + std::to_string(slot + 1));
+		break;
+	}
 	case BUTTON_CLOUD_CLOSE:
 		HideElement(wCloud);
 		ShowElement(wPlayer);

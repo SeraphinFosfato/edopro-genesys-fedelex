@@ -31,6 +31,8 @@ OPTION(int, lastSeenBanlistVersion, 0)
 // Opaque to this client beyond "send it in the check-in POST body" — never
 // parsed, never logged. Empty means no credential entered yet.
 OPTION(std::string, titleCredential, "")
+// FASE 122B: per dispositivo, acceso di partenza. Spento = all'avvio non si scarica niente.
+OPTION(bool, cloudDecksOnStart, true)
 OPTION(uint32_t, lastallowedcards, 3)
 OPTION(uint64_t, lastDuelParam, 0x2E800) //#define DUEL_MODE_MR5
 OPTION(uint32_t, lastExtraRules, 0)

@@ -232,7 +232,12 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 			case BUTTON_CLOUD_PUBLISH:
 			case BUTTON_CLOUD_UNPUBLISH:
 			case BUTTON_CLOUD_DELETE:
-			case BUTTON_CLOUD_CLOSE: {
+			case BUTTON_CLOUD_CLOSE:
+			case BUTTON_PLAYER_CLOUDDECKS:
+			case BUTTON_CLOUDDECK_PUT:
+			case BUTTON_CLOUDDECK_DELETE:
+			case BUTTON_CLOUDDECK_SYNC:
+			case BUTTON_CLOUDDECK_CLOSE: {
 				mainGame->OnPlayerPanelButton(id);
 				break;
 			}
@@ -812,6 +817,11 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 		}
 		case irr::gui::EGET_LISTBOX_CHANGED: {
 			switch(id) {
+			case LISTBOX_CLOUDDECK_SLOT: {
+				mainGame->cloud_delete_confirming = false;
+				mainGame->cloud_wait_shown = -1;
+				break;
+			}
 			case LISTBOX_LAN_HOST: {
 				int sel = mainGame->lstHostList->getSelected();
 				if(sel == -1)
@@ -948,6 +958,10 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 			switch(id) {
 			case CHECK_SHOW_LOCKED_ROOMS: {
 				ServerLobby::FillOnlineRooms();
+				break;
+			}
+			case CHECKBOX_CLOUDDECK_ONSTART: {
+				mainGame->OnPlayerPanelButton(id);
 				break;
 			}
 			case CHECK_SHOW_ACTIVE_ROOMS: {
