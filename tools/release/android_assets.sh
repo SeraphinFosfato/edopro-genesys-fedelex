@@ -33,10 +33,10 @@ curl --retry 5 --connect-timeout 30 --location -o WindBotIgnite-Resources.7z "$W
 
 find "$ASSETS" \( -name '*.md' -o -name 'COPYING*' -o -name 'LICENSE*' \) -exec mv {} {}.txt \;
 mkdir -p "$ASSETS/deck"
-rm -rf "$ASSETS"/config/*.json "$ASSETS"/config/languages/Thai
-cp Distribution/config/configs.prod.json "$ASSETS/config/configs.json"
-rm -rf "$UPDATES"/config/*.json "$UPDATES"/config/languages/Thai
+# Distribution a questo ref non ha configs.prod.json (l'originale lo presuppone): il suo
+# config/configs.json e' gia' quello di produzione; si toglie solo user_configs.json.
+rm -rf "$ASSETS"/config/user_configs.json "$ASSETS"/config/languages/Thai
 mkdir -p "$UPDATES/config"
-cp Distribution/config/configs.prod.json "$UPDATES/config/configs.json"
+cp Distribution/config/configs.json "$UPDATES/config/configs.json"
 sed -i 's/dpi_scale = .*/dpi_scale = 2.000000/' "$ASSETS/config/system.conf"
 rm -rf Distribution WindBotIgnite-Resources.7z
