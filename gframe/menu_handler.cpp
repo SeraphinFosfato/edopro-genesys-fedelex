@@ -709,6 +709,10 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 					if(gClientUpdater->StartUpdate(Game::UpdateDownloadBar, mainGame)) {
 						mainGame->HideElement(mainGame->wMainMenu);
 						mainGame->PopupElement(mainGame->updateWindow);
+					} else if(mainGame->RestartAllowedNow() && Utils::StartLauncher()) {
+						// Desktop: Yes used to do nothing. Close cleanly; the launcher installs.
+						mainGame->quit_requested = true;
+						mainGame->device->closeDevice();
 					}
 					break;
 				}
@@ -747,7 +751,13 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 						mainGame->quit_requested = true;
 						mainGame->device->closeDevice();
 #else
-						Utils::Reboot(false);
+						// Through the launcher with a clean exit: Reboot() exec'd the
+						// simulator and exit(0)'d mid-frame, and on Linux it never came back.
+						if(Utils::StartLauncher()) {
+							mainGame->quit_requested = true;
+							mainGame->device->closeDevice();
+						} else
+							Utils::Reboot(false);
 #endif
 					}
 					break;

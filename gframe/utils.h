@@ -173,6 +173,7 @@ namespace ygo {
 		// 4e). Defaults to the pre-existing behaviour so every other call
 		// site is unaffected.
 		static void Reboot(bool show_changelog = true);
+		static bool StartLauncher();
 
 		static std::wstring ReadPuzzleMessage(epro::wstringview script_name);
 

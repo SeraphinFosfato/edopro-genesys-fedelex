@@ -466,7 +466,17 @@ namespace ygo {
 	}
 	bool Utils::FileDelete(epro::path_stringview source) {
 #if EDOPRO_WINDOWS
-		return SetLastErrorStringIfFailed(DeleteFile(source.data()));
+		// libgit2 leaves pack files read-only, and DeleteFile refuses those:
+		// a broken repositories/ clone could then never be removed.
+		if(DeleteFile(source.data()))
+			return true;
+		if(GetLastError() == ERROR_ACCESS_DENIED) {
+			const auto attr = GetFileAttributes(source.data());
+			if(attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_READONLY))
+				SetFileAttributes(source.data(), attr & ~FILE_ATTRIBUTE_READONLY);
+			return SetLastErrorStringIfFailed(DeleteFile(source.data()));
+		}
+		return SetLastErrorStringIfFailed(false);
 #else
 #if EDOPRO_ANDROID
 		if(porting::pathIsUri(source))
@@ -893,6 +903,60 @@ namespace ygo {
 				return porting::shareFile(arg);
 			return porting::shareFile(epro::format("{}/{}", GetWorkingDirectory(), arg));
 		}
+#endif
+	}
+
+	// FASE 64 cancello 5: PROGRAM_DIR/<launcher>, PROGRAM_DIR = parent of bin/.
+	// Also used by the restart prompts: the launcher is what installs updates.
+	bool Utils::StartLauncher() {
+#if EDOPRO_WINDOWS || EDOPRO_LINUX
+	// The simulator lives at PROGRAM_DIR/bin/<exe> (design/launcher.md §4) —
+	// its own exe folder's PARENT is PROGRAM_DIR, where the launcher sits.
+	// GetExeFolder() is PROGRAM_DIR/bin (design/launcher.md §4); GetFilePath()
+	// strips one more path component, same helper GetExeFolder() itself is
+	// built from (GetFilePath(GetExePath())) — see utils.cpp.
+	// GetExeFolder() ends with '/', and GetFilePath() only strips what comes
+	// after the last '/': without dropping it first the "parent" was bin/
+	// itself, and the launcher was looked for in bin/ (seen in error.log).
+	auto exe_folder = Utils::GetExeFolder();
+	while(!exe_folder.empty() && (exe_folder.back() == EPRO_TEXT('/') || exe_folder.back() == EPRO_TEXT('\\')))
+		exe_folder.pop_back();
+	auto program_dir = Utils::GetFilePath(exe_folder);
+#if EDOPRO_WINDOWS
+	auto launcher_path = epro::format(EPRO_TEXT("{}/ygopro.exe"), program_dir);
+#else
+	auto launcher_path = epro::format(EPRO_TEXT("{}/fedelex-launcher"), program_dir);
+#endif
+	if(!Utils::FileExists(launcher_path)) {
+		ErrorLog("Avviato senza launcher e nessun launcher trovato in {}: proseguo senza (nessuna installazione reale).",
+					 Utils::ToUTF8IfNeeded(launcher_path));
+		return false;
+	}
+#if EDOPRO_WINDOWS
+	STARTUPINFO si{ sizeof(si) };
+	PROCESS_INFORMATION pi{};
+	epro::path_string command = epro::format(EPRO_TEXT("\"{}\""), launcher_path);
+	if(!CreateProcess(launcher_path.data(), &command[0], nullptr, nullptr, false, 0, nullptr, nullptr, &si, &pi)) {
+		ErrorLog("Impossibile rilanciare il launcher ({}).", Utils::ToUTF8IfNeeded(launcher_path));
+		return false;
+	}
+	CloseHandle(pi.hProcess);
+	CloseHandle(pi.hThread);
+#else
+	const auto* launcher_cstr = launcher_path.data();
+	auto pid = vfork();
+	if(pid == 0) {
+		execl(launcher_cstr, launcher_cstr, nullptr);
+		_exit(EXIT_FAILURE); // execl only returns on failure
+	}
+	if(pid < 0) {
+		ErrorLog("Impossibile rilanciare il launcher ({}).", Utils::ToUTF8IfNeeded(launcher_path));
+		return false;
+	}
+#endif
+	return true;
+#else
+		return false;
 #endif
 	}
 

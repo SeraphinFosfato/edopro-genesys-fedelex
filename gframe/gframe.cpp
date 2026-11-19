@@ -82,57 +82,7 @@ void CheckArguments(const args_t& args) {
 inline bool RelaunchLauncherIfNeeded(const args_t& args) {
 	if(!ygo::launcher::SimulatorShouldRelaunchLauncher(args[LAUNCH_PARAM::FROM_LAUNCHER].enabled))
 		return false;
-#if EDOPRO_WINDOWS || EDOPRO_LINUX
-	// The simulator lives at PROGRAM_DIR/bin/<exe> (design/launcher.md §4) —
-	// its own exe folder's PARENT is PROGRAM_DIR, where the launcher sits.
-	// GetExeFolder() is PROGRAM_DIR/bin (design/launcher.md §4); GetFilePath()
-	// strips one more path component, same helper GetExeFolder() itself is
-	// built from (GetFilePath(GetExePath())) — see utils.cpp.
-	// GetExeFolder() ends with '/', and GetFilePath() only strips what comes
-	// after the last '/': without dropping it first the "parent" was bin/
-	// itself, and the launcher was looked for in bin/ (seen in error.log).
-	auto exe_folder = ygo::Utils::GetExeFolder();
-	while(!exe_folder.empty() && (exe_folder.back() == EPRO_TEXT('/') || exe_folder.back() == EPRO_TEXT('\\')))
-		exe_folder.pop_back();
-	auto program_dir = ygo::Utils::GetFilePath(exe_folder);
-#if EDOPRO_WINDOWS
-	auto launcher_path = epro::format(EPRO_TEXT("{}/ygopro.exe"), program_dir);
-#else
-	auto launcher_path = epro::format(EPRO_TEXT("{}/fedelex-launcher"), program_dir);
-#endif
-	if(!ygo::Utils::FileExists(launcher_path)) {
-		ygo::ErrorLog("Avviato senza launcher e nessun launcher trovato in {}: proseguo senza (nessuna installazione reale).",
-					 ygo::Utils::ToUTF8IfNeeded(launcher_path));
-		return false;
-	}
-#if EDOPRO_WINDOWS
-	STARTUPINFO si{ sizeof(si) };
-	PROCESS_INFORMATION pi{};
-	epro::path_string command = epro::format(EPRO_TEXT("\"{}\""), launcher_path);
-	if(!CreateProcess(launcher_path.data(), &command[0], nullptr, nullptr, false, 0, nullptr, nullptr, &si, &pi)) {
-		ygo::ErrorLog("Impossibile rilanciare il launcher ({}).", ygo::Utils::ToUTF8IfNeeded(launcher_path));
-		return false;
-	}
-	CloseHandle(pi.hProcess);
-	CloseHandle(pi.hThread);
-#else
-	const auto* launcher_cstr = launcher_path.data();
-	auto pid = vfork();
-	if(pid == 0) {
-		execl(launcher_cstr, launcher_cstr, nullptr);
-		_exit(EXIT_FAILURE); // execl only returns on failure
-	}
-	if(pid < 0) {
-		ygo::ErrorLog("Impossibile rilanciare il launcher ({}).", ygo::Utils::ToUTF8IfNeeded(launcher_path));
-		return false;
-	}
-#endif
-	return true;
-#else
-	// No launcher on this platform yet (iOS/Android/macOS) — nothing to
-	// relaunch into.
-	return false;
-#endif
+	return ygo::Utils::StartLauncher();
 }
 
 inline void ThreadsStartup() {
