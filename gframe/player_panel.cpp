@@ -178,13 +178,13 @@ void Game::BuildPlayerPanel() {
 	env->addButton(Scale(300, 440, 420, 466), wPlayer, BUTTON_PLAYER_EDIT, L"Modifica");
 	env->addButton(Scale(20, 440, 140, 466), wPlayer, BUTTON_PLAYER_CLOUDDECKS, L"Mazzi nel cloud");
 	env->addButton(Scale(150, 440, 290, 466), wPlayer, BUTTON_PLAYER_CLOSE, L"Chiudi");
-	env->addButton(Scale(20, 474, 290, 500), wPlayer, BUTTON_JUDGE_PENDING, L"Risposta del Judge");
+	env->addButton(Scale(20, 474, 290, 500), wPlayer, BUTTON_JUDGE_PENDING, L"Risposta dell'Oracolo");
 
-	// FASE 123C: "Chiedi al Judge", in partita/replay (btnJudge) e per rileggere una risposta pronta (wPlayer).
-	btnJudge = env->addButton(Scale(205, 84, 295, 108), 0, BUTTON_JUDGE_OPEN, L"Chiedi al Judge");
+	// FASE 123C: "Chiedi all'Oracolo", in partita/replay (btnJudge) e per rileggere una risposta pronta (wPlayer).
+	btnJudge = env->addButton(Scale(205, 84, 295, 108), 0, BUTTON_JUDGE_OPEN, L"Chiedi all'Oracolo");
 	btnJudge->setAlignment(irr::gui::EGUIA_SCALE, irr::gui::EGUIA_SCALE, irr::gui::EGUIA_SCALE, irr::gui::EGUIA_SCALE);
 	btnJudge->setVisible(false);
-	wJudge = env->addWindow(Scale(300, 40, 740, 520), false, L"Chiedi al Judge");
+	wJudge = env->addWindow(Scale(300, 40, 740, 520), false, L"Chiedi all'Oracolo");
 	wJudge->getCloseButton()->setVisible(false);
 	wJudge->setVisible(false);
 	env->addStaticText(L"La tua domanda sulla partita:", Scale(20, 30, 420, 50), false, false, wJudge);
@@ -385,7 +385,7 @@ void Game::OnPlayerApiResult(const TitleCheckin::ApiResult& r) {
 			return; // all'avvio niente rumore: il nickname resta quello locale
 		const auto nick = JStr(j, "nickname");
 		player_role = JStr(j, "role");
-		QueuePlayerApi("judge_pending", "GET", "/v1/client/judge/pending"); // "hai una risposta del Judge da leggere"
+		QueuePlayerApi("judge_pending", "GET", "/v1/client/judge/pending"); // "hai una risposta dell'Oracolo da leggere"
 		const auto& rank = j.contains("rank") ? j["rank"] : nlohmann::json();
 		const auto& xp = j.contains("experience") ? j["experience"] : nlohmann::json();
 		std::wstring rank_text = W(JStr(rank, "grade"));
@@ -440,7 +440,7 @@ void Game::OnPlayerApiResult(const TitleCheckin::ApiResult& r) {
 			for(const auto& t : j["tickets"])
 				judge_unread.push_back(JStr(t, "ticket"));
 		if(!judge_unread.empty())
-			PopupMessage(L"Hai una risposta del Judge da leggere: aprila dal tuo profilo (\"Risposta del Judge\").");
+			PopupMessage(L"Hai una risposta dell'Oracolo da leggere: aprila dal tuo profilo (\"Risposta dell'Oracolo\").");
 		return;
 	}
 	if(tag == "pubs") {
@@ -660,7 +660,7 @@ void Game::ShowJudgeAnswer(const std::string& body) {
 	judge_card_texts.clear();
 	stJudgeCardText->setText(L"");
 	if(state == "done") {
-		stJudgeStatus->setText(L"Risposta del Judge:");
+		stJudgeStatus->setText(L"Risposta dell'Oracolo:");
 		stJudgeAnswer->setText(W(JudgeHighlight(JStr(j, "answer"))).data());
 		if(j.contains("cards") && j["cards"].is_array())
 			for(const auto& c : j["cards"]) {
@@ -668,7 +668,7 @@ void Game::ShowJudgeAnswer(const std::string& body) {
 				judge_card_texts.push_back(W(JStr(c, "text")));
 			}
 	} else if(state == "facts_only") {
-		stJudgeStatus->setText(L"Il Judge non e' riuscito a rispondere con sicurezza: ecco i fatti del replay (la domanda non e' stata scalata).");
+		stJudgeStatus->setText(L"L'Oracolo non e' riuscito a rispondere con sicurezza: ecco i fatti del replay (la domanda non e' stata scalata).");
 		stJudgeAnswer->setText(W(JStr(j, "facts")).data());
 	} else if(state == "rejected") {
 		stJudgeStatus->setText(L"Domanda non accettata.");
@@ -873,7 +873,7 @@ void Game::OnPlayerPanelButton(int id) {
 	}
 	case BUTTON_JUDGE_PENDING:
 		if(judge_unread.empty()) {
-			PopupMessage(L"Nessuna risposta del Judge da leggere.");
+			PopupMessage(L"Nessuna risposta dell'Oracolo da leggere.");
 			break;
 		}
 		judge_ticket = judge_unread.front();
@@ -908,7 +908,7 @@ void Game::OnPlayerPanelButton(int id) {
 		}
 		std::string replay;
 		if(!CollectJudgeReplay(replay)) {
-			stJudgeStatus->setText(L"Il Judge si apre da una partita o da un replay (non riesco a leggerne lo stato).");
+			stJudgeStatus->setText(L"L'Oracolo si apre da una partita o da un replay (non riesco a leggerne lo stato).");
 			break;
 		}
 		btnJudgeSend->setEnabled(false);
@@ -917,7 +917,7 @@ void Game::OnPlayerPanelButton(int id) {
 		stJudgeCardText->setText(L"");
 		stJudgeStatus->setText(L"Invio in corso...");
 		QueuePlayerApi("judge_ask", "POST", "/v1/client/judge/questions",
-			nlohmann::json{ { "question", question }, { "yrpx", base64_encode<std::string>(replay) } }.dump());
+			nlohmann::json{ { "question", question }, { "yrpx", base64_encode<std::string>(replay) }, { "tournamentDuel", dInfo.isTournamentRoom }, { "spectator", dInfo.player_type >= 7 } }.dump());
 		break;
 	}
 	case BUTTON_CLOUD_CLOSE:

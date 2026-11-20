@@ -1,4 +1,4 @@
-// FASE 123C: decisioni del "Chiedi al Judge" fuori dalla GUI.
+// FASE 123C: decisioni del "Chiedi all'Oracolo" fuori dalla GUI.
 #include <cstdio>
 #include "judge_client.h"
 
@@ -38,6 +38,7 @@ int RunJudgeClientTests() {
 	check(JudgeButtonVisible(true, true, true, "judge_assistant") && JudgeButtonVisible(true, true, true, "grandmaster"), "torneo, judge: visibile");
 
 	check(JudgeErrorMessage("quota").find(L"domande") != std::wstring::npos, "errore quota");
+	check(JudgeErrorMessage("bloccato").find(L"Oracolo") != std::wstring::npos && JudgeErrorMessage("not_allowed").find(L"Oracolo") != std::wstring::npos && JudgeErrorMessage("paused").find(L"Judge") == std::wstring::npos, "messaggi: nome Oracolo");
 	check(JudgeErrorMessage("boh") == L"Qualcosa e' andato storto, riprova.", "errore sconosciuto: generico");
 	return failures;
 }
