@@ -73,6 +73,7 @@ std::wstring DuelClient::event_string;
 RNG::mt19937 DuelClient::rnd;
 
 ReplayStream DuelClient::replay_stream;
+epro::mutex DuelClient::replay_stream_mutex;
 Replay DuelClient::last_replay;
 bool DuelClient::is_swapping = false;
 bool DuelClient::stop_threads{ true };
@@ -1632,7 +1633,10 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 		mainGame->dInfo.current_player[0] = 0;
 		mainGame->dInfo.current_player[1] = 0;
 		match_kill = 0;
-		replay_stream.clear();
+		{
+			std::lock_guard<epro::mutex> lock(replay_stream_mutex);
+			replay_stream.clear();
+		}
 		break;
 	}
 	case STOC_DUEL_END: {
@@ -2091,6 +2095,7 @@ int DuelClient::ClientAnalyzeImpl(const uint8_t* msg, uint32_t len) {
 		curMsg = BufferIO::Read<uint8_t>(pbuf);
 		len--;
 		if(curMsg != MSG_WAITING) {
+			std::lock_guard<epro::mutex> lock(replay_stream_mutex);
 			replay_stream.emplace_back(curMsg, pbuf, len);
 		}
 	}
@@ -5260,8 +5265,11 @@ void DuelClient::SendResponse() {
 		SingleMode::SetResponse(response_buf.data(), response_buf.size());
 		SingleMode::singleSignal.Set();
 	} else if (!mainGame->dInfo.isReplay) {
-		if(replay_stream.size())
-			replay_stream.pop_back();
+		{
+			std::lock_guard<epro::mutex> lock(replay_stream_mutex);
+			if(replay_stream.size())
+				replay_stream.pop_back();
+		}
 		/*if(mainGame->dInfo.time_player == 0)
 			SendPacketToServer(CTOS_TIME_CONFIRM);*/
 		mainGame->dInfo.time_player = 2;
@@ -5572,7 +5580,10 @@ void DuelClient::ReplayPrompt(bool local_stream) {
 		last_replay.WriteStream(replay_stream);
 		last_replay.EndRecord();
 	}
-	replay_stream.clear();
+	{
+		std::lock_guard<epro::mutex> lock(replay_stream_mutex);
+		replay_stream.clear();
+	}
 	std::unique_lock<epro::mutex> lock(mainGame->gMutex);
 	mainGame->wPhase->setVisible(false);
 	if(mainGame->dInfo.player_type < 7)
@@ -5592,5 +5603,38 @@ void DuelClient::ReplayPrompt(bool local_stream) {
 			last_replay.SaveReplay(Utils::ToPathString(mainGame->ebFileSaveName->getText()), seat);
 		else last_replay.SaveReplay(EPRO_TEXT("_LastReplay"), seat);
 	}
+}
+
+bool DuelClient::BuildJudgeSnapshot(std::vector<uint8_t>& out) {
+	if(mainGame->dInfo.compat_mode)
+		return false;
+	ReplayStream copy;
+	{
+		std::lock_guard<epro::mutex> lock(replay_stream_mutex);
+		for(const auto& p : replay_stream) {
+			// SELECT_*, SORT_*, ANNOUNCE_*, TAG_SWAP: la scelta in sospeso non e' parte di un replay.
+			const int m = p.message;
+			if((m >= 10 && m <= 26) || (m >= 140 && m <= 144) || m == 161)
+				continue;
+			copy.push_back(p);
+		}
+	}
+	if(copy.empty())
+		return false;
+	Replay snap;
+	auto header = ExtendedReplayHeader::CreateDefaultHeader(REPLAY_YRPX, static_cast<uint32_t>(time(0)));
+	snap.BeginRecord(false);
+	snap.WriteHeader(header);
+	snap.Write<uint32_t>(static_cast<uint32_t>(mainGame->dInfo.selfnames.size()), false);
+	for(auto& name : mainGame->dInfo.selfnames)
+		snap.WriteData(name.data(), 40, false);
+	snap.Write<uint32_t>(static_cast<uint32_t>(mainGame->dInfo.opponames.size()), false);
+	for(auto& name : mainGame->dInfo.opponames)
+		snap.WriteData(name.data(), 40, false);
+	snap.Write<uint64_t>(mainGame->dInfo.duel_params);
+	snap.WriteStream(copy);
+	snap.EndRecord();
+	const int seat = mainGame->dInfo.player_type >= 7 ? 2 : (mainGame->dInfo.isFirst ? 0 : 1);
+	return snap.BuildBlob(seat, out) && !out.empty();
 }
 }

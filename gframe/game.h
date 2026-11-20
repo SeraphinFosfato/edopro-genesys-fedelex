@@ -784,6 +784,23 @@ public:
 	void UpdateCloudDeckButtons();
 	void ApplyCloudDecks(const std::string& body, bool manual);
 	bool player_profile_requested = false;
+	// FASE 123C (player_panel.cpp): Chiedi al Judge. Il bot decide tutto (livello, quota, coda): qui solo UI.
+	irr::gui::IGUIButton* btnJudge;
+	irr::gui::IGUIWindow* wJudge;
+	irr::gui::IGUIEditBox* ebJudgeQuestion;
+	irr::gui::IGUIStaticText* stJudgeStatus;
+	irr::gui::IGUIStaticText* stJudgeAnswer;
+	irr::gui::IGUIListBox* lstJudgeCards;
+	irr::gui::IGUIStaticText* stJudgeCardText;
+	irr::gui::IGUIButton* btnJudgeSend;
+	std::string player_role;
+	std::string judge_ticket; // non vuoto = in attesa di una risposta
+	std::vector<std::string> judge_unread; // biglietti con risposta pronta non letta (da /judge/pending)
+	std::vector<std::wstring> judge_card_texts; // stesso ordine di lstJudgeCards
+	long long judge_next_poll_ms = 0;
+	unsigned judge_tick = 0;
+	void ShowJudgeAnswer(const std::string& body); // corpo JSON di GET /judge/questions/:ticket
+	bool CollectJudgeReplay(std::string& out);
 	void QueuePlayerApi(std::string tag, std::string method, std::string path, std::string body = {});
 	void OnPlayerApiResult(const TitleCheckin::ApiResult& result);
 	void RefreshPublications();

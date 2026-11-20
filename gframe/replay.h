@@ -102,6 +102,9 @@ public:
 	// affidabile (file malformato) NON salva; per i formati non coperti (compat,
 	// single/hand test) salva com'e'.
 	void SaveReplay(const epro::path_string& name, int obscure_seat = -1);
+	// FASE 123C: il blob (intestazione + dati compressi) che SaveReplay scriverebbe, senza scriverlo.
+	// false = non oscurabile in modo affidabile (stesso rifiuto di SaveReplay).
+	bool BuildBlob(int obscure_seat, std::vector<uint8_t>& blob);
 	bool OpenReplay(const epro::path_string& name);
 	bool OpenReplayFromBuffer(std::vector<uint8_t>&& contents);
 	bool IsExportable();

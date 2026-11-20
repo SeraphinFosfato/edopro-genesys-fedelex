@@ -238,7 +238,11 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 			case BUTTON_CLOUDDECK_PUT:
 			case BUTTON_CLOUDDECK_DELETE:
 			case BUTTON_CLOUDDECK_SYNC:
-			case BUTTON_CLOUDDECK_CLOSE: {
+			case BUTTON_CLOUDDECK_CLOSE:
+			case BUTTON_JUDGE_PENDING:
+			case BUTTON_JUDGE_OPEN:
+			case BUTTON_JUDGE_SEND:
+			case BUTTON_JUDGE_CLOSE: {
 				mainGame->OnPlayerPanelButton(id);
 				break;
 			}
@@ -835,6 +839,10 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 		}
 		case irr::gui::EGET_LISTBOX_CHANGED: {
 			switch(id) {
+			case LISTBOX_JUDGE_CARD: {
+				mainGame->OnPlayerPanelButton(id);
+				break;
+			}
 			case LISTBOX_CLOUDDECK_SLOT: {
 				mainGame->cloud_delete_confirming = false;
 				mainGame->cloud_wait_shown = -1;

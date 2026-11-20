@@ -119,6 +119,8 @@ public:
 	// The "leave this game for the link?" prompt (wQuery) is answered through
 	// ClientField::OnCommonEvent, which sees YES/NO whichever handler is active.
 	static bool ForfeitPromptOpen();
+	// FASE 123C: lo stato della partita visto finora, in .yrpX oscurato dal proprio posto (mai i pacchetti del server).
+	static bool BuildJudgeSnapshot(std::vector<uint8_t>& out);
 	static void AnswerForfeitPrompt(bool yes);
 	// FASE 76b, design/server-duelli.md §13.6 punto 5: called every frame
 	// from Game::MainLoop while mainGame->dInfo.isAwaitingReconnect is
@@ -144,6 +146,7 @@ public:
 	static bool CheckReady();
 	static std::pair<uint32_t, uint32_t> GetPlayersCount();
 	static ReplayStream replay_stream;
+	static epro::mutex replay_stream_mutex; // FASE 123C: la copia per il Judge gira su un altro thread
 	static Replay last_replay;
 	static int ClientAnalyze(const uint8_t* msg, uint32_t len);
 	// Set by ClientAnalyze when the message was malformed (finding 52).

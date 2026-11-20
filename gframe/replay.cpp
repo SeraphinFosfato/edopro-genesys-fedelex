@@ -78,9 +78,9 @@ void Replay::EndRecord(size_t size) {
 	comp_data.resize(comp_size);
 	is_recording = false;
 }
-void Replay::SaveReplay(const epro::path_string& name, int obscure_seat) {
+bool Replay::BuildBlob(int obscure_seat, std::vector<uint8_t>& blob) {
 	auto header_len = (pheader.base.flag & REPLAY_EXTENDED_HEADER) ? sizeof(ExtendedReplayHeader) : sizeof(ReplayHeader);
-	std::vector<uint8_t> blob(header_len);
+	blob.assign(header_len, 0);
 	memcpy(blob.data(), &pheader, header_len);
 	blob.insert(blob.end(), comp_data.begin(), comp_data.end());
 	if(obscure_seat >= 0) {
@@ -88,11 +88,17 @@ void Replay::SaveReplay(const epro::path_string& name, int obscure_seat) {
 		const auto res = replay_oscura::Obscure(blob, obscure_seat, obscured);
 		if(res == replay_oscura::Result::Malformed) {
 			ErrorLog("Replay non salvato: impossibile oscurarlo (file incoerente)");
-			return;
+			return false;
 		}
 		if(res == replay_oscura::Result::Ok)
 			blob = std::move(obscured);
 	}
+	return true;
+}
+void Replay::SaveReplay(const epro::path_string& name, int obscure_seat) {
+	std::vector<uint8_t> blob;
+	if(!BuildBlob(obscure_seat, blob))
+		return;
 	auto replay_file = fileopen(GetReplayFilePath(epro::format(EPRO_TEXT("{}.yrpX"), name)).data(), "wb");
 	if(replay_file == nullptr)
 		return;

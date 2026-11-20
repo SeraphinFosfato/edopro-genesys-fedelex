@@ -1987,6 +1987,13 @@ bool ClientField::OnCommonEvent(const irr::SEvent& event, bool& stopPropagation)
 		auto id = event.GUIEvent.Caller->getID();
 		if(mainGame->menuHandler.IsSynchronizedElement(id))
 			mainGame->menuHandler.SynchronizeElement(event.GUIEvent.Caller);
+		// FASE 123C: il Judge si apre anche dentro una partita o un replay.
+		if((event.GUIEvent.EventType == irr::gui::EGET_BUTTON_CLICKED && (id == BUTTON_JUDGE_OPEN || id == BUTTON_JUDGE_SEND || id == BUTTON_JUDGE_CLOSE))
+			|| (event.GUIEvent.EventType == irr::gui::EGET_LISTBOX_CHANGED && id == LISTBOX_JUDGE_CARD)) {
+			mainGame->OnPlayerPanelButton(id);
+			stopPropagation = true;
+			return true;
+		}
 		if(event.GUIEvent.EventType == irr::gui::EGET_BUTTON_CLICKED && (id == BUTTON_YES || id == BUTTON_NO) && DuelClient::ForfeitPromptOpen()) {
 			DuelClient::AnswerForfeitPrompt(id == BUTTON_YES);
 			stopPropagation = true;
