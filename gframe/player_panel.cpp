@@ -9,6 +9,9 @@
 #include <nlohmann/json.hpp>
 #include <irrlicht.h>
 #include <chrono>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <string>
@@ -534,13 +537,30 @@ void Game::ApplyCloudDecks(const std::string& body, bool manual) {
 		case CloudDeckAction::KeepLocal: kept++; continue;
 		case CloudDeckAction::Download: break;
 		}
+		// Scrittura atomica: .tmp (estensione non .ydk, quindi mai in lista) poi rename sopra il definitivo.
+		const auto tmp = path + EPRO_TEXT(".tmp");
+		bool ok = false;
 		{
-			FileStream f{ path, FileStream::out | FileStream::binary | FileStream::trunc };
-			if(f.fail()) { failed++; continue; }
-			f.write(ydk.data(), ydk.size());
-			if(f.fail()) { failed++; continue; }
+			FileStream f{ tmp, FileStream::out | FileStream::binary | FileStream::trunc };
+			if(!f.fail()) {
+				f.write(ydk.data(), ydk.size());
+				f.flush();
+				ok = !f.fail();
+			}
 		}
-		SetLocalMtime(path, cloud_time);
+		if(ok) {
+			SetLocalMtime(tmp, cloud_time);
+#if defined(_WIN32)
+			ok = ::MoveFileExW(tmp.data(), path.data(), MOVEFILE_REPLACE_EXISTING) != 0;
+#else
+			ok = rename(tmp.data(), path.data()) == 0;
+#endif
+		}
+		if(!ok) {
+			Utils::FileDelete(tmp);
+			failed++;
+			continue;
+		}
 		downloaded++;
 	}
 	ErrorLog("Cloud decks: {} scaricati, {} locali piu' recenti, {} uguali, {} non applicati.", downloaded, kept, same, failed);
