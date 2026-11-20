@@ -944,10 +944,18 @@ namespace ygo {
 	CloseHandle(pi.hThread);
 #else
 	const auto* launcher_cstr = launcher_path.data();
+	// vfork: the child shares our memory until exec/_exit, so a flag set after
+	// a failed execl is visible here (no pipe needed).
+	volatile bool exec_failed = false;
 	auto pid = vfork();
 	if(pid == 0) {
 		execl(launcher_cstr, launcher_cstr, nullptr);
-		_exit(EXIT_FAILURE); // execl only returns on failure
+		exec_failed = true; // execl only returns on failure
+		_exit(EXIT_FAILURE);
+	}
+	if(pid > 0 && exec_failed) {
+		ErrorLog("Il launcher non e' partito (execl fallita: {}).", Utils::ToUTF8IfNeeded(launcher_path));
+		return false;
 	}
 	if(pid < 0) {
 		ErrorLog("Impossibile rilanciare il launcher ({}).", Utils::ToUTF8IfNeeded(launcher_path));

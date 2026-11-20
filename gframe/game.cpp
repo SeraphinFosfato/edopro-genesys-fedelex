@@ -3256,13 +3256,26 @@ void Game::FinishTitleCredentialCheck(const TitleCheckin::CredentialCheckResult&
 	// stato. Una seconda popup identica sarebbe solo un secondo OK da
 	// premere.
 	bool popup = true;
+	bool restart_prompt = false;
 	switch(result.verdict) {
 	case Verdict::Accepted:
-		if(gTitleStore)
-			gTitleStore->ApplyResponse(result.body);
+		// ApplyResponse false = risposta non valida/non applicata: dire "verificata" sarebbe falso.
+		if(!gTitleStore || !gTitleStore->ApplyResponse(result.body)) {
+			message = L"La chiave è stata accettata dal bot, ma la risposta non è valida e l'accesso non è stato attivato. Riprova fra poco.";
+			break;
+		}
 		message = L"Chiave verificata: l'accesso è attivo.\n"
 				  L"Riavvia EDOPro per caricare la point list — a sessione aperta non si può, "
 				  L"la lista viene letta una sola volta all'avvio.";
+		// Stesso prompt Sì/No del riavvio per la point list (ACTION_BANLIST_UPDATE_PROMPT).
+		restart_prompt = gTitleStore->CurrentAccess(std::time(nullptr)) == title::AccessState::Active && RestartAllowedNow();
+		if(restart_prompt) {
+#if EDOPRO_ANDROID
+			message = L"Chiave verificata: l'accesso è attivo.\nChiudi e riapri l'app per caricare la point list.";
+#else
+			message = L"Chiave verificata: l'accesso è attivo.\nLa point list si carica solo all'avvio: riavviare ora?";
+#endif
+		}
 		break;
 	case Verdict::Blocked: {
 		title::AccessState state = title::AccessState::NoTitle;
@@ -3312,6 +3325,13 @@ void Game::FinishTitleCredentialCheck(const TitleCheckin::CredentialCheckResult&
 	ShowElement(wMainMenu);
 	if(!popup)
 		return;
+	if(restart_prompt) {
+		menuHandler.prev_operation = ACTION_BANLIST_UPDATE_PROMPT;
+		stQMessage->setText(message.data());
+		SetCentered(wQuery);
+		PopupElement(wQuery);
+		return;
+	}
 	stMessage->setText(message.data());
 	PopupElement(wMessage);
 }
