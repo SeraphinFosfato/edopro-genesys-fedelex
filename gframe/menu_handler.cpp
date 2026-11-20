@@ -713,6 +713,9 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 						// Desktop: Yes used to do nothing. Close cleanly; the launcher installs.
 						mainGame->quit_requested = true;
 						mainGame->device->closeDevice();
+					} else if(!mainGame->RestartAllowedNow()) {
+						mainGame->stMessage->setText(L"Non posso riavviare con una stanza aperta. Esci dalla stanza e riavvia EDOPro a mano.");
+						mainGame->PopupElement(mainGame->wMessage);
 					}
 					break;
 				}
@@ -759,6 +762,10 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 						} else
 							Utils::Reboot(false);
 #endif
+					} else {
+						// Rifiuto muto prima: ora si dice perche' non e' successo nulla.
+						mainGame->stMessage->setText(L"Non posso riavviare con una stanza aperta. Esci dalla stanza e riavvia EDOPro a mano: la point list si carica all'avvio.");
+						mainGame->PopupElement(mainGame->wMessage);
 					}
 					break;
 				}
