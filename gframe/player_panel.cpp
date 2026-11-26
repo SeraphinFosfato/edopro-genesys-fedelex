@@ -178,25 +178,6 @@ void Game::BuildPlayerPanel() {
 	env->addButton(Scale(300, 440, 420, 466), wPlayer, BUTTON_PLAYER_EDIT, L"Modifica");
 	env->addButton(Scale(20, 440, 140, 466), wPlayer, BUTTON_PLAYER_CLOUDDECKS, L"Mazzi nel cloud");
 	env->addButton(Scale(150, 440, 290, 466), wPlayer, BUTTON_PLAYER_CLOSE, L"Chiudi");
-	env->addButton(Scale(20, 474, 290, 500), wPlayer, BUTTON_JUDGE_PENDING, L"Risposta dell'Oracolo");
-
-	// FASE 123C: "Chiedi all'Oracolo", in partita/replay (btnJudge) e per rileggere una risposta pronta (wPlayer).
-	btnJudge = env->addButton(Scale(205, 84, 295, 108), 0, BUTTON_JUDGE_OPEN, L"Chiedi all'Oracolo");
-	btnJudge->setAlignment(irr::gui::EGUIA_SCALE, irr::gui::EGUIA_SCALE, irr::gui::EGUIA_SCALE, irr::gui::EGUIA_SCALE);
-	btnJudge->setVisible(false);
-	wJudge = env->addWindow(Scale(300, 40, 740, 520), false, L"Chiedi all'Oracolo");
-	wJudge->getCloseButton()->setVisible(false);
-	wJudge->setVisible(false);
-	env->addStaticText(L"La tua domanda sulla partita:", Scale(20, 30, 420, 50), false, false, wJudge);
-	ebJudgeQuestion = env->addEditBox(L"", Scale(20, 52, 420, 112), true, wJudge);
-	ebJudgeQuestion->setMultiLine(true);
-	ebJudgeQuestion->setWordWrap(true);
-	btnJudgeSend = env->addButton(Scale(20, 120, 190, 146), wJudge, BUTTON_JUDGE_SEND, L"Invia");
-	env->addButton(Scale(230, 120, 420, 146), wJudge, BUTTON_JUDGE_CLOSE, L"Chiudi");
-	stJudgeStatus = env->addStaticText(L"", Scale(20, 154, 420, 184), false, true, wJudge);
-	stJudgeAnswer = env->addStaticText(L"", Scale(20, 190, 420, 322), true, true, wJudge);
-	lstJudgeCards = env->addListBox(Scale(20, 328, 420, 378), wJudge, LISTBOX_JUDGE_CARD, true);
-	stJudgeCardText = env->addStaticText(L"", Scale(20, 384, 420, 470), true, true, wJudge);
 
 	wPubDeck = env->addWindow(Scale(300, 60, 740, 540), false, L"Pubblica un deck");
 	wPubDeck->getCloseButton()->setVisible(false);
@@ -265,7 +246,6 @@ void Game::ClearPlayerProfile() {
 	player_api_queue.clear();
 	player_role.clear();
 	judge_ticket.clear();
-	judge_unread.clear();
 	ebNickName->setEnabled(true);
 	ebNickNameOnline->setEnabled(true);
 	for(auto* w : { wPlayer, wPubDeck, wCloud, wCloudDecks })
@@ -305,8 +285,8 @@ void Game::PlayerPanelFrame() {
 			PopupMessage(L"Mazzo non trovato o non raggiungibile.");
 		}
 	}
-	// FASE 123C: bottone visibile solo dove il contratto lo vuole; ritiro periodico del biglietto.
-	btnJudge->setVisible(JudgeButtonVisible(logged, (dInfo.isInDuel || dInfo.isReplay) && !dInfo.isSingleMode, dInfo.isTournamentRoom, player_role));
+	// FASE 124d: la scheda Judge Chat serve solo dove il contratto lo vuole; ritiro periodico del biglietto.
+	JudgeChatFrame(JudgeButtonVisible(logged, (dInfo.isInDuel || dInfo.isReplay) && !dInfo.isSingleMode));
 	if(!judge_ticket.empty() && NowMs() >= judge_next_poll_ms && player_api_queue.empty() && !gTitleCheckin->ApiRequestRunning()) {
 		judge_next_poll_ms = NowMs() + 3000;
 		QueuePlayerApi("judge_poll", "GET", "/v1/client/judge/questions/" + judge_ticket);
@@ -385,7 +365,6 @@ void Game::OnPlayerApiResult(const TitleCheckin::ApiResult& r) {
 			return; // all'avvio niente rumore: il nickname resta quello locale
 		const auto nick = JStr(j, "nickname");
 		player_role = JStr(j, "role");
-		QueuePlayerApi("judge_pending", "GET", "/v1/client/judge/pending"); // "hai una risposta dell'Oracolo da leggere"
 		const auto& rank = j.contains("rank") ? j["rank"] : nlohmann::json();
 		const auto& xp = j.contains("experience") ? j["experience"] : nlohmann::json();
 		std::wstring rank_text = W(JStr(rank, "grade"));
@@ -406,41 +385,8 @@ void Game::OnPlayerApiResult(const TitleCheckin::ApiResult& r) {
 		}
 		return;
 	}
-	if(tag == "judge_ask") {
-		if(!Ok(r) || !j.is_object() || JStr(j, "ticket").empty()) {
-			stJudgeStatus->setText(JudgeErrorMessage(JStr(j, "error")).data());
-			btnJudgeSend->setEnabled(true);
-			return;
-		}
-		judge_ticket = JStr(j, "ticket");
-		judge_tick = 0;
-		judge_next_poll_ms = NowMs() + 1500;
-		stJudgeStatus->setText(W(JudgeWaitMessage(judge_tick++, -1)).data());
-		return;
-	}
-	if(tag == "judge_poll") {
-		const auto state = JStr(j, "state");
-		if(!Ok(r) || !j.is_object()) {
-			if(r.transport_ok && r.status_code == 404)
-				judge_ticket.clear();
-			return; // un errore di rete passeggero: si riprova al prossimo ritiro
-		}
-		if(state == "queued" || state == "running") {
-			stJudgeStatus->setText(W(JudgeWaitMessage(judge_tick++, state == "queued" ? static_cast<int>(JNum(j, "position")) : -1)).data());
-			return;
-		}
-		judge_ticket.clear();
-		btnJudgeSend->setEnabled(true);
-		ShowJudgeAnswer(r.body);
-		return;
-	}
-	if(tag == "judge_pending") {
-		judge_unread.clear();
-		if(Ok(r) && j.is_object() && j.contains("tickets") && j["tickets"].is_array())
-			for(const auto& t : j["tickets"])
-				judge_unread.push_back(JStr(t, "ticket"));
-		if(!judge_unread.empty())
-			PopupMessage(L"Hai una risposta dell'Oracolo da leggere: aprila dal tuo profilo (\"Risposta dell'Oracolo\").");
+	if(tag.compare(0, 6, "judge_") == 0) {
+		OnJudgeChatApi(r);
 		return;
 	}
 	if(tag == "pubs") {
@@ -653,32 +599,6 @@ void Game::OnPubDeckDeckChanged() {
 		ebPubDeckTitle->setText(cbPubDeckDeck->getItem(sel));
 }
 
-void Game::ShowJudgeAnswer(const std::string& body) {
-	const auto j = nlohmann::json::parse(body, nullptr, false);
-	const auto state = JStr(j, "state");
-	lstJudgeCards->clear();
-	judge_card_texts.clear();
-	stJudgeCardText->setText(L"");
-	if(state == "done") {
-		stJudgeStatus->setText(L"Risposta dell'Oracolo:");
-		stJudgeAnswer->setText(W(JudgeHighlight(JStr(j, "answer"))).data());
-		if(j.contains("cards") && j["cards"].is_array())
-			for(const auto& c : j["cards"]) {
-				lstJudgeCards->addItem(W(JStr(c, "name")).data());
-				judge_card_texts.push_back(W(JStr(c, "text")));
-			}
-	} else if(state == "facts_only") {
-		stJudgeStatus->setText(L"L'Oracolo non e' riuscito a rispondere con sicurezza: ecco i fatti del replay (la domanda non e' stata scalata).");
-		stJudgeAnswer->setText(W(JStr(j, "facts")).data());
-	} else if(state == "rejected") {
-		stJudgeStatus->setText(L"Domanda non accettata.");
-		stJudgeAnswer->setText(L"");
-	} else {
-		stJudgeStatus->setText(L"La richiesta e' scaduta, riprova.");
-		stJudgeAnswer->setText(L"");
-	}
-}
-
 // Replay da mandare al bot: in un replay il file aperto (gia' oscurato), in una partita lo stato visto finora.
 bool Game::CollectJudgeReplay(std::string& out) {
 	if(dInfo.isReplay) {
@@ -869,55 +789,6 @@ void Game::OnPlayerPanelButton(int id) {
 		cloud_wait_shown = -1;
 		stCloudDeckStatus->setText(L"Cancellazione in corso...");
 		QueuePlayerApi("cloud_del", "DELETE", "/v1/client/cloud-decks/" + std::to_string(slot + 1));
-		break;
-	}
-	case BUTTON_JUDGE_PENDING:
-		if(judge_unread.empty()) {
-			PopupMessage(L"Nessuna risposta dell'Oracolo da leggere.");
-			break;
-		}
-		judge_ticket = judge_unread.front();
-		judge_unread.erase(judge_unread.begin());
-		judge_next_poll_ms = 0;
-		stJudgeStatus->setText(L"Recupero la risposta...");
-		stJudgeAnswer->setText(L"");
-		lstJudgeCards->clear();
-		stJudgeCardText->setText(L"");
-		HideElement(wPlayer);
-		ShowElement(wJudge);
-		break;
-	case BUTTON_JUDGE_OPEN:
-		if(wJudge->isVisible())
-			break;
-		ShowElement(wJudge);
-		break;
-	case BUTTON_JUDGE_CLOSE:
-		HideElement(wJudge);
-		break;
-	case LISTBOX_JUDGE_CARD: {
-		const auto sel = lstJudgeCards->getSelected();
-		if(sel >= 0 && static_cast<size_t>(sel) < judge_card_texts.size())
-			stJudgeCardText->setText(judge_card_texts[sel].data());
-		break;
-	}
-	case BUTTON_JUDGE_SEND: {
-		const std::string question = Utils::ToUTF8IfNeeded(std::wstring(ebJudgeQuestion->getText()));
-		if(question.empty()) {
-			stJudgeStatus->setText(JudgeErrorMessage("domanda_non_valida").data());
-			break;
-		}
-		std::string replay;
-		if(!CollectJudgeReplay(replay)) {
-			stJudgeStatus->setText(L"L'Oracolo si apre da una partita o da un replay (non riesco a leggerne lo stato).");
-			break;
-		}
-		btnJudgeSend->setEnabled(false);
-		stJudgeAnswer->setText(L"");
-		lstJudgeCards->clear();
-		stJudgeCardText->setText(L"");
-		stJudgeStatus->setText(L"Invio in corso...");
-		QueuePlayerApi("judge_ask", "POST", "/v1/client/judge/questions",
-			nlohmann::json{ { "question", question }, { "yrpx", base64_encode<std::string>(replay) }, { "tournamentDuel", dInfo.isTournamentRoom }, { "spectator", dInfo.player_type >= 7 } }.dump());
 		break;
 	}
 	case BUTTON_CLOUD_CLOSE:

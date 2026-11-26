@@ -514,6 +514,15 @@ void Game::DrawDuelHud() {
 	driver->draw2DRectangle(0xff5a2d91, cr);
 	auto ph = irr::core::recti(cr.UpperLeftCorner.X + pad, cr.UpperLeftCorner.Y + 1, cr.LowerRightCorner.X - pad, cr.UpperLeftCorner.Y + 1 + lh);
 	const std::wstring pname = phases[std::min<size_t>(dInfo.hud_phase, 6)];
+	if(dInfo.turn > 0) { // FASE 124d: chip del turno prima del nome fase, uguale per ogni turno
+		const std::wstring chip = L"T" + std::to_wstring(dInfo.turn);
+		const auto cw = static_cast<irr::s32>(textFont->getDimension(chip.data()).Width) + ResizeX(8);
+		const irr::core::recti chr(ph.UpperLeftCorner.X, ph.UpperLeftCorner.Y + 1, ph.UpperLeftCorner.X + cw, ph.LowerRightCorner.Y - 1);
+		driver->draw2DRectangle(0xff8b5cf6, chr);
+		auto tr = chr;
+		textFont->drawustring(chip, tr, 0xffffffff, true, true, &tr);
+		ph.UpperLeftCorner.X += cw + ResizeX(5);
+	}
 	textFont->drawustring(pname, ph, 0xffffffff, false, true, &ph);
 	ph += irr::core::vector2di(1, 0); // fake bold
 	textFont->drawustring(pname, ph, 0xffffffff, false, true, &ph);

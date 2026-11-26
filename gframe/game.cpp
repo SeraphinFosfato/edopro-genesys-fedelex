@@ -1901,6 +1901,8 @@ void Game::PopulateTabSettingsWindow() {
 		defaultStrings.emplace_back(btnTabShowSettings, 2059);
 		/* padding = */ env->addStaticText(L"", Scale(20, cur_y, 280, cur_y + 10), false, true, tabPanel, -1, false);
 	}
+	//judge chat (FASE 124d)
+	PopulateJudgeChatTab();
 	//repositories
 	{
 		tabRepositories = wInfos->addTab(gDataManager->GetSysString(2045).data());

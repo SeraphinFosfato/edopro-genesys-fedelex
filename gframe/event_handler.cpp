@@ -1987,10 +1987,9 @@ bool ClientField::OnCommonEvent(const irr::SEvent& event, bool& stopPropagation)
 		auto id = event.GUIEvent.Caller->getID();
 		if(mainGame->menuHandler.IsSynchronizedElement(id))
 			mainGame->menuHandler.SynchronizeElement(event.GUIEvent.Caller);
-		// FASE 123C: il Judge si apre anche dentro una partita o un replay.
-		if((event.GUIEvent.EventType == irr::gui::EGET_BUTTON_CLICKED && (id == BUTTON_JUDGE_OPEN || id == BUTTON_JUDGE_SEND || id == BUTTON_JUDGE_CLOSE))
-			|| (event.GUIEvent.EventType == irr::gui::EGET_LISTBOX_CHANGED && id == LISTBOX_JUDGE_CARD)) {
-			mainGame->OnPlayerPanelButton(id);
+		// FASE 124d: la scheda Judge Chat vive dentro la partita o il replay.
+		if(event.GUIEvent.EventType == irr::gui::EGET_BUTTON_CLICKED && (id == BUTTON_JUDGE_SNAP || id == BUTTON_JUDGE_SEND || id == BUTTON_JUDGE_ANOTHER || id == BUTTON_JUDGE_RETRY || id == BUTTON_JUDGE_COPY)) {
+			mainGame->OnJudgeChatButton(id);
 			stopPropagation = true;
 			return true;
 		}
@@ -2048,6 +2047,8 @@ bool ClientField::OnCommonEvent(const irr::SEvent& event, bool& stopPropagation)
 				mainGame->infosExpanded = mainGame->infosExpanded ? 0 : 1;
 				mainGame->btnExpandLog->setText(mainGame->infosExpanded ? gDataManager->GetSysString(2044).data() : gDataManager->GetSysString(2043).data());
 				mainGame->btnExpandChat->setText(mainGame->infosExpanded ? gDataManager->GetSysString(2044).data() : gDataManager->GetSysString(2043).data());
+				mainGame->btnExpandJudge->setText(mainGame->infosExpanded ? gDataManager->GetSysString(2044).data() : gDataManager->GetSysString(2043).data());
+				mainGame->JudgeMoment("espandi");
 				{
 					auto wInfosSize = mainGame->wInfos->getRelativePosition();
 					wInfosSize.LowerRightCorner.X = mainGame->ResizeX(mainGame->infosExpanded ? 1023 : 301);
@@ -2318,7 +2319,7 @@ bool ClientField::OnCommonEvent(const irr::SEvent& event, bool& stopPropagation)
 		case irr::gui::EGET_TAB_CHANGED: {
 			if(event.GUIEvent.Caller == mainGame->wInfos) {
 				auto curTab = mainGame->wInfos->getTab(mainGame->wInfos->getActiveTab());
-				if((curTab != mainGame->tabLog && curTab != mainGame->tabChat) && mainGame->infosExpanded) {
+				if((curTab != mainGame->tabLog && curTab != mainGame->tabChat && curTab != mainGame->tabJudge) && mainGame->infosExpanded) {
 					if(mainGame->infosExpanded == 1) {
 						auto wInfosSize = mainGame->wInfos->getRelativePosition();
 						wInfosSize.LowerRightCorner.X = mainGame->ResizeX(301);

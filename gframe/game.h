@@ -34,6 +34,7 @@
 // Game own the stateful pieces (the latch, the grace clock) that need a
 // long-lived object to live in.
 #include "online_gate.h"
+#include "judge_client.h"
 #include "grace_period.h"
 
 struct unzip_payload;
@@ -784,22 +785,45 @@ public:
 	void UpdateCloudDeckButtons();
 	void ApplyCloudDecks(const std::string& body, bool manual);
 	bool player_profile_requested = false;
-	// FASE 123C (player_panel.cpp): Chiedi al Judge. Il bot decide tutto (livello, quota, coda): qui solo UI.
-	irr::gui::IGUIButton* btnJudge;
-	irr::gui::IGUIWindow* wJudge;
-	irr::gui::IGUIEditBox* ebJudgeQuestion;
-	irr::gui::IGUIStaticText* stJudgeStatus;
-	irr::gui::IGUIStaticText* stJudgeAnswer;
-	irr::gui::IGUIListBox* lstJudgeCards;
-	irr::gui::IGUIStaticText* stJudgeCardText;
-	irr::gui::IGUIButton* btnJudgeSend;
+	// FASE 124d (judge_chat.cpp): scheda «Judge Chat» di wInfos. Il bot decide tutto (livello, quota, coda, regole): qui solo UI.
+	struct JudgeMsg {
+		int kind = 0; // 0 = Tu, 1 = Oracolo, 2 = sistema
+		std::string ticket;
+		std::wstring text;
+		bool not_counted = false, reported = false, bad = false;
+	};
+	struct JudgeChat {
+		std::vector<JudgeMsg> msgs;
+		bool snapshot = false;
+		std::string snapshot_b64;
+		std::wstring head; // fissata al momento dell'istantanea
+		std::string root, last_ticket;
+		long long first_ms = -1; // created_at del primo messaggio, ms dall'epoca (UTC)
+		int messages_left = 3;
+		bool closed = false, waiting = false, stick = true, typed = false;
+		int cd_stage = 0; // 1 = conto alla rovescia mostrato, 2 = ultimo minuto
+		bool has_err = false;
+		ygo::JudgeErrorInfo err;
+		ygo::JudgeCoachingInfo coaching;
+		std::wstring last_question;
+	} jc;
+	std::string jc_quota_plan;
+	int jc_quota_left = 0, jc_quota_total = 0;
+	bool jc_quota_asked = false, jc_active = false;
+	irr::gui::IGUITab* tabJudge = nullptr;
+	irr::gui::IGUIElement* jcView = nullptr;
+	irr::gui::IGUIEditBox* ebJudgeQuestion = nullptr;
+	irr::gui::IGUIButton *btnJudgeSnap = nullptr, *btnJudgeSend = nullptr, *btnJudgeRetry = nullptr, *btnJudgeAnother = nullptr, *btnJudgeCopy = nullptr, *btnExpandJudge = nullptr;
 	std::string player_role;
 	std::string judge_ticket; // non vuoto = in attesa di una risposta
-	std::vector<std::string> judge_unread; // biglietti con risposta pronta non letta (da /judge/pending)
-	std::vector<std::wstring> judge_card_texts; // stesso ordine di lstJudgeCards
 	long long judge_next_poll_ms = 0;
 	unsigned judge_tick = 0;
-	void ShowJudgeAnswer(const std::string& body); // corpo JSON di GET /judge/questions/:ticket
+	void PopulateJudgeChatTab();
+	void JudgeChatFrame(bool available); // una volta a frame, da PlayerPanelFrame
+	void OnJudgeChatButton(int id);
+	void OnJudgeChatApi(const TitleCheckin::ApiResult& result);
+	void OnJudgeReport(size_t msg_index);
+	void JudgeMoment(const char* name, float intensity = 0.f); // evento `momento` per il Sound Designer: nessun suono nuovo qui
 	bool CollectJudgeReplay(std::string& out);
 	void QueuePlayerApi(std::string tag, std::string method, std::string path, std::string body = {});
 	void OnPlayerApiResult(const TitleCheckin::ApiResult& result);
